@@ -579,8 +579,10 @@ function drawTimeline(): void {
   ctx.clearRect(0, 0, w, h);
   const evs = state.events.filter((e) => !state.session || e.session === state.session || e.t === 'finding');
   if (!evs.length) return;
-  const t0 = new Date(evs[0]!.ts).getTime();
-  const t1 = new Date(evs[evs.length - 1]!.ts).getTime();
+  // Sessions replayed later can carry earlier timestamps, so the range is min and max, not first and last.
+  const times = evs.map((e) => new Date(e.ts).getTime()).filter((t) => Number.isFinite(t));
+  const t0 = Math.min(...times);
+  const t1 = Math.max(...times);
   const span = Math.max(1, t1 - t0);
   const bins = Math.max(20, Math.floor(w / 4));
   const reads = new Array<number>(bins).fill(0), edits = new Array<number>(bins).fill(0), bad = new Array<number>(bins).fill(0), marks: { x: number; kind: string }[] = [];
@@ -603,8 +605,9 @@ function drawTimeline(): void {
   // cursor
   const cursorEv = state.events[Math.max(0, state.cursor - 1)];
   if (cursorEv && !state.live) { const x = ((new Date(cursorEv.ts).getTime() - t0) / span) * w; ctx.fillStyle = p.labelModule; ctx.fillRect(x - 1, 0, 2, h); }
-  $('tl-start').textContent = evs[0]!.ts.slice(0, 16).replace('T', ' ');
-  $('tl-end').textContent = evs[evs.length - 1]!.ts.slice(11, 16);
+  const day = 86_400_000;
+  $('tl-start').textContent = new Date(t0).toISOString().slice(0, 16).replace('T', ' ');
+  $('tl-end').textContent = span > day ? new Date(t1).toISOString().slice(0, 16).replace('T', ' ') : new Date(t1).toISOString().slice(11, 16);
   canvas.title = 'grey: reads · orange: edits · red: edits with all callers dark · marks: session start (purple), compaction (orange), decision (teal). Click to seek.';
 }
 
@@ -662,10 +665,11 @@ $<HTMLCanvasElement>('tl').onclick = (e) => {
   const frac = (e.clientX - canvas.getBoundingClientRect().left) / canvas.clientWidth;
   const evs = state.events;
   if (!evs.length) return;
-  const t0 = new Date(evs[0]!.ts).getTime(), t1 = new Date(evs[evs.length - 1]!.ts).getTime();
+  const times = evs.map((x) => new Date(x.ts).getTime());
+  const t0 = Math.min(...times), t1 = Math.max(...times);
   const target = t0 + frac * (t1 - t0);
-  let idx = evs.findIndex((x) => new Date(x.ts).getTime() >= target);
-  if (idx < 0) idx = evs.length;
+  // Events are in ingestion order; seek to the count of events at or before the clicked time.
+  const idx = times.filter((t) => t <= target).length;
   stopPlay(); state.live = false; $('live').setAttribute('aria-pressed', 'false');
   state.cursor = idx; $<HTMLInputElement>('time').value = String(idx);
   const ev = evs[idx - 1]; $('timeLabel').textContent = ev ? ev.ts.slice(11, 19) : 'start';
