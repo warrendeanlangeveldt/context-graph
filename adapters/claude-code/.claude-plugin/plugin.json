@@ -1,6 +1,6 @@
 {
   "name": "context-graph",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Per-edit context slices, decision recording, and context observation for any repository",
   "author": {
     "name": "Warren Langeveldt"

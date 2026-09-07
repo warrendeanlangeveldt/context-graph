@@ -7,6 +7,7 @@ import type { HookInput } from '../adapters/core.js';
 import { openRepo, type RepoContext } from '../core/context.js';
 import { buildEmbedIndex, openStore } from '../embed/index.js';
 import { makeProvider } from '../embed/provider.js';
+import { hydrate } from '../hydrate/hydrate.js';
 import { installClaudeUser, installCodexUser, installGitHooks } from '../install/install.js';
 import { startMcpServer } from '../mcp/server.js';
 import type { CoverageRecord } from '../observe/coverage.js';
@@ -28,6 +29,7 @@ const USAGE = `ctx — Context Graph
 
 Graph
   ctx slice <path> [--symbol name]                 slice injected before an edit
+  ctx hydrate <scope> [--budget n] [--no-record]  one briefing: slices, callers with usage lines, rules with history, session state
   ctx slice-patch <file|->                         slices for every file in a patch
   ctx applies <path>                               the applicable set, as ids
   ctx why <node>                                   active decisions and constraints on a node
@@ -145,6 +147,18 @@ async function main(): Promise<number> {
       const s = renderSlice(g, w, { maxTokens: ctx.config.maxTokens });
       if (json) console.log(JSON.stringify({ ...s, walk: w }, null, 2));
       else { console.log(s.text); for (const m of s.warnings) console.error(`warning: ${m}`); }
+      return 0;
+    }
+
+    case 'hydrate': {
+      const ctx = openFromArgs(args);
+      needGraph(ctx);
+      const scope = args.positional.join(' ').trim();
+      if (!scope) throw new Error('ctx hydrate <file | L:module | C:concept | task description>');
+      const budget = args.flags.budget !== undefined ? Number(args.flags.budget) : undefined;
+      const h = await hydrate(ctx, scope, { ...(budget ? { budget } : {}), record: args.flags['no-record'] !== true, cwd: process.cwd() });
+      if (json) console.log(JSON.stringify(h, null, 2));
+      else { console.log(h.text); if (h.dropped.length) console.error(`dropped under budget: ${h.dropped.join(', ')}`); }
       return 0;
     }
 

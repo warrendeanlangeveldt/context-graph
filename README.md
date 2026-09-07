@@ -102,7 +102,7 @@ ctx slice src/services/booking-service.ts --repo ~/code/my-service
 claude --plugin-dir ~/workspace/context-graph/adapters/claude-code
 ```
 
-or, without the plugin directory, `ctx install claude-code` writes the hooks into your user settings and prints the MCP registration command. The plugin registers the hooks and the `ctx` MCP server. On session start it prints the aliases, modules, and concepts. Before each edit it injects the slice. After each tool call it records what was touched. When a turn ends with edited files that carry constraints, it asks for a decision per file until one is recorded or the loop guard gives up and records a no-decision entry.
+or, without the plugin directory, `ctx install claude-code` writes the hooks into your user settings and prints the MCP registration command. The plugin registers the hooks and the `ctx` MCP server. On session start it prints the aliases, modules, and concepts, and tells the agent to call `hydrate` before working on a file, module, or task it has not read. Before each edit it injects the slice. After each tool call it records what was touched. When a turn ends with edited files that carry constraints, it asks for a decision per file until one is recorded or the loop guard gives up and records a no-decision entry.
 
 ## Use it in Codex
 
@@ -111,6 +111,22 @@ ctx install codex      # user-level hooks.json and the MCP server entry; then tr
 ```
 
 The Codex plugin directory is `adapters/codex/` for marketplace distribution. Edits arrive as `apply_patch` and reads as shell, so the shell observer is the only read path there.
+
+## Hydrate before you work
+
+The slice is the floor: what applies to one file, in 300 tokens. Hydrate is the briefing an agent never assembles on its own. One call, one scope, one bounded text:
+
+```sh
+ctx hydrate src/services/booking-service.ts   # a file
+ctx hydrate L:orchestration                                              # a module: its most connected files
+ctx hydrate C:engine-pure                                                # a concept: the modules that implement it
+ctx hydrate "why does the sla monitor write the workspace key directly"  # a task: the files it names, or whose names match
+ctx hydrate <scope> --budget 800 --no-record
+```
+
+It returns, in this order: the slice for each file (one per distinct chain, so a module does not repeat itself); the callers of each file with the lines that import and use it, runtime callers before tests, marked when they are already in this session's context; the decision history behind the rules in force, including legacy exceptions; what this session has already read or edited, pending decisions, and the last compaction; hints from the embedding index when enabled; and what teammates have open when an overlay is reachable. Under the budget (default 1,500 tokens) it drops hints, then callee lists, then older decisions, then caller usage lines, then callers beyond three, then live lines, then files beyond three. Rules are never dropped.
+
+The same tool is `hydrate` on the MCP server. Every call is observed: a `reach` event, and a `range` touch for each caller whose lines were returned, because that content did enter context. To hydrate automatically for the files and module ids a prompt names outright, set `hydrate_on_prompt = true` under `[slice]` in `config.toml` (`hydrate_budget` bounds it). It is off by default because it spends tokens on every prompt.
 
 ## Record and inspect decisions
 

@@ -504,6 +504,7 @@ An MCP server exposes the graph to any harness that speaks MCP. Hooks push; MCP 
 
 | Tool | Purpose |
 |---|---|
+| `ctx.hydrate(scope, budget?)` | One bounded briefing for a file, module (`L:`), concept (`C:`), or task description: the slice per distinct chain, callers with the lines that use each file and whether they are already in context, decision history behind the rules in force, what the session already holds, hints, and teammates' open files. Drop order under budget: hints, callee lists, older decisions, caller usage lines, callers beyond three, live lines, files beyond three; rules are never dropped. Observed as a `reach` event plus `range` touches for the caller lines returned. Optionally run at prompt time for the paths and module ids a prompt names (`slice.hydrate_on_prompt`, off by default). |
 | `ctx.slice(path, range?)` | The rendered slice for a path. Same output the hook injects. |
 | `ctx.slice_patch(patch)` | Slices for every file named in a unified patch, concatenated under the budget. Used by harnesses whose edits arrive as patches. |
 | `ctx.why(node)` | Active decisions on a node with full text and provenance. |
@@ -1209,6 +1210,7 @@ As of 2026-09-07 every delivery step in §23 has an implementation in the reposi
 |---|---|---|
 | Grammar, walker, slice | Complete, including `rule:`, `since:`, and `Z` records | |
 | Observation | Shell and patch observers, coverage, import and symbol indexes | Import resolution covers relative specifiers; path aliases such as `@/` are unresolved, so caller counts on aliased trees undercount |
+| Hydrate | `hydrate` MCP tool and `ctx hydrate`, scope by file, module, concept, or task; prompt-time hydrate behind `slice.hydrate_on_prompt` on both harnesses | Task scopes resolve by named paths, then the embedding index, then basename words; no symbol-level resolution |
 | Claude Code adapter | Hooks, MCP server, plugin packaging, observe-only and random arms | Pre-edit slice uses a command hook rather than the `mcp_tool` hook type, so it works before the server is registered |
 | Codex adapter | Hooks, packaging, user-level installer, patch-based edits | Verified against the documented hook payloads and the rollout format, not against a live Codex session on this machine |
 | Transcript replay | Claude Code JSONL, Codex rollouts, `codex exec --json` | Codex parsers are pinned to the documented shapes; the rollout format is declared unstable upstream |

@@ -5,6 +5,7 @@ import { isAbsolute, join, resolve } from 'node:path';
 import { z } from 'zod';
 import { openRepo, type RepoContext } from '../core/context.js';
 import { toRepoRelative } from '../util/paths.js';
+import { hydrate } from '../hydrate/hydrate.js';
 import type { Graph } from '../graph/graph.js';
 import type { CoverageRecord } from '../observe/coverage.js';
 import { envelope, type ReachPayload } from '../observe/event.js';
@@ -50,6 +51,20 @@ export async function startMcpServer(opts: { agent: string; repo?: string; graph
     const p: ReachPayload = { tool, nodes };
     store.append(envelope('reach', { session, who: `${gitPerson(ctx.root)}/${opts.agent}`, branch: currentBranch(ctx.root), harness: 'mcp' }, p));
   };
+
+  server.registerTool(
+    'hydrate',
+    {
+      description: 'One bounded briefing for a scope before you work on it: the context slice for each file, its callers with the lines that use it (and whether they are already in this session), the rules in force with their decision history and legacy exceptions, what this session has already read or edited, hints from the index when enabled, and what teammates have open. Scope is a file path, a module id (L:...), a concept id (C:...), or a short task description. Prefer this over reading callers one by one.',
+      inputSchema: { scope: z.string(), budget: z.number().int().positive().optional() },
+    },
+    async ({ scope, budget }) => {
+      const ctx = open();
+      need(ctx);
+      const h = await hydrate(ctx, /\s/.test(scope.trim()) ? scope : norm(ctx, scope), { ...(budget ? { budget } : {}), session, who: `${gitPerson(ctx.root)}/${opts.agent}`, branch: currentBranch(ctx.root), harness: 'mcp', cwd: process.cwd() });
+      return text(h.dropped.length ? `${h.text}\n(dropped under budget: ${h.dropped.join(', ')})` : h.text);
+    },
+  );
 
   server.registerTool(
     'slice',

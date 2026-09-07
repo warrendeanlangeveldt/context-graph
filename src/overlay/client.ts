@@ -75,7 +75,14 @@ export async function liveLinesFor(ctx: RepoContext, w: WalkResult, meta: { sess
       for (const p of r?.provisional ?? []) {
         lines.push(`${p.id} provisional ${p.who} on ${p.branch}  ${p.overrides ? `!${p.overrides}  ` : ''}${p.text}  (${p.age})${p.conflict ? '  <- conflicts with what you are about to honour' : ''}`);
       }
-      for (const x of r?.touches ?? []) lines.push(`${x.who} has this file open (${x.mode}, ${x.age})`);
+      // One line per person: the strongest access they have had, not every touch they made.
+      const rank: Record<string, number> = { write: 6, edit: 6, full: 5, range: 4, delegated: 3, grep: 2, name: 1 };
+      const byWho = new Map<string, { mode: string; age: string }>();
+      for (const x of r?.touches ?? []) {
+        const cur = byWho.get(x.who);
+        if (!cur || (rank[x.mode] ?? 0) > (rank[cur.mode] ?? 0)) byWho.set(x.who, { mode: x.mode, age: x.age });
+      }
+      for (const [who, x] of byWho) lines.push(`${who} has this file open (${x.mode}, ${x.age})`);
     } catch { /* overlay unreachable: no live lines */ }
   }
   return lines;

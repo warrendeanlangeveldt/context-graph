@@ -4,6 +4,7 @@ import { repoHash } from '../util/paths.js';
 import type { WalkResult } from '../walker/walk.js';
 import { openStore } from './index.js';
 import { makeProvider, type EmbeddingProvider } from './provider.js';
+import type { Hit } from './store.js';
 
 /**
  * Hint retrieval for the slice (design spec §10.4). Results are hints, never constraints: they
@@ -32,6 +33,20 @@ export async function retrieveHints(ctx: RepoContext, query: string, excludePath
       .filter((h) => h.score >= cfg.minScore && h.path !== excludePath)
       .slice(0, cfg.maxHints)
       .map((h) => `${h.ref}  ${h.score.toFixed(2)}  "${snippet(h.text)}"`);
+  } finally {
+    store.close();
+  }
+}
+
+/** Raw hits for a query, for callers that need paths and scores rather than rendered lines. Explicit calls may embed in-process. */
+export async function retrieveHits(ctx: RepoContext, query: string, k: number, timeoutMs = 3000): Promise<Hit[]> {
+  const store = openStore(ctx);
+  if (!store) return [];
+  try {
+    if (store.count() === 0) return [];
+    const vec = (await withTimeout(makeProvider(ctx.config.embed).embed([query]), timeoutMs))[0];
+    if (!vec) return [];
+    return store.query(vec, k, { includeArchived: ctx.config.embed.includeArchived });
   } finally {
     store.close();
   }

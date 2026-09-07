@@ -2867,6 +2867,8 @@ function defaultConfig() {
     maxTokens: 300,
     maxDecisions: 4,
     maxBlocks: 2,
+    hydrateOnPrompt: false,
+    hydrateBudget: 1500,
     shellParsing: true,
     forward: false,
     overlayUrl: "",
@@ -2913,6 +2915,8 @@ function loadConfig(graphDir) {
     cfg.maxTokens = tomlGet(t, "slice", "max_tokens", cfg.maxTokens);
     cfg.maxDecisions = tomlGet(t, "slice", "max_decisions", cfg.maxDecisions);
     cfg.maxBlocks = tomlGet(t, "record", "max_blocks", cfg.maxBlocks);
+    cfg.hydrateOnPrompt = tomlGet(t, "slice", "hydrate_on_prompt", cfg.hydrateOnPrompt);
+    cfg.hydrateBudget = tomlGet(t, "slice", "hydrate_budget", cfg.hydrateBudget);
     cfg.shellParsing = tomlGet(t, "observe", "shell_parsing", cfg.shellParsing);
     cfg.forward = tomlGet(t, "observe", "forward", cfg.forward);
     cfg.overlayUrl = tomlGet(t, "overlay", "url", cfg.overlayUrl);
@@ -3680,7 +3684,13 @@ async function liveLinesFor(ctx, w, meta) {
       for (const p of r?.provisional ?? []) {
         lines.push(`${p.id} provisional ${p.who} on ${p.branch}  ${p.overrides ? `!${p.overrides}  ` : ""}${p.text}  (${p.age})${p.conflict ? "  <- conflicts with what you are about to honour" : ""}`);
       }
-      for (const x of r?.touches ?? []) lines.push(`${x.who} has this file open (${x.mode}, ${x.age})`);
+      const rank = { write: 6, edit: 6, full: 5, range: 4, delegated: 3, grep: 2, name: 1 };
+      const byWho = /* @__PURE__ */ new Map();
+      for (const x of r?.touches ?? []) {
+        const cur = byWho.get(x.who);
+        if (!cur || (rank[x.mode] ?? 0) > (rank[cur.mode] ?? 0)) byWho.set(x.who, { mode: x.mode, age: x.age });
+      }
+      for (const [who, x] of byWho) lines.push(`${who} has this file open (${x.mode}, ${x.age})`);
     } catch {
     }
   }
@@ -4107,6 +4117,18 @@ async function retrieveHints(ctx, query, excludePath, provider) {
     store.close();
   }
 }
+async function retrieveHits(ctx, query, k, timeoutMs = 3e3) {
+  const store = openStore(ctx);
+  if (!store) return [];
+  try {
+    if (store.count() === 0) return [];
+    const vec = (await withTimeout(makeProvider(ctx.config.embed).embed([query]), timeoutMs))[0];
+    if (!vec) return [];
+    return store.query(vec, k, { includeArchived: ctx.config.embed.includeArchived });
+  } finally {
+    store.close();
+  }
+}
 async function hintsFor(ctx, w, intent, timeoutMs = 800) {
   if (!ctx.config.embed.enabled) return [];
   const query = hintQuery(w, intent);
@@ -4137,11 +4159,11 @@ function snippet(text) {
   return one.length > 90 ? one.slice(0, 87) + "..." : one;
 }
 function withTimeout(p, ms) {
-  return new Promise((resolve11, reject) => {
+  return new Promise((resolve13, reject) => {
     const t = setTimeout(() => reject(new Error("timeout")), ms);
     p.then((v) => {
       clearTimeout(t);
-      resolve11(v);
+      resolve13(v);
     }, (e) => {
       clearTimeout(t);
       reject(e);
@@ -4158,8 +4180,333 @@ var init_hints = __esm({
   }
 });
 
-// src/adapters/core.ts
+// src/hydrate/hydrate.ts
 import { existsSync as existsSync9, readFileSync as readFileSync8 } from "node:fs";
+import { basename, dirname as dirname4, isAbsolute as isAbsolute3, join as join9, resolve as resolve5 } from "node:path";
+async function hydrate(ctx, scopeIn, opts = {}) {
+  const g = ctx.graph;
+  if (!g) throw new Error(`no graph for ${ctx.root}; hydrate needs one`);
+  const budget = opts.budget ?? DEFAULT_BUDGET;
+  const index = loadOrBuildImportIndex(ctx.root);
+  const session = opts.session ?? process.env.CLAUDE_SESSION_ID ?? process.env.CTX_SESSION ?? "mcp";
+  const store = new ObservationStore(ctx.root, session);
+  const events = store.readAll();
+  const meta = { session, who: opts.who ?? "unknown/agent", branch: opts.branch ?? "unknown", harness: opts.harness ?? "mcp" };
+  const { files, reason } = await resolveScope(ctx, scopeIn, index, events, opts);
+  if (!files.length) throw new Error(`hydrate: nothing in the repository matches "${scopeIn}" (${reason})`);
+  const walks = files.map((f) => walk(g, f, { maxDecisions: ctx.config.maxDecisions }));
+  const sliceBlocks = (fileCap2) => {
+    const groups = /* @__PURE__ */ new Map();
+    for (const w of walks.slice(0, fileCap2)) {
+      const sig = [...w.chain, ...w.constraints.map((k) => k.id)].join("|");
+      groups.set(sig, [...groups.get(sig) ?? [], w]);
+    }
+    return [...groups.values()].map((ws) => {
+      if (ws.length === 1) return renderSlice(g, ws[0], { maxTokens: ctx.config.maxTokens }).text;
+      const rep = { ...ws[0], decisions: [] };
+      const [, ...rest] = renderSlice(g, rep, { maxTokens: ctx.config.maxTokens }).text.split("\n");
+      const last = ws.flatMap((w) => w.decisions.map((d) => `  last   ${basename(w.path)}  ${d.id} ${d.date.slice(5)} ${d.who}  ${d.overrides ? `!${d.overrides}  ` : ""}${d.text}  (${d.sha === "-" ? `${d.branch} provisional` : d.sha})`));
+      return [`edit ${ws.map((w) => short(w.path)).join(", ")}  (same chain and rules)`, ...rest, ...last.slice(0, ctx.config.maxDecisions)].join("\n");
+    });
+  };
+  const loadedModes = loadedByPath(events);
+  const callerRefs = {};
+  const calleeNames = {};
+  for (const f of files) {
+    callerRefs[f] = callersOf(index, f).map((c) => ({ path: c, lines: referenceLines(ctx.root, c, f), loaded: isLoaded(loadedModes[c]), test: isTestFile(c) })).sort((a, b) => Number(a.test) - Number(b.test) || Number(a.loaded) - Number(b.loaded) || b.lines.length - a.lines.length);
+    calleeNames[f] = index.imports[f] ?? [];
+  }
+  const rules = /* @__PURE__ */ new Map();
+  for (const w of walks) for (const k of w.constraints) if (k.mode === "E" || k.mode === "G" || k.mode === "G?") rules.set(k.id, k);
+  const histories = [...rules.values()].map((k) => {
+    const ds = [...g.decisions.values()].filter((d) => g.isActiveDecision(d) && (d.serves === k.id || d.overrides === k.id)).sort((a, b) => b.date.localeCompare(a.date));
+    const overrides = ds.filter((d) => d.overrides === k.id);
+    return { k, serves: ds.filter((d) => d.serves === k.id && d.overrides !== k.id), overrides, legacy: overrides.filter((d) => /^legacy:/.test(d.text)) };
+  }).filter((h) => h.serves.length || h.overrides.length);
+  const state = new SessionState(ctx.root, session);
+  const pending = Object.values(state.data.pending).filter((p) => files.includes(p.path)).map((p) => p.path);
+  const lastCompact = [...events].reverse().find((e) => e.t === "compact");
+  const sessionLines = files.map((f) => {
+    const m = loadedModes[f];
+    return `${short(f)}: ${m ? describeMode(m.mode, m.ts) : "not read this session"}${pending.includes(f) ? "; a decision is pending" : ""}`;
+  });
+  if (lastCompact) sessionLines.push(`context compacted at ${lastCompact.ts.slice(11, 16)}; ${lastCompact.p.paths.length} files survive only as summaries`);
+  const live2 = [...new Set((await Promise.all(walks.map((w) => liveLinesFor(ctx, w, meta)))).flat())];
+  const hints = ctx.config.embed.enabled ? await hintsFor2(ctx, scopeIn, files) : [];
+  const dropped = [];
+  const render = (callerCap2, lineCap2, withHints2, withLive2, withCallees2, decisionCap2, fileCap2) => {
+    const shown = files.slice(0, fileCap2);
+    const count = shown.length === files.length ? `${files.length} file${files.length === 1 ? "" : "s"}` : `${shown.length} of ${files.length} files`;
+    const out = [`hydrate ${scopeIn}${files.length > 1 || files[0] !== scopeIn ? `  (${count}: ${reason})` : ""}`];
+    out.push(...sliceBlocks(fileCap2));
+    for (const f of shown) {
+      const cs = callerRefs[f] ?? [];
+      const dark = cs.filter((c) => !c.loaded).length;
+      out.push(`${cs.length} caller${cs.length === 1 ? "" : "s"} of ${short(f)}${cs.length ? dark === cs.length ? ", none in context this session" : dark ? `, ${dark} not in context this session` : ", all in context this session" : ""}`);
+      for (const c of cs.slice(0, callerCap2)) {
+        out.push(`  ${c.path}${c.loaded ? "  (in context)" : ""}`);
+        for (const l of c.lines.slice(0, lineCap2)) out.push(`    :${l.n}  ${l.text}`);
+      }
+      if (cs.length > callerCap2) out.push(`  and ${cs.length - callerCap2} more`);
+      if (withCallees2 && calleeNames[f]?.length) out.push(`${short(f)} imports: ${calleeNames[f].slice(0, 8).map(tail2).join(", ")}${calleeNames[f].length > 8 ? ` and ${calleeNames[f].length - 8} more` : ""}`);
+    }
+    if (histories.length) {
+      out.push("decisions behind the rules above:");
+      for (const h of histories) {
+        const parts = [];
+        if (h.serves.length) parts.push(`served ${h.serves.length}: ${h.serves.slice(0, decisionCap2).map((d) => `${d.id} ${d.date.slice(5)} ${basename(d.node)} "${d.text}"`).join("; ")}`);
+        if (h.overrides.length) {
+          const named = h.overrides.slice(0, decisionCap2 * 2);
+          parts.push(`overridden ${h.overrides.length}${h.legacy.length === h.overrides.length ? ", all legacy" : h.legacy.length ? ` (${h.legacy.length} legacy)` : ""}: ${named.map((d) => `${basename(d.node)}${/^legacy:/.test(d.text) ? "" : ` "${d.text}"`}`).join(", ")}${h.overrides.length > named.length ? ` and ${h.overrides.length - named.length} more` : ""}`);
+        }
+        out.push(`  ${h.k.id}  ${parts.join("; ")}`);
+      }
+    }
+    out.push("this session:", ...sessionLines.filter((_, i) => i < shown.length || i >= files.length).map((l) => `  ${l}`));
+    if (withHints2 && hints.length) {
+      out.push("hints:");
+      for (const h of hints) out.push(`  ${h}`);
+    }
+    if (withLive2 && live2.length) {
+      out.push("live:");
+      for (const l of live2) out.push(`  ${l}`);
+    }
+    return out.join("\n");
+  };
+  let callerCap = 8, lineCap = 3, withHints = true, withLive = true, withCallees = true, decisionCap = 3, fileCap = files.length;
+  let text = render(callerCap, lineCap, withHints, withLive, withCallees, decisionCap, fileCap);
+  let tokens = estimateTokens(text);
+  const steps = [
+    () => {
+      withHints = false;
+      return "hints";
+    },
+    () => {
+      withCallees = false;
+      return "callee list";
+    },
+    () => {
+      decisionCap = 1;
+      return "older decisions";
+    },
+    () => {
+      lineCap = 1;
+      return "caller usage lines";
+    },
+    () => {
+      callerCap = 3;
+      return "callers beyond three";
+    },
+    () => {
+      withLive = false;
+      return "live lines";
+    },
+    () => {
+      if (fileCap <= 3) return void 0;
+      fileCap = 3;
+      return "files beyond three";
+    },
+    () => {
+      if (fileCap <= 1) return void 0;
+      fileCap = 1;
+      return "files beyond the first";
+    }
+  ];
+  for (const step of steps) {
+    if (tokens <= budget) break;
+    const what = step();
+    if (!what) continue;
+    dropped.push(what);
+    text = render(callerCap, lineCap, withHints, withLive, withCallees, decisionCap, fileCap);
+    tokens = estimateTokens(text);
+  }
+  if (opts.record !== false) {
+    const nodes = [...new Set(walks.flatMap((w) => w.applicable))];
+    const reach = envelope("reach", meta, { tool: "hydrate", nodes: [...nodes, ...files] });
+    store.append(reach);
+    notifyOverlay(ctx, reach);
+    for (const f of files.slice(0, fileCap)) {
+      for (const c of (callerRefs[f] ?? []).slice(0, callerCap)) {
+        const shown = c.lines.slice(0, lineCap);
+        if (!shown.length) continue;
+        const touch = { path: c.path, mode: "range", range: [shown[0].n, shown[shown.length - 1].n], tool: "hydrate", origin: "main" };
+        const env = envelope("touch", meta, touch);
+        store.append(env);
+        notifyOverlay(ctx, env);
+      }
+    }
+  }
+  return { scope: scopeIn, files, reason, text, tokens, dropped, callers: callerRefs };
+}
+async function resolveScope(ctx, scope, index, events, opts) {
+  const g = ctx.graph;
+  const maxFiles = opts.maxFiles ?? 6;
+  const trimmed = scope.trim();
+  const asPath = normalisePath(ctx, trimmed, opts.cwd);
+  if (asPath && (existsSync9(toAbsolute(ctx.root, asPath)) || index.imports[asPath])) return { files: [asPath], reason: "a file" };
+  const loaded = loadedByPath(events);
+  const rank = (fs) => fs.map((f) => ({ f, touched: loaded[f] ? 1 : 0, callers: callersOf(index, f).length, test: isTestFile(f) ? 1 : 0 })).sort((a, b) => a.test - b.test || b.touched - a.touched || b.callers - a.callers).map((x) => x.f);
+  if (trimmed.startsWith("L:") && g.logicals.has(trimmed)) {
+    const fs = Object.keys(index.imports).filter((f) => walk(g, f, { maxDecisions: 0 }).chain.includes(trimmed));
+    return { files: rank(fs).slice(0, maxFiles), reason: `most connected of ${fs.length} under ${trimmed}` };
+  }
+  if (trimmed.startsWith("C:") && g.concepts.has(trimmed)) {
+    const modules = g.edges.filter((e) => e.rel === "impl" && e.to === trimmed && !e.proposed).map((e) => e.from);
+    const fs = Object.keys(index.imports).filter((f) => {
+      const ch = walk(g, f, { maxDecisions: 0 }).chain;
+      return modules.some((m) => ch.includes(m));
+    });
+    return { files: rank(fs).slice(0, maxFiles), reason: `most connected of ${fs.length} under ${modules.join(", ")}, which implement ${trimmed}` };
+  }
+  const named = [];
+  for (const raw of trimmed.split(/[\s,;()"'`]+/)) {
+    const tok = raw.replace(/[:.]+$/, "");
+    const p = normalisePath(ctx, tok, opts.cwd);
+    if (p && (existsSync9(toAbsolute(ctx.root, p)) || index.imports[p]) && !named.includes(p)) named.push(p);
+  }
+  if (named.length) return { files: named.slice(0, maxFiles), reason: "the files the task names" };
+  if (ctx.config.embed.enabled) {
+    try {
+      const hits = await retrieveHits(ctx, trimmed, 12, 3e3);
+      const fs = [...new Set(hits.map((h) => h.path).filter((p) => Boolean(p) && (index.imports[p] !== void 0 || existsSync9(toAbsolute(ctx.root, p)))))];
+      if (fs.length) return { files: fs.slice(0, maxFiles), reason: "the files nearest the task in the index" };
+    } catch {
+    }
+  }
+  const words = [...new Set(trimmed.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && !STOP.has(w)))];
+  const wantsTests = words.some((w) => /^(test|tests|spec|specs)$/.test(w));
+  const scored = Object.keys(index.imports).filter((f) => wantsTests || !isTestFile(f)).map((f) => {
+    const parts = basename(f).toLowerCase().replace(/\.[^.]+$/, "").split(/[^a-z0-9]+/).filter(Boolean);
+    const score = words.filter((w) => parts.some((p) => p === w || w.length >= 5 && p.includes(w) || p.length >= 5 && w.includes(p))).length;
+    return { f, score, parts: parts.length };
+  }).filter((x) => x.score > 0).sort((a, b) => b.score - a.score || a.parts - b.parts);
+  const best = scored.length ? scored.filter((x) => x.score === scored[0].score).map((x) => x.f) : [];
+  return { files: rank(best).slice(0, maxFiles), reason: scored.length ? `files whose names match "${words.join(" ")}"` : "no match" };
+}
+function normalisePath(ctx, p, cwd) {
+  if (!p || p.startsWith("L:") || p.startsWith("C:") || /^https?:/.test(p)) return void 0;
+  if (!/[/.]/.test(p)) return void 0;
+  if (isAbsolute3(p)) return toRepoRelative(ctx.root, p);
+  if (existsSync9(join9(ctx.root, p))) return p;
+  if (cwd && existsSync9(resolve5(cwd, p))) return toRepoRelative(ctx.root, resolve5(cwd, p));
+  return p;
+}
+function referenceLines(root, caller, target, cap = 6) {
+  let src;
+  try {
+    src = readFileSync8(toAbsolute(root, caller), "utf8");
+  } catch {
+    return [];
+  }
+  const lines = src.split(/\r?\n/);
+  const targetBase = target.replace(/\.[^.]+$/, "");
+  const out = [];
+  const names = [];
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i];
+    const m = /\bfrom\s*['"]([^'"]+)['"]|require\(\s*['"]([^'"]+)['"]\s*\)|^\s*import\s+['"]([^'"]+)['"]/.exec(l);
+    if (!m) continue;
+    const spec = m[1] ?? m[2] ?? m[3] ?? "";
+    if (!spec.startsWith(".")) continue;
+    const resolved = resolve5("/", dirname4(caller), spec).slice(1).replace(/\.(js|jsx|mjs|cjs|ts|tsx|mts|cts)$/, "");
+    const hit = resolved === targetBase || EXTS2.some((e) => resolved + e === target) || resolved + "/index" === targetBase;
+    if (!hit) continue;
+    out.push({ n: i + 1, text: l.trim() });
+    const named = /\{([^}]*)\}/.exec(l)?.[1] ?? "";
+    for (const part of named.split(",")) {
+      const nm = part.trim().replace(/^type\s+/, "").split(/\s+as\s+/).pop()?.trim();
+      if (nm) names.push(nm);
+    }
+    const def = /^\s*import\s+(?:type\s+)?([A-Za-z_$][\w$]*)\s*(,|from)/.exec(l)?.[1];
+    if (def) names.push(def);
+    const star = /\*\s+as\s+([A-Za-z_$][\w$]*)/.exec(l)?.[1];
+    if (star) names.push(star);
+  }
+  if (!out.length) return [];
+  const importLines = new Set(out.map((o) => o.n));
+  if (names.length) {
+    const re = new RegExp(`\\b(${names.map((n) => n.replace(/[$]/g, "\\$")).join("|")})\\b`);
+    for (let i = 0; i < lines.length && out.length < cap; i++) {
+      if (importLines.has(i + 1)) continue;
+      const l = lines[i];
+      if (re.test(l) && !/^\s*(\/\/|\*)/.test(l)) out.push({ n: i + 1, text: l.trim().slice(0, 140) });
+    }
+  }
+  return out.sort((a, b) => a.n - b.n).slice(0, cap);
+}
+function loadedByPath(events) {
+  const out = {};
+  const rank = { full: 6, write: 6, range: 5, edit: 5, grep: 3, delegated: 2, summarized: 1, name: 1 };
+  for (const e of events) {
+    if (e.t !== "touch" && e.t !== "edit") continue;
+    const p = e.p;
+    const mode = p.origin === "subagent" ? "delegated" : p.mode;
+    const cur = out[p.path];
+    if (!cur || (rank[mode] ?? 0) >= (rank[cur.mode] ?? 0)) out[p.path] = { mode, ts: e.ts };
+  }
+  return out;
+}
+function isLoaded(m) {
+  return Boolean(m && ["full", "range", "edit", "write"].includes(m.mode));
+}
+function isTestFile(p) {
+  return /\.(test|spec)\.[a-z]+$|(^|\/)(__tests__|tests?)\//.test(p);
+}
+function describeMode(mode, ts) {
+  const when = ts.slice(11, 16);
+  return mode === "full" || mode === "write" ? `read in full at ${when}` : mode === "range" || mode === "edit" ? `read in part at ${when}` : mode === "grep" ? `only grep hits at ${when}` : mode === "delegated" ? `read by a subagent at ${when}` : mode === "summarized" ? "read, then compacted to a summary" : `seen by name at ${when}`;
+}
+function tail2(p) {
+  return p.split("/").slice(-2).join("/");
+}
+function short(p) {
+  const parts = p.split("/");
+  return parts.length > 3 ? `\u2026/${parts.slice(-3).join("/")}` : p;
+}
+async function hintsFor2(ctx, scope, files) {
+  try {
+    const query = `${scope}
+${files.join("\n")}`;
+    const local = localServer();
+    if (local) {
+      const ac = new AbortController();
+      const t = setTimeout(() => ac.abort(), 1500);
+      try {
+        const q = new URLSearchParams({ q: query, path: files[0] ?? "" });
+        const res = await fetch(`http://127.0.0.1:${local.port}/v1/${repoHash(ctx.root)}/hints?${q}`, { signal: ac.signal });
+        if (res.ok) return await res.json();
+      } finally {
+        clearTimeout(t);
+      }
+    }
+    const hits = await retrieveHits(ctx, query, ctx.config.embed.maxHints * 4, 3e3);
+    return hits.filter((h) => h.score >= ctx.config.embed.minScore && !files.includes(h.path ?? "")).slice(0, ctx.config.embed.maxHints).map((h) => `${h.ref}  ${h.score.toFixed(2)}  "${h.text.replace(/\s+/g, " ").slice(0, 90)}"`);
+  } catch {
+    return [];
+  }
+}
+var DEFAULT_BUDGET, STOP, EXTS2;
+var init_hydrate = __esm({
+  "src/hydrate/hydrate.ts"() {
+    "use strict";
+    init_hints();
+    init_imports();
+    init_event();
+    init_store();
+    init_client();
+    init_paths();
+    init_tokens();
+    init_slice();
+    init_walk();
+    DEFAULT_BUDGET = 1500;
+    STOP = /* @__PURE__ */ new Set(["the", "and", "for", "with", "that", "this", "from", "into", "why", "how", "what", "when", "where", "does", "did", "has", "have", "not", "are", "was", "were", "can", "fix", "add", "make", "change", "update", "remove", "write", "read", "directly", "before", "after", "about", "against", "through", "then", "than", "file", "files", "code", "path", "key", "work", "check", "look", "audit", "review", "please", "should", "would", "could", "need", "needs", "want", "like", "just", "also", "still", "its", "our", "your", "you", "all", "any", "one", "two", "new", "old"]);
+    EXTS2 = [".ts", ".tsx", ".js", ".jsx", ".mts", ".cts", ".mjs", ".cjs"];
+  }
+});
+
+// src/adapters/core.ts
+import { existsSync as existsSync10, readFileSync as readFileSync9, statSync as statSync3 } from "node:fs";
+import { resolve as resolve6 } from "node:path";
 async function runHook(input, profile) {
   const ctx = openRepo({ cwd: input.cwd });
   const root = ctx.root;
@@ -4299,6 +4646,21 @@ async function runHook(input, profile) {
     if (verdict.block) return { stdout: profile.formatStopBlock(verdict.reason ?? ""), exitCode: 0 };
     return { exitCode: 0 };
   }
+  if (event === "UserPromptSubmit") {
+    if (!injecting || !ctx.graph || !ctx.config.hydrateOnPrompt) return { exitCode: 0 };
+    const scopes = promptScopes(ctx, String(input.prompt ?? ""), input.cwd);
+    if (!scopes.length) return { exitCode: 0 };
+    const blocks = [];
+    for (const scope of scopes.slice(0, 2)) {
+      try {
+        const h = await hydrate(ctx, scope, { budget: Math.floor(ctx.config.hydrateBudget / Math.min(scopes.length, 2)), session, who: meta.who, branch: meta.branch, harness: meta.harness, cwd: input.cwd });
+        blocks.push(h.text);
+      } catch {
+      }
+    }
+    if (!blocks.length) return { exitCode: 0 };
+    return { stdout: profile.formatPromptContext(blocks.join("\n\n")), exitCode: 0 };
+  }
   if (event === "Interrupt") {
     const pending = Object.keys(state.data.pending);
     if (pending.length) store.append(envelope("finding", meta, { rule: "interrupted", message: `turn interrupted with ${pending.length} node(s) owing a decision: ${pending.join(", ")}` }));
@@ -4325,9 +4687,9 @@ function decideArm(ctx, state) {
 }
 function readRepoFile(root, path) {
   const abs = toAbsolute(root, path);
-  if (!existsSync9(abs)) return void 0;
+  if (!existsSync10(abs)) return void 0;
   try {
-    return readFileSync8(abs, "utf8");
+    return readFileSync9(abs, "utf8");
   } catch {
     return void 0;
   }
@@ -4356,6 +4718,25 @@ function intentOf(ti) {
   for (const c of candidates) if (typeof c === "string" && c.trim()) return c.slice(0, 500);
   return void 0;
 }
+function promptScopes(ctx, prompt, cwd) {
+  const g = ctx.graph;
+  if (!g) return [];
+  const out = [];
+  for (const raw of prompt.split(/[\s,;()"'`]+/)) {
+    const tok = raw.replace(/[:.]+$/, "");
+    if (!tok) continue;
+    if (tok.startsWith("L:") && g.logicals.has(tok) || tok.startsWith("C:") && g.concepts.has(tok)) {
+      if (!out.includes(tok)) out.push(tok);
+      continue;
+    }
+    if (!/[\/.]/.test(tok) || /^https?:/.test(tok)) continue;
+    const abs = tok.startsWith("/") ? tok : resolve6(cwd, tok);
+    if (!existsSync10(abs) || !statSync3(abs).isFile()) continue;
+    const rel = toRepoRelative(ctx.root, abs, cwd);
+    if (!out.includes(rel)) out.push(rel);
+  }
+  return out;
+}
 function sessionContext(ctx, injecting, afterCompact) {
   const g = ctx.graph;
   if (!g) {
@@ -4363,7 +4744,7 @@ function sessionContext(ctx, injecting, afterCompact) {
   }
   const lines = [];
   lines.push(
-    injecting ? `Context Graph is active for this repository${afterCompact ? " (context was compacted; slices will re-arrive at each edit)" : ""}. A context slice is injected before each file edit made with the edit tools. Before editing a file through the shell, run: ctx slice <path>. When a turn ends with edited files that carry constraints, you will be asked to record one decision per file (MCP tool: record; shell: ctx record).` : "Context Graph: observe-only for this session. Reads and edits are recorded; nothing is injected and no decisions are demanded."
+    injecting ? `Context Graph is active for this repository${afterCompact ? " (context was compacted; slices will re-arrive at each edit)" : ""}. A context slice is injected before each file edit made with the edit tools. Before editing a file through the shell, run: ctx slice <path>. Before working on a file, module, or task you have not read this session, call the MCP tool hydrate (shell: ctx hydrate <scope>): it returns the slice, the callers with the lines that use the file, the rules with their decision history, and what this session already holds, in one bounded briefing. When a turn ends with edited files that carry constraints, you will be asked to record one decision per file (MCP tool: record; shell: ctx record).` : "Context Graph: observe-only for this session. Reads and edits are recorded; nothing is injected and no decisions are demanded."
   );
   const aliases = [...g.aliases.values()];
   if (aliases.length) lines.push("Aliases: " + aliases.map((a) => `${a.alias} = ${a.node}`).join("; "));
@@ -4390,6 +4771,7 @@ var init_core = __esm({
     init_walk();
     init_client();
     init_hints();
+    init_hydrate();
     TEST_RUN = /\b(vitest|jest|mocha|pytest|npm test|pnpm test|yarn test|go test|cargo test|rspec|phpunit|dotnet test|gradle test|mvn test)\b/;
   }
 });
@@ -4417,7 +4799,8 @@ function claudeProfile(agent = "claude") {
     sessionStartReason: (input) => input.start_reason ?? input.source ?? "startup",
     formatSessionStart: (text) => text,
     formatPreToolUse: (context) => JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", additionalContext: context } }),
-    formatStopBlock: (reason) => JSON.stringify({ decision: "block", reason })
+    formatStopBlock: (reason) => JSON.stringify({ decision: "block", reason }),
+    formatPromptContext: (context) => context
   };
 }
 function claudeTouches(tool, ti, tc) {
@@ -4583,7 +4966,8 @@ function codexProfile(agent = "codex") {
     preCompactEvent: "PreCompact",
     formatSessionStart: (text) => JSON.stringify({ hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: text } }),
     formatPreToolUse: (context) => JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", additionalContext: context } }),
-    formatStopBlock: (reason) => JSON.stringify({ decision: "block", reason })
+    formatStopBlock: (reason) => JSON.stringify({ decision: "block", reason }),
+    formatPromptContext: (context) => JSON.stringify({ hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: context } })
   };
 }
 function commandOf(ti) {
@@ -4627,17 +5011,17 @@ var init_hook2 = __esm({
 });
 
 // src/util/root.ts
-import { existsSync as existsSync10, readFileSync as readFileSync9 } from "node:fs";
-import { dirname as dirname4, join as join9, resolve as resolve5 } from "node:path";
+import { existsSync as existsSync11, readFileSync as readFileSync10 } from "node:fs";
+import { dirname as dirname5, join as join10, resolve as resolve7 } from "node:path";
 import { fileURLToPath } from "node:url";
 function packageRoot(from = fileURLToPath(import.meta.url)) {
   if (cached) return cached;
-  let dir = dirname4(from);
+  let dir = dirname5(from);
   for (; ; ) {
-    const pkg = join9(dir, "package.json");
-    if (existsSync10(pkg)) {
+    const pkg = join10(dir, "package.json");
+    if (existsSync11(pkg)) {
       try {
-        const j = JSON.parse(readFileSync9(pkg, "utf8"));
+        const j = JSON.parse(readFileSync10(pkg, "utf8"));
         if (j.contextGraph) {
           cached = dir;
           return dir;
@@ -4645,11 +5029,11 @@ function packageRoot(from = fileURLToPath(import.meta.url)) {
       } catch {
       }
     }
-    const parent = dirname4(dir);
+    const parent = dirname5(dir);
     if (parent === dir) break;
     dir = parent;
   }
-  cached = resolve5(dirname4(from));
+  cached = resolve7(dirname5(from));
   return cached;
 }
 var cached;
@@ -4660,26 +5044,26 @@ var init_root = __esm({
 });
 
 // src/install/install.ts
-import { chmodSync, existsSync as existsSync11, mkdirSync as mkdirSync4, readFileSync as readFileSync10, writeFileSync as writeFileSync3 } from "node:fs";
+import { chmodSync, existsSync as existsSync12, mkdirSync as mkdirSync4, readFileSync as readFileSync11, writeFileSync as writeFileSync3 } from "node:fs";
 import { homedir as homedir2 } from "node:os";
-import { join as join10 } from "node:path";
+import { join as join11 } from "node:path";
 function pluginRoot() {
   return packageRoot();
 }
 function installCodexUser(home = homedir2()) {
   const changed = [];
   const notes = [];
-  const codexDir = join10(home, ".codex");
+  const codexDir = join11(home, ".codex");
   mkdirSync4(codexDir, { recursive: true });
-  const hookScript = join10(pluginRoot(), "adapters", "codex", "scripts", "ctx-hook");
-  const mcpScript = join10(pluginRoot(), "adapters", "codex", "scripts", "ctx-mcp");
-  const hooksFile = join10(codexDir, "hooks.json");
-  const ours = JSON.parse(readFileSync10(join10(pluginRoot(), "adapters", "codex", "hooks", "hooks.json"), "utf8"));
+  const hookScript = join11(pluginRoot(), "adapters", "codex", "scripts", "ctx-hook");
+  const mcpScript = join11(pluginRoot(), "adapters", "codex", "scripts", "ctx-mcp");
+  const hooksFile = join11(codexDir, "hooks.json");
+  const ours = JSON.parse(readFileSync11(join11(pluginRoot(), "adapters", "codex", "hooks", "hooks.json"), "utf8"));
   const rewritten = JSON.parse(JSON.stringify(ours).replaceAll("${PLUGIN_ROOT}/scripts/ctx-hook", hookScript));
   let existing = { hooks: {} };
-  if (existsSync11(hooksFile)) {
+  if (existsSync12(hooksFile)) {
     try {
-      existing = JSON.parse(readFileSync10(hooksFile, "utf8"));
+      existing = JSON.parse(readFileSync11(hooksFile, "utf8"));
     } catch {
       notes.push(`${hooksFile} was not valid JSON and was replaced`);
     }
@@ -4692,12 +5076,12 @@ function installCodexUser(home = homedir2()) {
   }
   writeFileSync3(hooksFile, JSON.stringify(existing, null, 2) + "\n", "utf8");
   changed.push(hooksFile);
-  const configFile = join10(codexDir, "config.toml");
+  const configFile = join11(codexDir, "config.toml");
   const block = `
 [mcp_servers.ctx]
 command = "${mcpScript}"
 `;
-  let cfg = existsSync11(configFile) ? readFileSync10(configFile, "utf8") : "";
+  let cfg = existsSync12(configFile) ? readFileSync11(configFile, "utf8") : "";
   if (!/^\[mcp_servers\.ctx\]/m.test(cfg)) {
     cfg = cfg.replace(/\s*$/, "\n") + block;
     writeFileSync3(configFile, cfg, "utf8");
@@ -4709,16 +5093,16 @@ command = "${mcpScript}"
 function installClaudeUser(home = homedir2()) {
   const changed = [];
   const notes = [];
-  const dir = join10(home, ".claude");
+  const dir = join11(home, ".claude");
   mkdirSync4(dir, { recursive: true });
-  const settingsFile = join10(dir, "settings.json");
-  const hookScript = join10(pluginRoot(), "adapters", "claude-code", "scripts", "ctx-hook");
-  const ours = JSON.parse(readFileSync10(join10(pluginRoot(), "adapters", "claude-code", "hooks", "hooks.json"), "utf8"));
+  const settingsFile = join11(dir, "settings.json");
+  const hookScript = join11(pluginRoot(), "adapters", "claude-code", "scripts", "ctx-hook");
+  const ours = JSON.parse(readFileSync11(join11(pluginRoot(), "adapters", "claude-code", "hooks", "hooks.json"), "utf8"));
   const rewritten = JSON.parse(JSON.stringify(ours.hooks).replaceAll("${CLAUDE_PLUGIN_ROOT}/scripts/ctx-hook", hookScript));
   let settings = {};
-  if (existsSync11(settingsFile)) {
+  if (existsSync12(settingsFile)) {
     try {
-      settings = JSON.parse(readFileSync10(settingsFile, "utf8"));
+      settings = JSON.parse(readFileSync11(settingsFile, "utf8"));
     } catch {
       throw new Error(`${settingsFile} is not valid JSON; not touching it`);
     }
@@ -4730,22 +5114,22 @@ function installClaudeUser(home = homedir2()) {
   }
   writeFileSync3(settingsFile, JSON.stringify(settings, null, 2) + "\n", "utf8");
   changed.push(settingsFile);
-  notes.push(`MCP server: claude mcp add --scope user ctx -- ${join10(pluginRoot(), "adapters", "claude-code", "scripts", "ctx-mcp")}`);
+  notes.push(`MCP server: claude mcp add --scope user ctx -- ${join11(pluginRoot(), "adapters", "claude-code", "scripts", "ctx-mcp")}`);
   return { changed, notes };
 }
 function installGitHooks(root) {
-  const hooksDir = join10(root, ".git", "hooks");
-  if (!existsSync11(join10(root, ".git"))) throw new Error(`${root} is not a git repository root`);
+  const hooksDir = join11(root, ".git", "hooks");
+  if (!existsSync12(join11(root, ".git"))) throw new Error(`${root} is not a git repository root`);
   mkdirSync4(hooksDir, { recursive: true });
-  const bundled = join10(pluginRoot(), "adapters", "claude-code", "ctx.mjs");
-  const cli = existsSync11(join10(pluginRoot(), "dist", "cli", "main.js")) ? join10(pluginRoot(), "dist", "cli", "main.js") : bundled;
-  const file = join10(hooksDir, "post-commit");
+  const bundled = join11(pluginRoot(), "adapters", "claude-code", "ctx.mjs");
+  const cli = existsSync12(join11(pluginRoot(), "dist", "cli", "main.js")) ? join11(pluginRoot(), "dist", "cli", "main.js") : bundled;
+  const file = join11(hooksDir, "post-commit");
   const marker = `# ${MARK}`;
   const snippet2 = `${marker}
 node "${cli}" provenance --repo "$(git rev-parse --show-toplevel)" >/dev/null 2>&1 || true
 node "${cli}" embed update --repo "$(git rev-parse --show-toplevel)" --if-enabled >/dev/null 2>&1 || true
 `;
-  let content = existsSync11(file) ? readFileSync10(file, "utf8") : "#!/bin/sh\n";
+  let content = existsSync12(file) ? readFileSync11(file, "utf8") : "#!/bin/sh\n";
   if (!content.startsWith("#!")) content = "#!/bin/sh\n" + content;
   if (!content.includes(marker)) content = content.replace(/\s*$/, "\n") + snippet2;
   writeFileSync3(file, content, "utf8");
@@ -17536,7 +17920,7 @@ var init_protocol = __esm({
               return;
             }
             const pollInterval = task2.pollInterval ?? this._options?.defaultTaskPollInterval ?? 1e3;
-            await new Promise((resolve11) => setTimeout(resolve11, pollInterval));
+            await new Promise((resolve13) => setTimeout(resolve13, pollInterval));
             options?.signal?.throwIfAborted();
           }
         } catch (error2) {
@@ -17553,7 +17937,7 @@ var init_protocol = __esm({
        */
       request(request2, resultSchema, options) {
         const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
-        return new Promise((resolve11, reject) => {
+        return new Promise((resolve13, reject) => {
           const earlyReject = (error2) => {
             reject(error2);
           };
@@ -17631,7 +18015,7 @@ var init_protocol = __esm({
               if (!parseResult.success) {
                 reject(parseResult.error);
               } else {
-                resolve11(parseResult.data);
+                resolve13(parseResult.data);
               }
             } catch (error2) {
               reject(error2);
@@ -17892,12 +18276,12 @@ var init_protocol = __esm({
           }
         } catch {
         }
-        return new Promise((resolve11, reject) => {
+        return new Promise((resolve13, reject) => {
           if (signal.aborted) {
             reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
             return;
           }
-          const timeoutId = setTimeout(resolve11, interval);
+          const timeoutId = setTimeout(resolve13, interval);
           signal.addEventListener("abort", () => {
             clearTimeout(timeoutId);
             reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
@@ -20924,7 +21308,7 @@ var require_compile = __commonJS({
       const schOrFunc = root.refs[ref];
       if (schOrFunc)
         return schOrFunc;
-      let _sch = resolve11.call(this, root, ref);
+      let _sch = resolve13.call(this, root, ref);
       if (_sch === void 0) {
         const schema = (_a = root.localRefs) === null || _a === void 0 ? void 0 : _a[ref];
         const { schemaId } = this.opts;
@@ -20951,7 +21335,7 @@ var require_compile = __commonJS({
     function sameSchemaEnv(s1, s2) {
       return s1.schema === s2.schema && s1.root === s2.root && s1.baseId === s2.baseId;
     }
-    function resolve11(root, ref) {
+    function resolve13(root, ref) {
       let sch;
       while (typeof (sch = this.refs[ref]) == "string")
         ref = sch;
@@ -21781,7 +22165,7 @@ var require_fast_uri = __commonJS({
       }
       return uri;
     }
-    function resolve11(baseURI, relativeURI, options) {
+    function resolve13(baseURI, relativeURI, options) {
       const schemelessOptions = options ? Object.assign({ scheme: "null" }, options) : { scheme: "null" };
       const {
         parsed: baseParsed,
@@ -22149,7 +22533,7 @@ var require_fast_uri = __commonJS({
     var fastUri = {
       SCHEMES,
       normalize,
-      resolve: resolve11,
+      resolve: resolve13,
       resolveComponent,
       equal,
       serialize,
@@ -26267,7 +26651,7 @@ var init_mcp = __esm({
         let task = createTaskResult.task;
         const pollInterval = task.pollInterval ?? 5e3;
         while (task.status !== "completed" && task.status !== "failed" && task.status !== "cancelled") {
-          await new Promise((resolve11) => setTimeout(resolve11, pollInterval));
+          await new Promise((resolve13) => setTimeout(resolve13, pollInterval));
           const updatedTask = await extra.taskStore.getTask(taskId);
           if (!updatedTask) {
             throw new McpError(ErrorCode.InternalError, `Task ${taskId} not found during polling`);
@@ -26876,12 +27260,12 @@ var init_stdio2 = __esm({
         this.onclose?.();
       }
       send(message) {
-        return new Promise((resolve11) => {
+        return new Promise((resolve13) => {
           const json = serializeMessage(message);
           if (this._stdout.write(json)) {
-            resolve11();
+            resolve13();
           } else {
-            this._stdout.once("drain", resolve11);
+            this._stdout.once("drain", resolve13);
           }
         });
       }
@@ -26890,8 +27274,8 @@ var init_stdio2 = __esm({
 });
 
 // src/mcp/server.ts
-import { existsSync as existsSync12 } from "node:fs";
-import { isAbsolute as isAbsolute3, join as join11, resolve as resolve6 } from "node:path";
+import { existsSync as existsSync13 } from "node:fs";
+import { isAbsolute as isAbsolute4, join as join12, resolve as resolve8 } from "node:path";
 async function startMcpServer(opts) {
   const server = new McpServer({ name: "ctx", version: "0.1.0" });
   const session = process.env.CLAUDE_SESSION_ID ?? process.env.CTX_SESSION ?? "mcp";
@@ -26904,11 +27288,11 @@ async function startMcpServer(opts) {
   const norm = (ctx, p) => {
     const g = ctx.graph;
     if (!p || p.startsWith("L:") || p.startsWith("C:") || g?.aliases.has(p)) return p;
-    if (isAbsolute3(p)) return toRepoRelative(ctx.root, p);
+    if (isAbsolute4(p)) return toRepoRelative(ctx.root, p);
     const bare = p.split("#")[0];
-    if (existsSync12(join11(ctx.root, bare)) || g?.mapPath(bare)) return p;
-    const fromCwd = resolve6(process.cwd(), bare);
-    if (existsSync12(fromCwd)) return toRepoRelative(ctx.root, fromCwd) + (p.includes("#") ? "#" + p.split("#")[1] : "");
+    if (existsSync13(join12(ctx.root, bare)) || g?.mapPath(bare)) return p;
+    const fromCwd = resolve8(process.cwd(), bare);
+    if (existsSync13(fromCwd)) return toRepoRelative(ctx.root, fromCwd) + (p.includes("#") ? "#" + p.split("#")[1] : "");
     return p;
   };
   const reach = (ctx, tool, nodes) => {
@@ -26916,6 +27300,20 @@ async function startMcpServer(opts) {
     const p = { tool, nodes };
     store.append(envelope("reach", { session, who: `${gitPerson(ctx.root)}/${opts.agent}`, branch: currentBranch(ctx.root), harness: "mcp" }, p));
   };
+  server.registerTool(
+    "hydrate",
+    {
+      description: "One bounded briefing for a scope before you work on it: the context slice for each file, its callers with the lines that use it (and whether they are already in this session), the rules in force with their decision history and legacy exceptions, what this session has already read or edited, hints from the index when enabled, and what teammates have open. Scope is a file path, a module id (L:...), a concept id (C:...), or a short task description. Prefer this over reading callers one by one.",
+      inputSchema: { scope: external_exports.string(), budget: external_exports.number().int().positive().optional() }
+    },
+    async ({ scope, budget }) => {
+      const ctx = open();
+      need(ctx);
+      const h = await hydrate(ctx, /\s/.test(scope.trim()) ? scope : norm(ctx, scope), { ...budget ? { budget } : {}, session, who: `${gitPerson(ctx.root)}/${opts.agent}`, branch: currentBranch(ctx.root), harness: "mcp", cwd: process.cwd() });
+      return text(h.dropped.length ? `${h.text}
+(dropped under budget: ${h.dropped.join(", ")})` : h.text);
+    }
+  );
   server.registerTool(
     "slice",
     { description: "The context slice for a file path (relative to the repository root, relative to the current directory, or absolute): module chain, constraints that apply, and the latest decisions. Same text the pre-edit hook injects.", inputSchema: { path: external_exports.string(), symbol: external_exports.string().optional() } },
@@ -27039,6 +27437,7 @@ var init_server3 = __esm({
     init_zod();
     init_context();
     init_paths();
+    init_hydrate();
     init_event();
     init_patch();
     init_store();
@@ -27050,10 +27449,10 @@ var init_server3 = __esm({
 });
 
 // src/observe/replay.ts
-import { existsSync as existsSync13, readFileSync as readFileSync11 } from "node:fs";
-import { basename } from "node:path";
+import { existsSync as existsSync14, readFileSync as readFileSync12 } from "node:fs";
+import { basename as basename2 } from "node:path";
 async function replayTranscript(file, opts = {}) {
-  const text = readFileSync11(file, "utf8");
+  const text = readFileSync12(file, "utf8");
   const lines = text.split("\n").filter((l) => l.trim());
   const parsed = detectAndParse(lines, file, opts.harness);
   const ctx = openRepo({ ...opts.repo ? { repo: opts.repo } : {}, ...opts.graph ? { graph: opts.graph } : {}, ...parsed.cwd ? { cwd: parsed.cwd } : {} });
@@ -27063,7 +27462,7 @@ async function replayTranscript(file, opts = {}) {
   const tc = { root, cwd, shellParsing: ctx.config.shellParsing, rel: (p) => toRepoRelative(root, p, cwd), readFile: (p) => readRepoFile(root, p) };
   let session = parsed.session;
   let store = new ObservationStore(root, session);
-  if (existsSync13(store.file)) {
+  if (existsSync14(store.file)) {
     session = `${session}-replay`;
     store = new ObservationStore(root, session);
   }
@@ -27137,7 +27536,7 @@ function parseClaude(lines, file) {
   const calls = [];
   const compacts = [];
   const warnings = [];
-  let session = basename(file).replace(/\.jsonl$/, "");
+  let session = basename2(file).replace(/\.jsonl$/, "");
   let cwd;
   let branch;
   let firstTs;
@@ -27179,7 +27578,7 @@ function parseCodexRollout(lines, file) {
   const calls = [];
   const compacts = [];
   const warnings = [];
-  let session = basename(file).replace(/\.jsonl$/, "");
+  let session = basename2(file).replace(/\.jsonl$/, "");
   let cwd;
   let branch;
   let cliVersion;
@@ -27256,7 +27655,7 @@ function parseCodexRollout(lines, file) {
 }
 function parseCodexExec(lines, file) {
   const calls = [];
-  let session = basename(file).replace(/\.jsonl?$/, "");
+  let session = basename2(file).replace(/\.jsonl?$/, "");
   for (const l of lines) {
     let j;
     try {
@@ -27299,7 +27698,7 @@ var init_replay = __esm({
 });
 
 // src/record/provenance.ts
-import { readFileSync as readFileSync12, writeFileSync as writeFileSync4 } from "node:fs";
+import { readFileSync as readFileSync13, writeFileSync as writeFileSync4 } from "node:fs";
 function linkProvenance(graph, root, opts = {}) {
   const sha = (opts.sha ?? git(root, ["rev-parse", "--short", "HEAD"]) ?? "").slice(0, 8);
   if (!sha) throw new Error("no commit to link: not a git repository or no HEAD");
@@ -27326,7 +27725,7 @@ function linkProvenance(graph, root, opts = {}) {
     return false;
   };
   const file = graph.decisionsFile;
-  const lines = readFileSync12(file, "utf8").split("\n");
+  const lines = readFileSync13(file, "utf8").split("\n");
   const out = lines.map((line) => {
     const m = /^D (\S+) (\S+) (\S+) - (\S+) (\S+) (.*)$/.exec(line);
     if (!m) return line;
@@ -27354,8 +27753,8 @@ var init_provenance = __esm({
 });
 
 // src/init/bootstrap.ts
-import { existsSync as existsSync14, readFileSync as readFileSync13, realpathSync } from "node:fs";
-import { basename as basename2, dirname as dirname5, join as join12 } from "node:path";
+import { existsSync as existsSync15, readFileSync as readFileSync14, realpathSync } from "node:fs";
+import { basename as basename3, dirname as dirname6, join as join13 } from "node:path";
 function bootstrap(ctx, opts = {}) {
   const root = ctx.root;
   const minFiles = opts.minFiles ?? 5;
@@ -27371,7 +27770,7 @@ function bootstrap(ctx, opts = {}) {
     if (!CODE_EXT3.test(f)) continue;
     const parts = f.split("/");
     if (parts.some((p) => NOISE_DIRS.has(p))) continue;
-    direct.set(dirname5(f), (direct.get(dirname5(f)) ?? 0) + 1);
+    direct.set(dirname6(f), (direct.get(dirname6(f)) ?? 0) + 1);
     for (let i = 1; i < parts.length; i++) {
       const dir = parts.slice(0, i).join("/");
       counts.set(dir, (counts.get(dir) ?? 0) + 1);
@@ -27379,16 +27778,16 @@ function bootstrap(ctx, opts = {}) {
   }
   let candidates = [...counts.entries()].filter(([dir, n]) => n >= minFiles && dir.split("/").length <= maxDepth).map(([dir, n]) => ({ dir, n }));
   candidates = candidates.filter((c) => {
-    const children = candidates.filter((o) => dirname5(o.dir) === c.dir);
+    const children = candidates.filter((o) => dirname6(o.dir) === c.dir);
     return !(children.length === 1 && (direct.get(c.dir) ?? 0) === 0 && children[0].n === c.n);
   });
   if (candidates.length > maxModules) {
     const keep = new Set(candidates.sort((a, b) => b.n - a.n).slice(0, maxModules).map((c) => c.dir));
     for (const c of [...keep]) {
-      let d = dirname5(c);
+      let d = dirname6(c);
       while (d && d !== ".") {
         if (candidates.some((x) => x.dir === d)) keep.add(d);
-        d = dirname5(d);
+        d = dirname6(d);
       }
     }
     candidates = candidates.filter((c) => keep.has(c.dir));
@@ -27410,29 +27809,29 @@ function bootstrap(ctx, opts = {}) {
     const id = idFor(c.dir);
     ids.set(c.dir, id);
     mappings.push({ kind: "M", glob: `${c.dir}/**`, logical: id, line: 0 });
-    logicals.push({ kind: "L", id, name: `${basename2(c.dir)} (${c.n} source files)`, line: 0 });
+    logicals.push({ kind: "L", id, name: `${basename3(c.dir)} (${c.n} source files)`, line: 0 });
   }
   const rootId = "L:repo";
-  logicals.push({ kind: "L", id: rootId, name: `${basename2(root)} repository`, line: 0 });
+  logicals.push({ kind: "L", id: rootId, name: `${basename3(root)} repository`, line: 0 });
   mappings.push({ kind: "M", glob: "**", logical: rootId, line: 0 });
   const edges = [];
   const parentOf = (dir) => {
-    let d = dirname5(dir);
+    let d = dirname6(dir);
     while (d && d !== ".") {
       const p = ids.get(d);
       if (p) return p;
-      d = dirname5(d);
+      d = dirname6(d);
     }
     return rootId;
   };
   for (const c of candidates) edges.push({ kind: "E", from: ids.get(c.dir), rel: "in", to: parentOf(c.dir), line: 0 });
   const index = buildImportIndex(root);
   const moduleOf = (f) => {
-    let d = dirname5(f);
+    let d = dirname6(f);
     while (d && d !== ".") {
       const m = ids.get(d);
       if (m) return m;
-      d = dirname5(d);
+      d = dirname6(d);
     }
     return void 0;
   };
@@ -27454,20 +27853,20 @@ function bootstrap(ctx, opts = {}) {
   const constraints = [];
   for (const f of files) {
     if (!/(boundary|architecture|layering|dependenc|arch-|-arch)[^/]*\.(test|spec)\.[cm]?[jt]sx?$/i.test(f)) continue;
-    const src = safeRead(join12(root, f));
+    const src = safeRead(join13(root, f));
     if (!src) continue;
     const node = moduleOf(f) ?? rootId;
     const names = [...src.matchAll(/\b(?:it|test)\(\s*['"`]([^'"`]{8,160})['"`]/g)].map((m) => m[1]);
-    if (!names.length) names.push(`rules enforced by ${basename2(f)}`);
+    if (!names.length) names.push(`rules enforced by ${basename3(f)}`);
     for (const n of names.slice(0, 12)) {
       constraints.push({ kind: "K", mode: "G?", id: `arch.${slug(n).slice(0, 48)}`, attachedTo: node, text: n.replace(/\s+/g, " "), test: f, since: today2, line: 0 });
     }
   }
   const seenReal = /* @__PURE__ */ new Set();
-  const instructionFiles = files.filter((f) => INSTRUCTION_FILES.includes(basename2(f)) || INSTRUCTION_FILES.includes(f)).filter((f) => {
+  const instructionFiles = files.filter((f) => INSTRUCTION_FILES.includes(basename3(f)) || INSTRUCTION_FILES.includes(f)).filter((f) => {
     let real = f;
     try {
-      real = realpathSync(join12(root, f));
+      real = realpathSync(join13(root, f));
     } catch {
     }
     if (seenReal.has(real)) {
@@ -27478,9 +27877,9 @@ function bootstrap(ctx, opts = {}) {
     return true;
   });
   for (const f of instructionFiles) {
-    const src = safeRead(join12(root, f));
+    const src = safeRead(join13(root, f));
     if (!src) continue;
-    const node = moduleOf(f) ?? (f.includes("/") ? moduleOfDir(ids, dirname5(f)) ?? rootId : rootId);
+    const node = moduleOf(f) ?? (f.includes("/") ? moduleOfDir(ids, dirname6(f)) ?? rootId : rootId);
     let n = 0;
     const lines = src.split(/\r?\n/);
     for (let i = 0; i < lines.length && n < 40; i++) {
@@ -27495,11 +27894,11 @@ function bootstrap(ctx, opts = {}) {
   const concepts = [];
   for (const f of files) {
     if (!/(^|\/)(adr|adrs|decisions|decision-records)\/[^/]*\.md$/i.test(f)) continue;
-    if (/template|readme|index/i.test(basename2(f))) continue;
-    const src = safeRead(join12(root, f));
+    if (/template|readme|index/i.test(basename3(f))) continue;
+    const src = safeRead(join13(root, f));
     if (!src) continue;
-    const num = /(\d{3,5})/.exec(basename2(f))?.[1];
-    const title = (/^#\s+(.+)$/m.exec(src)?.[1] ?? basename2(f, ".md")).replace(/^ADR[-\s]*\d+[:\s-]*/i, "").trim();
+    const num = /(\d{3,5})/.exec(basename3(f))?.[1];
+    const title = (/^#\s+(.+)$/m.exec(src)?.[1] ?? basename3(f, ".md")).replace(/^ADR[-\s]*\d+[:\s-]*/i, "").trim();
     const status = /^\**\s*status\s*\**\s*[:|]?\s*\**\s*([^\n*]+)/im.exec(src)?.[1]?.trim();
     const id = `C:adr-${num ?? slug(title).slice(0, 24)}`;
     const rec = { kind: "C", id, name: title.slice(0, 120), proposed: true, since: today2, line: 0 };
@@ -27531,7 +27930,7 @@ function isoToday() {
 }
 function safeRead(p) {
   try {
-    return existsSync14(p) ? readFileSync13(p, "utf8") : void 0;
+    return existsSync15(p) ? readFileSync14(p, "utf8") : void 0;
   } catch {
     return void 0;
   }
@@ -27551,7 +27950,7 @@ function moduleOfDir(ids, dir) {
   while (d && d !== ".") {
     const m = ids.get(d);
     if (m) return m;
-    d = dirname5(d);
+    d = dirname6(d);
   }
   return void 0;
 }
@@ -27667,13 +28066,13 @@ var init_packs = __esm({
 });
 
 // src/init/packs.ts
-import { existsSync as existsSync15, readdirSync as readdirSync3, readFileSync as readFileSync14, writeFileSync as writeFileSync5 } from "node:fs";
-import { basename as basename3, join as join13 } from "node:path";
+import { existsSync as existsSync16, readdirSync as readdirSync3, readFileSync as readFileSync15, writeFileSync as writeFileSync5 } from "node:fs";
+import { basename as basename4, join as join14 } from "node:path";
 function packsDir() {
-  return join13(packageRoot(), "packs");
+  return join14(packageRoot(), "packs");
 }
 function loadPack(file) {
-  return packFromText(basename3(file, ".ctx"), readFileSync14(file, "utf8"), file);
+  return packFromText(basename4(file, ".ctx"), readFileSync15(file, "utf8"), file);
 }
 function packFromText(name, text, file) {
   const version2 = /^#\s*version:\s*(\S+)/m.exec(text)?.[1] ?? "1";
@@ -27682,7 +28081,7 @@ function packFromText(name, text, file) {
 }
 function loadPacks(names) {
   const dir = packsDir();
-  const all = existsSync15(dir) ? readdirSync3(dir).filter((f) => f.endsWith(".ctx")).sort().map((f) => loadPack(join13(dir, f))) : Object.entries(EMBEDDED_PACKS).map(([name, text]) => packFromText(name, text, `embedded:${name}.ctx`));
+  const all = existsSync16(dir) ? readdirSync3(dir).filter((f) => f.endsWith(".ctx")).sort().map((f) => loadPack(join14(dir, f))) : Object.entries(EMBEDDED_PACKS).map(([name, text]) => packFromText(name, text, `embedded:${name}.ctx`));
   return names.includes("auto") ? all : all.filter((p) => names.includes(p.name));
 }
 function detectBindings(pack2, graph, files, overrides = {}) {
@@ -27694,7 +28093,7 @@ function detectBindings(pack2, graph, files, overrides = {}) {
     const g = globFor(id);
     if (!g) return void 0;
     const path = g.replace(/\/\*\*$/, "");
-    return basename3(path).toLowerCase();
+    return basename4(path).toLowerCase();
   };
   for (const r of pack2.roles) {
     const role = r.role.slice(1, -1);
@@ -27776,7 +28175,7 @@ function exportPack(graph, name, version2 = "1") {
   const roleOf = /* @__PURE__ */ new Map();
   for (const l of graph.logicals.values()) {
     const glob = graph.mappings.find((m) => m.logical === l.id)?.glob;
-    const dir = glob ? basename3(glob.replace(/\/\*\*$/, "")) : l.id.slice(2);
+    const dir = glob ? basename4(glob.replace(/\/\*\*$/, "")) : l.id.slice(2);
     const role = l.id.slice(2).replace(/[^A-Za-z0-9-]/g, "-");
     roleOf.set(l.id, role);
     lines.push(formatRecord({ kind: "R", role: `{${role}}`, heuristic: glob === "**" ? "root" : `dir:${dir}`, line: 0 }));
@@ -27810,13 +28209,13 @@ var init_packs2 = __esm({
 });
 
 // src/init/ratify.ts
-import { existsSync as existsSync16, readFileSync as readFileSync15, writeFileSync as writeFileSync6 } from "node:fs";
-import { join as join14 } from "node:path";
+import { existsSync as existsSync17, readFileSync as readFileSync16, writeFileSync as writeFileSync6 } from "node:fs";
+import { join as join15 } from "node:path";
 function ratify(ctx, ids, opts = {}) {
   const dir = ctx.graphDir;
   if (!dir || !ctx.graph) throw new Error("no graph to ratify in");
-  const graphFile = join14(dir, GRAPH_FILE);
-  const proposalsFile = join14(dir, PROPOSALS_FILE);
+  const graphFile = join15(dir, GRAPH_FILE);
+  const proposalsFile = join15(dir, PROPOSALS_FILE);
   const today2 = opts.today ?? (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
   const wanted = new Set(ids);
   const ratified = [];
@@ -27871,18 +28270,18 @@ function ratify(ctx, ids, opts = {}) {
     }
     return { kept, moved };
   };
-  const graphLines = readFileSync15(graphFile, "utf8").split("\n");
+  const graphLines = readFileSync16(graphFile, "utf8").split("\n");
   const g = process3(graphLines, graphFile);
   let additions = [];
-  if (existsSync16(proposalsFile)) {
-    const p = process3(readFileSync15(proposalsFile, "utf8").split("\n"), proposalsFile);
+  if (existsSync17(proposalsFile)) {
+    const p = process3(readFileSync16(proposalsFile, "utf8").split("\n"), proposalsFile);
     additions = p.moved;
     writeFileSync6(proposalsFile, p.kept.join("\n").replace(/\n+$/, "\n"), "utf8");
   }
   const graphOut = [...g.kept];
   if (additions.length) graphOut.push(...additions);
   writeFileSync6(graphFile, graphOut.join("\n").replace(/\n*$/, "\n"), "utf8");
-  for (const d of legacy) appendRecord(join14(dir, DECISIONS_FILE), d);
+  for (const d of legacy) appendRecord(join15(dir, DECISIONS_FILE), d);
   const missing = ids.filter((id) => !ratified.includes(id));
   const person = gitPerson(ctx.root);
   return { ratified, missing, legacy, trailer: `Ctx-Ratified-By: ${person}` };
@@ -27909,8 +28308,8 @@ var cli_exports = {};
 __export(cli_exports, {
   run: () => run
 });
-import { existsSync as existsSync17, mkdirSync as mkdirSync5, writeFileSync as writeFileSync7 } from "node:fs";
-import { join as join15, resolve as resolve7 } from "node:path";
+import { existsSync as existsSync18, mkdirSync as mkdirSync5, writeFileSync as writeFileSync7 } from "node:fs";
+import { join as join16, resolve as resolve9 } from "node:path";
 async function run(args, env) {
   if (args.cmd === "init") return init(args, env);
   if (args.cmd === "ratify") return doRatify(args, env);
@@ -27920,7 +28319,7 @@ async function run(args, env) {
 async function init(args, env) {
   const repoOpt = str(args.flags.repo);
   const ctx = openRepo({ ...repoOpt ? { repo: repoOpt } : {}, ...str(args.flags.graph) ? { graph: str(args.flags.graph) } : {} });
-  const target = ctx.graphDir ?? join15(ctx.root, ".ctx");
+  const target = ctx.graphDir ?? join16(ctx.root, ".ctx");
   const minFiles = str(args.flags["min-files"]);
   const maxModules = str(args.flags["max-modules"]);
   const result = bootstrap(ctx, { ...minFiles ? { minFiles: Number(minFiles) } : {}, ...maxModules ? { maxModules: Number(maxModules) } : {} });
@@ -27968,16 +28367,16 @@ async function init(args, env) {
   }
   if (args.flags.write) {
     mkdirSync5(target, { recursive: true });
-    const graphFile = join15(target, GRAPH_FILE);
-    if (!existsSync17(graphFile)) {
+    const graphFile = join16(target, GRAPH_FILE);
+    if (!existsSync18(graphFile)) {
       const header = `# Context Graph, bootstrapped ${today2} by ctx init. Everything here is a proposal until ratified (ctx ratify).
 `;
       writeFileSync7(graphFile, header + all.map(formatRecord).join("\n") + "\n", "utf8");
-      if (!existsSync17(join15(target, "config.toml"))) writeFileSync7(join15(target, "config.toml"), CONFIG_TEMPLATE, "utf8");
+      if (!existsSync18(join16(target, "config.toml"))) writeFileSync7(join16(target, "config.toml"), CONFIG_TEMPLATE, "utf8");
       console.log(`wrote ${graphFile} (${all.length} records) and config.toml`);
     } else {
-      for (const r of all) appendRecord(join15(target, PROPOSALS_FILE), r);
-      console.log(`appended ${all.length} proposal(s) to ${join15(target, PROPOSALS_FILE)}`);
+      for (const r of all) appendRecord(join16(target, PROPOSALS_FILE), r);
+      console.log(`appended ${all.length} proposal(s) to ${join16(target, PROPOSALS_FILE)}`);
     }
   }
   return 0;
@@ -28019,8 +28418,8 @@ async function pack(args, env) {
     const text = exportPack(g, name, str(args.flags.version) ?? "1");
     const out = str(args.flags.out);
     if (out) {
-      writeFileSync7(resolve7(out), text, "utf8");
-      console.log(`wrote ${resolve7(out)}`);
+      writeFileSync7(resolve9(out), text, "utf8");
+      console.log(`wrote ${resolve9(out)}`);
     } else process.stdout.write(text);
     return 0;
   }
@@ -28082,7 +28481,7 @@ packs = ["auto"]
 
 // src/gate/gate.ts
 import { execFileSync as execFileSync2 } from "node:child_process";
-import { join as join16, relative as relative3 } from "node:path";
+import { join as join17, relative as relative3 } from "node:path";
 function runGate(ctx, opts) {
   const root = ctx.root;
   const graphRel = graphRelativeDir(ctx);
@@ -28333,8 +28732,8 @@ __export(hygiene_exports, {
   retire: () => retire,
   timeline: () => timeline
 });
-import { existsSync as existsSync18, mkdirSync as mkdirSync6, readdirSync as readdirSync4, readFileSync as readFileSync16, writeFileSync as writeFileSync8 } from "node:fs";
-import { basename as basename4, join as join17 } from "node:path";
+import { existsSync as existsSync19, mkdirSync as mkdirSync6, readdirSync as readdirSync4, readFileSync as readFileSync17, writeFileSync as writeFileSync8 } from "node:fs";
+import { basename as basename5, join as join18 } from "node:path";
 function hygieneReport(ctx) {
   const g = ctx.graph;
   if (!g || !ctx.graphDir) throw new Error("no graph");
@@ -28422,7 +28821,7 @@ function retire(ctx, target, reason, succ) {
   const who = `${gitPerson(ctx.root)}/human`;
   const record2 = { kind: "Z", target, date: (/* @__PURE__ */ new Date()).toISOString().slice(0, 10), who, reason, line: 0 };
   if (succ) record2.succ = succ;
-  appendRecord(join17(ctx.graphDir, GRAPH_FILE), record2);
+  appendRecord(join18(ctx.graphDir, GRAPH_FILE), record2);
   const k = g.constraints.get(target);
   const needsTrailer = target.startsWith("C:") || k?.mode === "E";
   return { record: record2, needsTrailer, trailer: `Ctx-Ratified-By: ${gitPerson(ctx.root)}` };
@@ -28434,8 +28833,8 @@ function gc(ctx, opts = {}) {
   const cutoff = now.getTime() - ctx.config.hygiene.archiveAfterDays * 864e5;
   const old = (date3) => new Date(date3).getTime() < cutoff;
   const year = String(now.getFullYear());
-  const archiveDir = join17(ctx.graphDir, "archive");
-  const archiveFile = join17(archiveDir, `${year}.ctx`);
+  const archiveDir = join18(ctx.graphDir, "archive");
+  const archiveFile = join18(archiveDir, `${year}.ctx`);
   const toArchive = [];
   const ids = /* @__PURE__ */ new Set();
   for (const s of g.supersessions) {
@@ -28459,7 +28858,7 @@ function gc(ctx, opts = {}) {
   }
   if (opts.deleted) {
     for (const d of g.decisions.values()) {
-      if (ids.has(d.id) || !isPathId(d.node) || existsSync18(toAbsolute(ctx.root, splitSymbol(d.node).path))) continue;
+      if (ids.has(d.id) || !isPathId(d.node) || existsSync19(toAbsolute(ctx.root, splitSymbol(d.node).path))) continue;
       toArchive.push(d);
       ids.add(d.id);
     }
@@ -28467,8 +28866,8 @@ function gc(ctx, opts = {}) {
   const ttl = ctx.config.hygiene.proposalTtlDays * 864e5;
   const droppedProposals = [];
   const rewrite = (file) => {
-    if (!existsSync18(file)) return;
-    const lines = readFileSync16(file, "utf8").split("\n");
+    if (!existsSync19(file)) return;
+    const lines = readFileSync17(file, "utf8").split("\n");
     const kept = [];
     for (let i = 0; i < lines.length; i++) {
       const raw = lines[i];
@@ -28498,20 +28897,20 @@ function gc(ctx, opts = {}) {
   };
   if (toArchive.length) {
     mkdirSync6(archiveDir, { recursive: true });
-    const header = existsSync18(archiveFile) ? "" : `# archive ${year}: inactive records moved by ctx gc; ids stay resolvable, the walker never reads this file
+    const header = existsSync19(archiveFile) ? "" : `# archive ${year}: inactive records moved by ctx gc; ids stay resolvable, the walker never reads this file
 `;
-    writeFileSync8(archiveFile, (existsSync18(archiveFile) ? readFileSync16(archiveFile, "utf8") : header) + toArchive.map(formatRecord).join("\n") + "\n", "utf8");
+    writeFileSync8(archiveFile, (existsSync19(archiveFile) ? readFileSync17(archiveFile, "utf8") : header) + toArchive.map(formatRecord).join("\n") + "\n", "utf8");
   }
-  for (const f of [join17(ctx.graphDir, DECISIONS_FILE), join17(ctx.graphDir, GRAPH_FILE), join17(ctx.graphDir, "proposals.ctx")]) rewrite(f);
+  for (const f of [join18(ctx.graphDir, DECISIONS_FILE), join18(ctx.graphDir, GRAPH_FILE), join18(ctx.graphDir, "proposals.ctx")]) rewrite(f);
   const res = { archived: [...ids], droppedProposals };
   if (toArchive.length) res.archiveFile = archiveFile;
   return res;
 }
 function loadArchive(graphDir) {
-  const dir = join17(graphDir, "archive");
-  if (!existsSync18(dir)) return [];
+  const dir = join18(graphDir, "archive");
+  if (!existsSync19(dir)) return [];
   const out = [];
-  for (const f of readdirSync4(dir).filter((x) => x.endsWith(".ctx")).sort()) out.push(...parseText(readFileSync16(join17(dir, f), "utf8"), join17(dir, f)));
+  for (const f of readdirSync4(dir).filter((x) => x.endsWith(".ctx")).sort()) out.push(...parseText(readFileSync17(join18(dir, f), "utf8"), join18(dir, f)));
   return out;
 }
 function timeline(ctx, node) {
@@ -28534,11 +28933,11 @@ function timeline(ctx, node) {
   return rows.sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
 }
 function findAdr(root, num) {
-  const files = (git(root, ["ls-files", "--cached", "--others", "--exclude-standard"]) ?? "").split("\n").filter((f2) => /(^|\/)(adr|adrs|decisions)\/[^/]*\.md$/i.test(f2) && basename4(f2).includes(num));
+  const files = (git(root, ["ls-files", "--cached", "--others", "--exclude-standard"]) ?? "").split("\n").filter((f2) => /(^|\/)(adr|adrs|decisions)\/[^/]*\.md$/i.test(f2) && basename5(f2).includes(num));
   const f = files[0];
   if (!f) return void 0;
   try {
-    return { file: f, text: readFileSync16(toAbsolute(root, f), "utf8") };
+    return { file: f, text: readFileSync17(toAbsolute(root, f), "utf8") };
   } catch {
     return void 0;
   }
@@ -32300,16 +32699,16 @@ var init_wrapper = __esm({
 });
 
 // src/overlay/server.ts
-import { createReadStream, existsSync as existsSync19, mkdirSync as mkdirSync7, readdirSync as readdirSync5, readFileSync as readFileSync17, statSync as statSync3, unlinkSync, watch, writeFileSync as writeFileSync9 } from "node:fs";
+import { createReadStream, existsSync as existsSync20, mkdirSync as mkdirSync7, readdirSync as readdirSync5, readFileSync as readFileSync18, statSync as statSync4, unlinkSync, watch, writeFileSync as writeFileSync9 } from "node:fs";
 import { createServer } from "node:http";
-import { extname, join as join18, resolve as resolve8 } from "node:path";
+import { extname, join as join19, resolve as resolve10 } from "node:path";
 async function startServer(opts) {
   const cap = opts.bufferEvents ?? 5e4;
   const retentionMs = (opts.retentionDays ?? 30) * 864e5;
   const repos = /* @__PURE__ */ new Map();
   const clients = /* @__PURE__ */ new Map();
   const providers = /* @__PURE__ */ new Map();
-  const viewDir = opts.viewDir ?? join18(packageRoot(), "view", "dist");
+  const viewDir = opts.viewDir ?? join19(packageRoot(), "view", "dist");
   const state = (hash) => {
     let s = repos.get(hash);
     if (!s) {
@@ -32347,7 +32746,7 @@ async function startServer(opts) {
       }
       if (st.t === "session" && !opts.hosted && !s.root) {
         const cwd = st.p.cwd;
-        if (cwd && existsSync19(cwd)) s.root = findRepoRoot(cwd);
+        if (cwd && existsSync20(cwd)) s.root = findRepoRoot(cwd);
       }
     }
     broadcast(hash, out);
@@ -32357,7 +32756,7 @@ async function startServer(opts) {
   const readNew = (file, hash) => {
     let size;
     try {
-      size = statSync3(file).size;
+      size = statSync4(file).size;
     } catch {
       return;
     }
@@ -32387,12 +32786,12 @@ async function startServer(opts) {
   };
   let watcher;
   if (!opts.hosted) {
-    const obsDir = join18(ctxHome(), "observations");
+    const obsDir = join19(ctxHome(), "observations");
     mkdirSync7(obsDir, { recursive: true });
     for (const hash of readdirSync5(obsDir)) {
-      const dir = join18(obsDir, hash);
-      if (!statSync3(dir).isDirectory()) continue;
-      for (const f of readdirSync5(dir).filter((x) => x.endsWith(".jsonl")).sort((a, b) => statSync3(join18(dir, a)).mtimeMs - statSync3(join18(dir, b)).mtimeMs)) readNew(join18(dir, f), hash);
+      const dir = join19(obsDir, hash);
+      if (!statSync4(dir).isDirectory()) continue;
+      for (const f of readdirSync5(dir).filter((x) => x.endsWith(".jsonl")).sort((a, b) => statSync4(join19(dir, a)).mtimeMs - statSync4(join19(dir, b)).mtimeMs)) readNew(join19(dir, f), hash);
     }
     for (const r of opts.repos ?? []) state(repoHash(r)).root = findRepoRoot(r);
     try {
@@ -32400,7 +32799,7 @@ async function startServer(opts) {
         if (!name || !String(name).endsWith(".jsonl")) return;
         const rel = String(name);
         const hash = rel.split(/[\\/]/)[0];
-        readNew(join18(obsDir, rel), hash);
+        readNew(join19(obsDir, rel), hash);
       });
     } catch {
     }
@@ -32437,7 +32836,7 @@ async function startServer(opts) {
       }
       if (req.method === "POST" && rest === "register") {
         const body = await readBody(req);
-        if (body.root && existsSync19(body.root) && !opts.hosted) s.root = findRepoRoot(body.root);
+        if (body.root && existsSync20(body.root) && !opts.hosted) s.root = findRepoRoot(body.root);
         return sendJson(res, { ok: true, root: s.root ?? null });
       }
       if (req.method === "POST" && rest === "provisional/retire") {
@@ -32484,15 +32883,15 @@ async function startServer(opts) {
       return;
     }
     let file = url.pathname === "/" ? "/index.html" : url.pathname;
-    const abs = join18(viewDir, file);
-    if (existsSync19(abs) && statSync3(abs).isFile()) {
+    const abs = join19(viewDir, file);
+    if (existsSync20(abs) && statSync4(abs).isFile()) {
       res.setHeader("content-type", MIME[extname(abs)] ?? "application/octet-stream");
-      res.end(readFileSync17(abs));
+      res.end(readFileSync18(abs));
       return;
     }
     if (url.pathname === "/" || url.pathname === "/index.html") {
       res.setHeader("content-type", "text/html; charset=utf-8");
-      res.end(`<!doctype html><title>Context Graph</title><body style="font-family:system-ui;padding:2rem;max-width:60ch"><h1>Context Graph server</h1><p>The event server is running on port ${opts.port}${opts.hosted ? " (hosted mode)" : ""}. ${repos.size} repository(ies) known.</p><p>The synapse view has not been built on this machine. From a clone, build it once with:</p><pre>cd ${resolve8(viewDir, "..")} &amp;&amp; npm install &amp;&amp; npm run build</pre><p>The published npm package ships it prebuilt. Reload this page afterwards. The API is live under <code>/v1/</code>.</p></body>`);
+      res.end(`<!doctype html><title>Context Graph</title><body style="font-family:system-ui;padding:2rem;max-width:60ch"><h1>Context Graph server</h1><p>The event server is running on port ${opts.port}${opts.hosted ? " (hosted mode)" : ""}. ${repos.size} repository(ies) known.</p><p>The synapse view has not been built on this machine. From a clone, build it once with:</p><pre>cd ${resolve10(viewDir, "..")} &amp;&amp; npm install &amp;&amp; npm run build</pre><p>The published npm package ships it prebuilt. Reload this page afterwards. The API is live under <code>/v1/</code>.</p></body>`);
       return;
     }
     res.statusCode = 404;
@@ -32527,7 +32926,7 @@ async function startServer(opts) {
   });
   const addr = server.address();
   const port = typeof addr === "object" && addr ? addr.port : opts.port;
-  const serveFile = join18(ctxHome(), "serve.json");
+  const serveFile = join19(ctxHome(), "serve.json");
   const registered = !opts.hosted && opts.register !== false;
   if (registered) {
     mkdirSync7(ctxHome(), { recursive: true });
@@ -32547,7 +32946,7 @@ async function startServer(opts) {
       for (const ws of clients.keys()) ws.close();
       wss.close();
       server.close(() => {
-        if (registered && existsSync19(serveFile)) {
+        if (registered && existsSync20(serveFile)) {
           try {
             unlinkSync(serveFile);
           } catch {
@@ -33071,26 +33470,26 @@ var init_report = __esm({
 
 // src/bench/runner.ts
 import { execFileSync as execFileSync3, spawnSync } from "node:child_process";
-import { copyFileSync, existsSync as existsSync20, mkdirSync as mkdirSync8, readFileSync as readFileSync18, rmSync, writeFileSync as writeFileSync10, appendFileSync as appendFileSync3 } from "node:fs";
-import { join as join19 } from "node:path";
+import { copyFileSync, existsSync as existsSync21, mkdirSync as mkdirSync8, readFileSync as readFileSync19, rmSync, writeFileSync as writeFileSync10, appendFileSync as appendFileSync3 } from "node:fs";
+import { join as join20 } from "node:path";
 async function runBench(ctx, tasks, opts) {
   const log = opts.log ?? (() => void 0);
   const root = ctx.root;
   const stamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-").slice(0, 19);
-  const dir = opts.outDir ?? join19(ctx.graphDir && !ctx.graphDir.startsWith(root) ? ctx.graphDir : join19(root, ".ctx"), "bench", "results", stamp);
+  const dir = opts.outDir ?? join20(ctx.graphDir && !ctx.graphDir.startsWith(root) ? ctx.graphDir : join20(root, ".ctx"), "bench", "results", stamp);
   mkdirSync8(dir, { recursive: true });
-  const runsFile = join19(dir, "runs.jsonl");
+  const runsFile = join20(dir, "runs.jsonl");
   const selected = opts.tasks?.length ? tasks.filter((t) => opts.tasks.includes(t.id)) : tasks;
   if (!selected.length) throw new Error("no tasks selected");
-  writeFileSync10(join19(dir, "meta.json"), JSON.stringify({ startedAt: (/* @__PURE__ */ new Date()).toISOString(), repo: root, harness: opts.harness, arms: opts.arms, runs: opts.runs, tasks: selected.map((t) => t.id) }, null, 2));
+  writeFileSync10(join20(dir, "meta.json"), JSON.stringify({ startedAt: (/* @__PURE__ */ new Date()).toISOString(), repo: root, harness: opts.harness, arms: opts.arms, runs: opts.runs, tasks: selected.map((t) => t.id) }, null, 2));
   const records = [];
-  const wtRoot = join19(ctxHome(), "bench", repoHash(root));
+  const wtRoot = join20(ctxHome(), "bench", repoHash(root));
   mkdirSync8(wtRoot, { recursive: true });
   for (const task of selected) {
     for (const arm of opts.arms) {
       for (let run6 = 1; run6 <= opts.runs; run6++) {
         const label = `${task.id} ${arm} #${run6}`;
-        const wt = join19(wtRoot, `${task.id}-${arm}-${run6}`);
+        const wt = join20(wtRoot, `${task.id}-${arm}-${run6}`);
         rmWorktree(root, wt);
         log(`${label}: worktree at ${task.base}`);
         execFileSync3("git", ["worktree", "add", "--detach", "-f", wt, task.base], { cwd: root, stdio: "ignore" });
@@ -33109,7 +33508,7 @@ async function runBench(ctx, tasks, opts) {
           const check2 = spawnSync("sh", ["-c", task.check], { cwd: wt, encoding: "utf8", timeout: opts.timeoutMs ?? 10 * 6e4, env: { ...process.env, CI: "1" } });
           rec.checkExit = check2.status;
           rec.passed = check2.status === 0;
-          writeFileSync10(join19(dir, `${task.id}-${arm}-${run6}.check.log`), `${check2.stdout ?? ""}
+          writeFileSync10(join20(dir, `${task.id}-${arm}-${run6}.check.log`), `${check2.stdout ?? ""}
 ${check2.stderr ?? ""}`);
           if (h.session) collectMetrics(rec, new ObservationStore(wt, h.session).readAll().length ? new ObservationStore(wt, h.session) : new ObservationStore(root, h.session));
         } catch (e) {
@@ -33129,26 +33528,26 @@ ${check2.stderr ?? ""}`);
 function prepareArm(ctx, task, arm, wt, harness) {
   const env = { ...process.env, CLAUDE_PROJECT_DIR: wt };
   delete env.CTX_GRAPH_DIR;
-  const inTree = join19(wt, ".ctx");
+  const inTree = join20(wt, ".ctx");
   if (arm === "A") {
-    if (existsSync20(inTree)) rmSync(inTree, { recursive: true, force: true });
+    if (existsSync21(inTree)) rmSync(inTree, { recursive: true, force: true });
     env.CTX_GRAPH_DIR = "";
     delete env.CTX_GRAPH_DIR;
     return env;
   }
-  const snapshotDir = join19(wt, ".ctx-bench");
+  const snapshotDir = join20(wt, ".ctx-bench");
   mkdirSync8(snapshotDir, { recursive: true });
-  const graphDir = existsSync20(join19(inTree, "graph.ctx")) ? inTree : ctx.graphDir;
+  const graphDir = existsSync21(join20(inTree, "graph.ctx")) ? inTree : ctx.graphDir;
   if (!graphDir) throw new Error("no graph to snapshot for arm " + arm);
   const baseDate = git(ctx.root, ["show", "-s", "--format=%cI", task.base]) ?? "";
   if (!baseDate) throw new Error(`cannot date base commit ${task.base}`);
   const cut = new Date(baseDate).getTime();
-  for (const f of ["graph.ctx", "aliases.ctx", "proposals.ctx"]) if (existsSync20(join19(graphDir, f))) copyFileSync(join19(graphDir, f), join19(snapshotDir, f));
-  const decisionsFile = join19(graphDir, "decisions.ctx");
+  for (const f of ["graph.ctx", "aliases.ctx", "proposals.ctx"]) if (existsSync21(join20(graphDir, f))) copyFileSync(join20(graphDir, f), join20(snapshotDir, f));
+  const decisionsFile = join20(graphDir, "decisions.ctx");
   const kept = [];
   let dropped = 0;
-  if (existsSync20(decisionsFile)) {
-    const recs = parseText(readFileSync18(decisionsFile, "utf8"), decisionsFile);
+  if (existsSync21(decisionsFile)) {
+    const recs = parseText(readFileSync19(decisionsFile, "utf8"), decisionsFile);
     const keptIds = /* @__PURE__ */ new Set();
     for (const r of recs) {
       if (r.kind === "D") {
@@ -33164,20 +33563,20 @@ function prepareArm(ctx, task, arm, wt, harness) {
       } else kept.push(formatRecord(r));
     }
   }
-  writeFileSync10(join19(snapshotDir, "decisions.ctx"), `# temporal cut at ${task.base} (${baseDate}); ${dropped} later decision(s) excluded
+  writeFileSync10(join20(snapshotDir, "decisions.ctx"), `# temporal cut at ${task.base} (${baseDate}); ${dropped} later decision(s) excluded
 ` + kept.join("\n") + (kept.length ? "\n" : ""));
-  const cfg = existsSync20(join19(graphDir, "config.toml")) ? readFileSync18(join19(graphDir, "config.toml"), "utf8") : "";
+  const cfg = existsSync21(join20(graphDir, "config.toml")) ? readFileSync19(join20(graphDir, "config.toml"), "utf8") : "";
   const sliceOn = arm === "C";
-  writeFileSync10(join19(snapshotDir, "config.toml"), cfg.replace(/^\s*enabled\s*=.*$/m, "") + `
+  writeFileSync10(join20(snapshotDir, "config.toml"), cfg.replace(/^\s*enabled\s*=.*$/m, "") + `
 [slice]
 enabled = ${sliceOn}
 `, "utf8");
   env.CTX_GRAPH_DIR = snapshotDir;
-  if (existsSync20(inTree)) rmSync(inTree, { recursive: true, force: true });
+  if (existsSync21(inTree)) rmSync(inTree, { recursive: true, force: true });
   if (arm === "B") {
     const g = Graph.load(snapshotDir);
-    const file = join19(wt, harness === "codex" ? "AGENTS.md" : "CLAUDE.md");
-    const prior = existsSync20(file) ? readFileSync18(file, "utf8") : "";
+    const file = join20(wt, harness === "codex" ? "AGENTS.md" : "CLAUDE.md");
+    const prior = existsSync21(file) ? readFileSync19(file, "utf8") : "";
     writeFileSync10(file, prior + "\n\n" + renderWholeGraph(g), "utf8");
   }
   return env;
@@ -33195,8 +33594,8 @@ function renderWholeGraph(g) {
   return lines.join("\n") + "\n";
 }
 function adapterDir(name) {
-  const dir = join19(packageRoot(), "adapters", name);
-  if (!existsSync20(dir)) throw new Error(`adapter directory not found at ${dir}; the benchmark needs the full package or a clone`);
+  const dir = join20(packageRoot(), "adapters", name);
+  if (!existsSync21(dir)) throw new Error(`adapter directory not found at ${dir}; the benchmark needs the full package or a clone`);
   return dir;
 }
 function runHarness(opts, task, wt, env, session, log) {
@@ -33267,7 +33666,7 @@ function collectMetrics(rec, store) {
   });
 }
 function rmWorktree(root, wt) {
-  if (!existsSync20(wt)) return;
+  if (!existsSync21(wt)) return;
   try {
     execFileSync3("git", ["worktree", "remove", "--force", wt], { cwd: root, stdio: "ignore" });
   } catch {
@@ -33296,13 +33695,13 @@ var cli_exports5 = {};
 __export(cli_exports5, {
   run: () => run5
 });
-import { existsSync as existsSync21, mkdirSync as mkdirSync9, readFileSync as readFileSync19, readdirSync as readdirSync6, writeFileSync as writeFileSync11 } from "node:fs";
-import { join as join20, resolve as resolve9 } from "node:path";
+import { existsSync as existsSync22, mkdirSync as mkdirSync9, readFileSync as readFileSync20, readdirSync as readdirSync6, writeFileSync as writeFileSync11 } from "node:fs";
+import { join as join21, resolve as resolve11 } from "node:path";
 async function run5(args, env) {
   const sub = args.positional[0];
   const ctx = openFromArgs(args);
-  const benchDir = ctx.graphDir && !ctx.graphDir.startsWith(ctx.root) ? join20(ctx.graphDir, "bench") : join20(ctx.root, ".ctx", "bench");
-  const corpusFile = str(args.flags.corpus) ?? join20(benchDir, "tasks.ctx");
+  const benchDir = ctx.graphDir && !ctx.graphDir.startsWith(ctx.root) ? join21(ctx.graphDir, "bench") : join21(ctx.root, ".ctx", "bench");
+  const corpusFile = str(args.flags.corpus) ?? join21(benchDir, "tasks.ctx");
   if (sub === "corpus") {
     const { tasks, skipped } = proposeCorpus(ctx, { ...str(args.flags.since) ? { since: str(args.flags.since) } : {}, ...str(args.flags.limit) ? { limit: Number(str(args.flags.limit)) } : {}, ...str(args.flags["test-command"]) ? { testCommand: str(args.flags["test-command"]) } : {} });
     if (env.json) {
@@ -33319,8 +33718,8 @@ async function run5(args, env) {
     return 0;
   }
   if (sub === "run") {
-    if (!existsSync21(corpusFile)) throw new Error(`no corpus at ${corpusFile}; run ctx bench corpus --write first`);
-    const tasks = parseCorpus(readFileSync19(corpusFile, "utf8"));
+    if (!existsSync22(corpusFile)) throw new Error(`no corpus at ${corpusFile}; run ctx bench corpus --write first`);
+    const tasks = parseCorpus(readFileSync20(corpusFile, "utf8"));
     const arms = (str(args.flags.arms) ?? "A,C").split(",").map((a) => a.trim().toUpperCase());
     for (const a of arms) if (!["A", "B", "C"].includes(a)) throw new Error(`unknown arm ${a}`);
     const harness = str(args.flags.harness) ?? "claude";
@@ -33333,15 +33732,15 @@ async function run5(args, env) {
       ...str(args.flags.command) ? { command: str(args.flags.command) } : {},
       ...str(args.flags.tasks) ? { tasks: str(args.flags.tasks).split(",") } : {},
       ...str(args.flags.timeout) ? { timeoutMs: Number(str(args.flags.timeout)) * 1e3 } : {},
-      ...str(args.flags.out) ? { outDir: resolve9(str(args.flags.out)) } : {},
+      ...str(args.flags.out) ? { outDir: resolve11(str(args.flags.out)) } : {},
       keepWorktrees: args.flags.keep === true,
       log: (s) => {
         if (!env.json) console.log(s);
       }
     });
     const report = buildReport(r.records);
-    writeFileSync11(join20(r.dir, "report.md"), formatReport(report), "utf8");
-    writeFileSync11(join20(r.dir, "report.json"), JSON.stringify(report, null, 2), "utf8");
+    writeFileSync11(join21(r.dir, "report.md"), formatReport(report), "utf8");
+    writeFileSync11(join21(r.dir, "report.json"), JSON.stringify(report, null, 2), "utf8");
     if (env.json) console.log(JSON.stringify({ dir: r.dir, report }, null, 2));
     else {
       console.log("");
@@ -33353,12 +33752,12 @@ async function run5(args, env) {
   if (sub === "report") {
     let dir = str(args.flags.dir);
     if (!dir) {
-      const results = join20(benchDir, "results");
-      const runs = existsSync21(results) ? readdirSync6(results).sort() : [];
+      const results = join21(benchDir, "results");
+      const runs = existsSync22(results) ? readdirSync6(results).sort() : [];
       if (!runs.length) throw new Error(`no results under ${results}`);
-      dir = join20(results, runs[runs.length - 1]);
+      dir = join21(results, runs[runs.length - 1]);
     }
-    const records = readFileSync19(join20(dir, "runs.jsonl"), "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
+    const records = readFileSync20(join21(dir, "runs.jsonl"), "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
     const report = buildReport(records);
     if (env.json) console.log(JSON.stringify(report, null, 2));
     else console.log(formatReport(report));
@@ -33410,8 +33809,8 @@ var init_commands = __esm({
 });
 
 // src/cli/main.ts
-import { existsSync as existsSync22, lstatSync, mkdirSync as mkdirSync10, readFileSync as readFileSync20, symlinkSync, unlinkSync as unlinkSync2 } from "node:fs";
-import { join as join21, resolve as resolve10 } from "node:path";
+import { existsSync as existsSync23, lstatSync, mkdirSync as mkdirSync10, readFileSync as readFileSync21, symlinkSync, unlinkSync as unlinkSync2 } from "node:fs";
+import { join as join22, resolve as resolve12 } from "node:path";
 function parseArgs(argv) {
   const positional = [];
   const flags = {};
@@ -33436,8 +33835,8 @@ function str(v) {
   return typeof v === "string" ? v : void 0;
 }
 function readInput(arg) {
-  if (!arg || arg === "-") return readFileSync20(0, "utf8");
-  return readFileSync20(arg, "utf8");
+  if (!arg || arg === "-") return readFileSync21(0, "utf8");
+  return readFileSync21(arg, "utf8");
 }
 function latestSession(root) {
   return ObservationStore.sessions(root)[0]?.session;
@@ -33489,6 +33888,20 @@ async function main() {
       else {
         console.log(s.text);
         for (const m of s.warnings) console.error(`warning: ${m}`);
+      }
+      return 0;
+    }
+    case "hydrate": {
+      const ctx = openFromArgs(args);
+      needGraph(ctx);
+      const scope = args.positional.join(" ").trim();
+      if (!scope) throw new Error("ctx hydrate <file | L:module | C:concept | task description>");
+      const budget = args.flags.budget !== void 0 ? Number(args.flags.budget) : void 0;
+      const h = await hydrate(ctx, scope, { ...budget ? { budget } : {}, record: args.flags["no-record"] !== true, cwd: process.cwd() });
+      if (json) console.log(JSON.stringify(h, null, 2));
+      else {
+        console.log(h.text);
+        if (h.dropped.length) console.error(`dropped under budget: ${h.dropped.join(", ")}`);
       }
       return 0;
     }
@@ -33620,7 +34033,7 @@ async function main() {
     case "replay": {
       const file = args.positional[0];
       if (!file) throw new Error("ctx replay <transcript.jsonl> [--harness auto|claude-code|codex]");
-      const r = await replayTranscript(resolve10(file), { ...str(args.flags.repo) ? { repo: str(args.flags.repo) } : {}, ...str(args.flags.graph) ? { graph: str(args.flags.graph) } : {}, ...str(args.flags.harness) ? { harness: str(args.flags.harness) } : {} });
+      const r = await replayTranscript(resolve12(file), { ...str(args.flags.repo) ? { repo: str(args.flags.repo) } : {}, ...str(args.flags.graph) ? { graph: str(args.flags.graph) } : {}, ...str(args.flags.harness) ? { harness: str(args.flags.harness) } : {} });
       if (json) console.log(JSON.stringify(r, null, 2));
       else {
         console.log(`${r.harness} session ${r.session}: ${r.events} events, ${r.edits} edits, ${r.coverage} coverage records${r.cliVersion ? `, cli ${r.cliVersion}` : ""}
@@ -33644,12 +34057,12 @@ async function main() {
       const graph = str(args.flags.graph);
       if (!graph) throw new Error("ctx link --graph <dir> [--repo <dir>]");
       const ctx = openRepo({ ...str(args.flags.repo) ? { repo: str(args.flags.repo) } : {} });
-      const target = resolve10(graph);
-      if (!existsSync22(join21(target, "graph.ctx"))) throw new Error(`${target} has no graph.ctx`);
-      const linkDir = join21(ctxHome(), "graphs");
+      const target = resolve12(graph);
+      if (!existsSync23(join22(target, "graph.ctx"))) throw new Error(`${target} has no graph.ctx`);
+      const linkDir = join22(ctxHome(), "graphs");
       mkdirSync10(linkDir, { recursive: true });
-      const link = join21(linkDir, repoHash(ctx.root));
-      if (existsSync22(link) || isSymlink(link)) unlinkSync2(link);
+      const link = join22(linkDir, repoHash(ctx.root));
+      if (existsSync23(link) || isSymlink(link)) unlinkSync2(link);
       symlinkSync(target, link);
       console.log(`${ctx.root}
   -> ${target}
@@ -33744,6 +34157,7 @@ var init_main = __esm({
     init_context();
     init_embed();
     init_provider();
+    init_hydrate();
     init_install();
     init_server3();
     init_event();
@@ -33763,6 +34177,7 @@ var init_main = __esm({
 
 Graph
   ctx slice <path> [--symbol name]                 slice injected before an edit
+  ctx hydrate <scope> [--budget n] [--no-record]  one briefing: slices, callers with usage lines, rules with history, session state
   ctx slice-patch <file|->                         slices for every file in a patch
   ctx applies <path>                               the applicable set, as ids
   ctx why <node>                                   active decisions and constraints on a node

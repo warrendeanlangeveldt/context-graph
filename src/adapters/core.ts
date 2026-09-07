@@ -1,4 +1,5 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { openRepo, type RepoContext } from '../core/context.js';
 import { callersOf, loadOrBuildImportIndex } from '../index/imports.js';
 import { enclosingSymbol, lineRangeOf } from '../index/symbols.js';
@@ -12,6 +13,7 @@ import { renderSlice } from '../walker/slice.js';
 import { walk, type WalkResult } from '../walker/walk.js';
 import { liveLinesFor, notifyOverlay } from '../overlay/client.js';
 import { hintsFor } from '../embed/hints.js';
+import { hydrate } from '../hydrate/hydrate.js';
 
 /**
  * Harness-agnostic hook core (design spec §15.3). A profile supplies what differs per harness:
@@ -35,6 +37,7 @@ export interface HookInput {
   stop_hook_active?: boolean;
   last_assistant_message?: string;
   trigger?: string;
+  prompt?: string;
 }
 
 export interface HookOutput { stdout?: string; exitCode: number }
@@ -65,6 +68,8 @@ export interface HarnessProfile {
   formatSessionStart(text: string): string;
   formatPreToolUse(context: string): string;
   formatStopBlock(reason: string): string;
+  /** Context added to a user prompt before the model sees it (prompt-time hydrate). */
+  formatPromptContext(context: string): string;
 }
 
 export async function runHook(input: HookInput, profile: HarnessProfile): Promise<HookOutput> {
@@ -215,6 +220,21 @@ export async function runHook(input: HookInput, profile: HarnessProfile): Promis
     return { exitCode: 0 };
   }
 
+  if (event === 'UserPromptSubmit') {
+    if (!injecting || !ctx.graph || !ctx.config.hydrateOnPrompt) return { exitCode: 0 };
+    const scopes = promptScopes(ctx, String(input.prompt ?? ''), input.cwd);
+    if (!scopes.length) return { exitCode: 0 };
+    const blocks: string[] = [];
+    for (const scope of scopes.slice(0, 2)) {
+      try {
+        const h = await hydrate(ctx, scope, { budget: Math.floor(ctx.config.hydrateBudget / Math.min(scopes.length, 2)), session, who: meta.who, branch: meta.branch, harness: meta.harness, cwd: input.cwd });
+        blocks.push(h.text);
+      } catch { /* a scope that fails to resolve is not worth blocking the prompt for */ }
+    }
+    if (!blocks.length) return { exitCode: 0 };
+    return { stdout: profile.formatPromptContext(blocks.join('\n\n')), exitCode: 0 };
+  }
+
   if (event === 'Interrupt') {
     const pending = Object.keys(state.data.pending);
     if (pending.length) store.append(envelope('finding', meta, { rule: 'interrupted', message: `turn interrupted with ${pending.length} node(s) owing a decision: ${pending.join(', ')}` }));
@@ -281,6 +301,24 @@ function intentOf(ti: Record<string, unknown>): string | undefined {
   return undefined;
 }
 
+/** Files and module ids a prompt names outright. Only those: guessing from prose belongs to an explicit hydrate call. */
+export function promptScopes(ctx: RepoContext, prompt: string, cwd: string): string[] {
+  const g = ctx.graph;
+  if (!g) return [];
+  const out: string[] = [];
+  for (const raw of prompt.split(/[\s,;()"'`]+/)) {
+    const tok = raw.replace(/[:.]+$/, '');
+    if (!tok) continue;
+    if ((tok.startsWith('L:') && g.logicals.has(tok)) || (tok.startsWith('C:') && g.concepts.has(tok))) { if (!out.includes(tok)) out.push(tok); continue; }
+    if (!/[\/.]/.test(tok) || /^https?:/.test(tok)) continue;
+    const abs = tok.startsWith('/') ? tok : resolve(cwd, tok);
+    if (!existsSync(abs) || !statSync(abs).isFile()) continue;
+    const rel = toRepoRelative(ctx.root, abs, cwd);
+    if (!out.includes(rel)) out.push(rel);
+  }
+  return out;
+}
+
 /** Plain text added to the session at start (design spec §15.1). Small: aliases, modules, how to record. */
 export function sessionContext(ctx: RepoContext, injecting: boolean, afterCompact: boolean): string {
   const g = ctx.graph;
@@ -290,7 +328,7 @@ export function sessionContext(ctx: RepoContext, injecting: boolean, afterCompac
   const lines: string[] = [];
   lines.push(
     injecting
-      ? `Context Graph is active for this repository${afterCompact ? ' (context was compacted; slices will re-arrive at each edit)' : ''}. A context slice is injected before each file edit made with the edit tools. Before editing a file through the shell, run: ctx slice <path>. When a turn ends with edited files that carry constraints, you will be asked to record one decision per file (MCP tool: record; shell: ctx record).`
+      ? `Context Graph is active for this repository${afterCompact ? ' (context was compacted; slices will re-arrive at each edit)' : ''}. A context slice is injected before each file edit made with the edit tools. Before editing a file through the shell, run: ctx slice <path>. Before working on a file, module, or task you have not read this session, call the MCP tool hydrate (shell: ctx hydrate <scope>): it returns the slice, the callers with the lines that use the file, the rules with their decision history, and what this session already holds, in one bounded briefing. When a turn ends with edited files that carry constraints, you will be asked to record one decision per file (MCP tool: record; shell: ctx record).`
       : 'Context Graph: observe-only for this session. Reads and edits are recorded; nothing is injected and no decisions are demanded.',
   );
   const aliases = [...g.aliases.values()];

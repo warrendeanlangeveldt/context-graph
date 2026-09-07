@@ -7,6 +7,8 @@ default_branch = "main"
 enabled = true            # true | false (observe-only) | "random:0.5"
 max_tokens = 300
 max_decisions = 4
+hydrate_on_prompt = false # true: hydrate the files and module ids a prompt names before the model sees it (hydrate_budget bounds it)
+hydrate_budget = 1500
 
 [record]
 max_blocks = 2

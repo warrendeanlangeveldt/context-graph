@@ -35,6 +35,7 @@ export function claudeProfile(agent = 'claude'): HarnessProfile {
     formatSessionStart: (text) => text,
     formatPreToolUse: (context) => JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: context } }),
     formatStopBlock: (reason) => JSON.stringify({ decision: 'block', reason }),
+    formatPromptContext: (context) => context,
   };
 }
 
