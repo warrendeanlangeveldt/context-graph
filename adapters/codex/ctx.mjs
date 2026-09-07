@@ -32602,15 +32602,20 @@ function snapshot(s) {
     }
   };
   const g = ctx.graph;
+  const decisionCount = (node) => g ? [...g.decisions.values()].filter((d) => d.node.split("#")[0] === node && g.isActiveDecision(d)).length : 0;
   if (g) {
-    for (const l of g.logicals.values()) add({ id: l.id, kind: "module", label: l.name, size: 1 });
-    for (const c of g.concepts.values()) if (!c.proposed) add({ id: c.id, kind: "concept", label: c.name, size: 1 });
+    for (const l of g.logicals.values()) {
+      const parent = g.parentsOf(l.id)[0];
+      add({ id: l.id, kind: "module", label: l.name, size: 1, constraints: g.constraintsOn(l.id).map((k) => ({ id: k.id, mode: k.mode, text: k.text })), decisions: decisionCount(l.id), ...parent ? { parent } : {} });
+    }
+    for (const c of g.concepts.values()) if (!c.proposed) add({ id: c.id, kind: "concept", label: c.name, size: 1, constraints: g.constraintsOn(c.id).map((k) => ({ id: k.id, mode: k.mode, text: k.text })) });
     for (const e of g.edges) if (!e.proposed && (e.rel === "in" || e.rel === "impl") && seen.has(e.from) && seen.has(e.to)) links.push({ source: e.from, target: e.to, rel: e.rel });
   }
   const files = Object.keys(index.imports);
   for (const f of files) {
     const m = g?.mapPath(f)?.logical;
-    add({ id: f, kind: "file", label: f.split("/").pop() ?? f, size: Math.max(1, Math.min(8, (index.imports[f]?.length ?? 0) / 2 + 1)), ...m ? { module: m } : {} });
+    const own = g?.constraintsOn(f) ?? [];
+    add({ id: f, kind: "file", label: f.split("/").pop() ?? f, size: Math.max(1, Math.min(8, (index.imports[f]?.length ?? 0) / 2 + 1)), ...m ? { module: m } : {}, ...own.length ? { constraints: own.map((k) => ({ id: k.id, mode: k.mode, text: k.text })) } : {}, decisions: decisionCount(f) });
     if (m && seen.has(m)) {
       const mod = nodes.find((n) => n.id === m);
       if (mod) mod.size += 1;
