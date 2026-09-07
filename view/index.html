@@ -5,43 +5,67 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Context Graph</title>
   <style>
-    :root { --bg: #f2f4f7; --panel: #ffffff; --ink: #18202b; --muted: #5a6675; --line: #d6dde5; --accent: #0e6b70; --warm: #a85f14; --hot: #c2413b; --field: #ffffff; }
-    [data-theme="dark"] { --bg: #151b24; --panel: #1b222d; --ink: #e8edf3; --muted: #9aa6b5; --line: #2c3746; --accent: #5fd3d8; --warm: #f0b25c; --hot: #ff7b7b; --field: #10161e; }
+    :root { --bg: #f2f4f7; --panel: #ffffff; --ink: #18202b; --muted: #5a6675; --line: #d6dde5; --accent: #0e6b70; --warm: #a85f14; --hot: #c2413b; --good: #2f7d4f; --field: #ffffff; }
+    [data-theme="dark"] { --bg: #151b24; --panel: #1b222d; --ink: #e8edf3; --muted: #9aa6b5; --line: #2c3746; --accent: #5fd3d8; --warm: #f0b25c; --hot: #ff7b7b; --good: #7ad39a; --field: #10161e; }
     * { box-sizing: border-box; }
     html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font: 13px/1.45 "IBM Plex Sans", system-ui, sans-serif; }
-    #app { display: grid; grid-template-rows: auto auto 1fr; grid-template-columns: minmax(0, 1fr) 400px; height: 100%; }
-    header, #controls { grid-column: 1 / -1; display: flex; gap: 10px; align-items: center; padding: 6px 12px; border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; }
+    #app { display: grid; grid-template-rows: auto auto auto auto 1fr; grid-template-columns: minmax(0, 1fr) 420px; height: 100%; }
+    header, #controls, #headline, #timeline { grid-column: 1 / -1; display: flex; gap: 10px; align-items: center; padding: 6px 12px; border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; }
     header .title { font-weight: 600; letter-spacing: 0.02em; margin-right: 6px; }
     select, button, input[type=search], input[type=range] { background: var(--field); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 4px 8px; font: inherit; }
     input[type=range] { padding: 0; height: 26px; }
     button { cursor: pointer; }
     button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
     label { color: var(--muted); display: inline-flex; gap: 6px; align-items: center; white-space: nowrap; }
-    #time { width: 240px; }
     #status { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+    #headline { gap: 18px; padding: 8px 12px; }
+    .stat { display: inline-flex; flex-direction: column; line-height: 1.15; min-width: 84px; }
+    .stat b { font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; }
+    .stat span { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+    .stat.bad b { color: var(--hot); }
+    .stat.good b { color: var(--good); }
+    .stat.warn b { color: var(--warm); }
+    #headline .note { color: var(--muted); margin-left: auto; max-width: 48ch; text-wrap: pretty; }
+    #timeline { padding: 4px 12px; gap: 8px; }
+    #timeline canvas { flex: 1; height: 34px; min-width: 0; cursor: crosshair; border-radius: 3px; }
+    #timeline .tl-label { color: var(--muted); font-size: 11px; white-space: nowrap; }
     #canvas { position: relative; min-width: 0; overflow: hidden; }
     #graph { position: absolute; inset: 0; }
-    #legend { position: absolute; left: 12px; bottom: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; font-size: 12px; color: var(--muted); display: flex; gap: 12px; flex-wrap: wrap; }
-    #legend span { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
+    #legend { position: absolute; left: 12px; bottom: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; font-size: 12px; color: var(--muted); display: flex; gap: 6px; flex-wrap: wrap; max-width: calc(100% - 24px); }
+    #legend button { display: inline-flex; align-items: center; gap: 6px; border: 1px solid transparent; background: transparent; color: var(--muted); padding: 3px 8px; border-radius: 12px; }
+    #legend button:hover { border-color: var(--line); }
+    #legend button[aria-pressed="true"] { border-color: var(--accent); color: var(--ink); }
+    #legend button i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
+    #legend button b { font-weight: 500; color: var(--ink); font-variant-numeric: tabular-nums; }
+    #lens { position: absolute; right: 12px; top: 12px; background: var(--panel); border: 1px solid var(--accent); border-radius: 6px; padding: 8px 10px; font-size: 12px; max-width: 46ch; }
+    #lens b { display: block; margin-bottom: 4px; }
+    #lens button { margin-top: 6px; }
     aside { position: relative; z-index: 1; border-left: 1px solid var(--line); background: var(--panel); overflow: auto; padding: 10px 12px; min-width: 0; }
-    aside h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 10px 0 6px; }
+    aside h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 12px 0 6px; display: flex; align-items: center; gap: 8px; }
+    aside h2 label { font-size: 11px; text-transform: none; letter-spacing: 0; margin-left: auto; }
     table { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
     th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
     th { color: var(--muted); font-weight: 500; }
     tr { cursor: pointer; }
     tr.selected td { background: color-mix(in srgb, var(--accent) 14%, transparent); }
-    td.path { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    tr.risky td:first-child { box-shadow: inset 3px 0 0 var(--hot); }
+    td.path { max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .pill { display: inline-block; padding: 0 6px; border-radius: 10px; font-size: 11px; border: 1px solid var(--line); color: var(--muted); }
     .pill.on { border-color: var(--accent); color: var(--accent); }
     .pill.dark { border-color: var(--hot); color: var(--hot); }
-    #evolution { padding-left: 0; list-style: none; margin: 0; }
-    #evolution li { margin: 6px 0; color: var(--muted); }
-    #evolution li b { color: var(--ink); font-weight: 500; }
-    #detail { white-space: pre-wrap; font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 11.5px; color: var(--ink); background: var(--field); border: 1px solid var(--line); border-radius: 4px; padding: 8px; max-height: 240px; overflow: auto; }
+    .pill.good { border-color: var(--good); color: var(--good); }
+    #findings, #evolution { padding-left: 0; list-style: none; margin: 0; }
+    #findings li, #evolution li { margin: 6px 0; color: var(--muted); }
+    #findings li b, #evolution li b { color: var(--ink); font-weight: 500; }
+    #findings li i { font-style: normal; color: var(--hot); }
+    #findings li.ok i { color: var(--good); }
+    #findings li.warn i { color: var(--warm); }
+    #detail { white-space: pre-wrap; font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 11.5px; color: var(--ink); background: var(--field); border: 1px solid var(--line); border-radius: 4px; padding: 8px; max-height: 280px; overflow: auto; }
     #empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); pointer-events: none; }
     #empty[hidden] { display: none; }
+    [hidden] { display: none !important; }
     @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
-    @media (max-width: 1000px) { #app { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto 1fr 40vh; } aside { border-left: 0; border-top: 1px solid var(--line); } }
+    @media (max-width: 1000px) { #app { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto auto auto 1fr 40vh; } aside { border-left: 0; border-top: 1px solid var(--line); } }
   </style>
 </head>
 <body>
@@ -51,7 +75,7 @@
       <label>repo <select id="repo"></select></label>
       <label>session <select id="session"><option value="">all sessions</option></select></label>
       <label>time <input id="time" type="range" min="0" max="0" value="0"><span id="timeLabel">live</span></label>
-      <button id="play" title="replay the session from the scrubber position">play</button>
+      <button id="play" title="replay from the scrubber position">play</button>
       <label>speed <select id="speed"><option value="5">5×</option><option value="20" selected>20×</option><option value="100">100×</option></select></label>
       <button id="live" aria-pressed="true">live</button>
       <span id="status">connecting</span>
@@ -62,21 +86,41 @@
       <label>files <select id="files"><option value="touched" selected>touched only</option><option value="all">all</option></select></label>
       <label>labels <select id="labels"><option value="modules" selected>modules</option><option value="lit">modules and lit files</option><option value="all">all</option><option value="none">none</option></select></label>
       <label>links <select id="links"><option value="containment" selected>containment</option><option value="imports">imports</option><option value="both">both</option><option value="none">none</option></select></label>
+      <label>colour <select id="colour"><option value="mode" selected>by access mode</option><option value="session">by session</option></select></label>
       <label>size <input id="size" type="range" min="0.5" max="3" step="0.1" value="1.4"></label>
       <button id="bloom" aria-pressed="false">glow</button>
       <button id="freeze" aria-pressed="false">freeze layout</button>
       <button id="fit">fit</button>
       <button id="theme">light theme</button>
-      <input id="search" type="search" placeholder="find a file or module…" size="28">
+      <input id="search" type="search" placeholder="find a file or module…" size="26">
+    </div>
+    <div id="headline">
+      <div class="stat"><b id="h-edits">0</b><span>edits</span></div>
+      <div class="stat" id="h-slice-wrap"><b id="h-slice">0%</b><span>with a slice</span></div>
+      <div class="stat" id="h-callers-wrap"><b id="h-callers">–</b><span>callers in context</span></div>
+      <div class="stat" id="h-dark-wrap"><b id="h-dark">0</b><span>edits, callers all dark</span></div>
+      <div class="stat" id="h-decisions-wrap"><b id="h-decisions">0</b><span>decisions</span></div>
+      <div class="stat"><b id="h-reach">0</b><span>reaches</span></div>
+      <div class="stat" id="h-compact-wrap"><b id="h-compact">0</b><span>compactions</span></div>
+      <div class="stat"><b id="h-reads">0</b><span>reads</span></div>
+      <p class="note" id="h-note"></p>
+    </div>
+    <div id="timeline">
+      <span class="tl-label" id="tl-start"></span>
+      <canvas id="tl" height="34"></canvas>
+      <span class="tl-label" id="tl-end"></span>
     </div>
     <main id="canvas"><div id="graph"></div><div id="empty" hidden>no graph for this repository yet: start a session in it, or POST /v1/&lt;hash&gt;/register</div>
-      <div id="legend"><span style="background:#5fd3d8"></span>read in full <span style="background:#3fa3a8"></span>range <span style="background:#7a8aa0"></span>grep or name <span style="background:#f0b25c"></span>edited <span style="background:#ff7b7b"></span>applicable, never loaded <span style="background:#9b8cff"></span>module <span style="background:#c9a3ff"></span>concept</div>
+      <div id="lens" hidden><b id="lens-title"></b><span id="lens-text"></span><br><button id="lens-off">clear lens</button></div>
+      <div id="legend"></div>
     </main>
     <aside>
-      <h2>Edits and coverage</h2>
-      <table id="coverage"><thead><tr><th>file</th><th>slice</th><th>callers</th><th>dark</th></tr></thead><tbody></tbody></table>
+      <h2>What happened <label><input id="findingsAll" type="checkbox"> all findings</label></h2>
+      <ul id="findings"></ul>
+      <h2>Edits, worst first <label><input id="risky" type="checkbox" checked> risky only</label></h2>
+      <table id="coverage"><thead><tr><th>file</th><th>edits</th><th>slice</th><th>callers</th><th>dark</th></tr></thead><tbody></tbody></table>
       <h2>Selected</h2>
-      <div id="detail">click a node, a coverage row, or search</div>
+      <div id="detail">click a node, a row, or search</div>
       <h2>Evolution</h2>
       <ul id="evolution"></ul>
     </aside>
