@@ -30,6 +30,8 @@ export interface ServeOptions {
   /** Local mode: repositories to register up front (root paths). Others register as sessions arrive. */
   repos?: string[];
   bind?: string;
+  /** Local mode: advertise this instance in ~/.ctx/serve.json so hooks find it. Off for a second, read-only instance. */
+  register?: boolean;
 }
 
 interface Stamped extends Envelope { seq: number }
@@ -214,7 +216,8 @@ export async function startServer(opts: ServeOptions): Promise<RunningServer> {
   const addr = server.address();
   const port = typeof addr === 'object' && addr ? addr.port : opts.port;
   const serveFile = join(ctxHome(), 'serve.json');
-  if (!opts.hosted) { mkdirSync(ctxHome(), { recursive: true }); writeFileSync(serveFile, JSON.stringify({ port, pid: process.pid, startedAt: new Date().toISOString() }), 'utf8'); }
+  const registered = !opts.hosted && opts.register !== false;
+  if (registered) { mkdirSync(ctxHome(), { recursive: true }); writeFileSync(serveFile, JSON.stringify({ port, pid: process.pid, startedAt: new Date().toISOString() }), 'utf8'); }
   const prune = setInterval(() => { for (const s of repos.values()) pruneOld(s, retentionMs); }, 60_000);
   prune.unref();
 
@@ -227,7 +230,7 @@ export async function startServer(opts: ServeOptions): Promise<RunningServer> {
       watcher?.close();
       for (const ws of clients.keys()) ws.close();
       wss.close();
-      server.close(() => { if (!opts.hosted && existsSync(serveFile)) { try { unlinkSync(serveFile); } catch { /* ignore */ } } done(); });
+      server.close(() => { if (registered && existsSync(serveFile)) { try { unlinkSync(serveFile); } catch { /* ignore */ } } done(); });
     }),
   };
 }
@@ -291,27 +294,56 @@ function snapshot(s: RepoState): unknown {
   if (s.snapshot && Date.now() - s.snapshot.at < 60_000) return s.snapshot.data;
   const ctx = openRepo({ repo: s.root });
   const index = loadOrBuildImportIndex(s.root);
-  interface SnapConstraint { id: string; mode: string; text: string }
-  const nodes: { id: string; kind: 'file' | 'module' | 'concept'; label: string; module?: string; size: number; constraints?: SnapConstraint[]; decisions?: number; parent?: string }[] = [];
-  const links: { source: string; target: string; rel: 'import' | 'in' | 'impl' }[] = [];
+  interface SnapConstraint { id: string; mode: string; text: string; pack?: string }
+  interface SnapNode { id: string; kind: 'file' | 'module' | 'concept' | 'constraint'; label: string; module?: string; size: number; constraints?: SnapConstraint[]; decisions?: number; parent?: string; mode?: string; pack?: string; attached?: string; adr?: string }
+  interface SnapLink { source: string; target: string; rel: 'import' | 'in' | 'impl' | 'governs' | 'serves' | 'overrides'; decision?: string; who?: string; date?: string; text?: string }
+  const nodes: SnapNode[] = [];
+  const links: SnapLink[] = [];
   const seen = new Set<string>();
-  const add = (n: typeof nodes[number]): void => { if (!seen.has(n.id)) { seen.add(n.id); nodes.push(n); } };
+  const add = (n: SnapNode): void => { if (!seen.has(n.id)) { seen.add(n.id); nodes.push(n); } };
   const g = ctx.graph;
   const decisionCount = (node: string): number => (g ? [...g.decisions.values()].filter((d) => d.node.split('#')[0] === node && g.isActiveDecision(d)).length : 0);
+  const pack = (from?: string): string | undefined => from?.split('@')[0];
+  const kc = (k: { id: string; mode: string; text: string; from?: string }): SnapConstraint => ({ id: k.id, mode: k.mode, text: k.text, ...(pack(k.from) ? { pack: pack(k.from)! } : {}) });
   if (g) {
     for (const l of g.logicals.values()) {
       const parent = g.parentsOf(l.id)[0];
-      add({ id: l.id, kind: 'module', label: l.name, size: 1, constraints: g.constraintsOn(l.id).map((k) => ({ id: k.id, mode: k.mode, text: k.text })), decisions: decisionCount(l.id), ...(parent ? { parent } : {}) });
+      add({ id: l.id, kind: 'module', label: l.name, size: 1, constraints: g.constraintsOn(l.id).map(kc), decisions: decisionCount(l.id), ...(parent ? { parent } : {}) });
     }
-    for (const c of g.concepts.values()) if (!c.proposed) add({ id: c.id, kind: 'concept', label: c.name, size: 1, constraints: g.constraintsOn(c.id).map((k) => ({ id: k.id, mode: k.mode, text: k.text })) });
+    for (const c of g.concepts.values()) if (!c.proposed) add({ id: c.id, kind: 'concept', label: c.name, size: 1, constraints: g.constraintsOn(c.id).map(kc), ...(c.adr ? { adr: c.adr } : {}) });
     for (const e of g.edges) if (!e.proposed && (e.rel === 'in' || e.rel === 'impl') && seen.has(e.from) && seen.has(e.to)) links.push({ source: e.from, target: e.to, rel: e.rel });
   }
   const files = Object.keys(index.imports);
   for (const f of files) {
     const m = g?.mapPath(f)?.logical;
     const own = g?.constraintsOn(f) ?? [];
-    add({ id: f, kind: 'file', label: f.split('/').pop() ?? f, size: Math.max(1, Math.min(8, (index.imports[f]?.length ?? 0) / 2 + 1)), ...(m ? { module: m } : {}), ...(own.length ? { constraints: own.map((k) => ({ id: k.id, mode: k.mode, text: k.text })) } : {}), decisions: decisionCount(f) });
+    add({ id: f, kind: 'file', label: f.split('/').pop() ?? f, size: Math.max(1, Math.min(8, (index.imports[f]?.length ?? 0) / 2 + 1)), ...(m ? { module: m } : {}), ...(own.length ? { constraints: own.map(kc) } : {}), decisions: decisionCount(f) });
     if (m && seen.has(m)) { const mod = nodes.find((n) => n.id === m); if (mod) mod.size += 1; links.push({ source: f, target: m, rel: 'in' }); }
+  }
+  // The meaning layer: constraints as nodes attached to what they govern, and decisions as links.
+  if (g) {
+    const ensureFile = (path: string): void => {
+      if (seen.has(path)) return;
+      const m = g.mapPath(path)?.logical;
+      add({ id: path, kind: 'file', label: path.split('/').pop() ?? path, size: 1, ...(m ? { module: m } : {}), decisions: decisionCount(path) });
+      if (m && seen.has(m)) links.push({ source: path, target: m, rel: 'in' });
+    };
+    for (const k of g.constraints.values()) {
+      if (g.isRetired(k.id)) continue;
+      const id = `K:${k.id}`;
+      add({ id, kind: 'constraint', label: k.text, size: 1, mode: k.mode, attached: k.attachedTo, ...(pack(k.from) ? { pack: pack(k.from)! } : {}) });
+      if (!k.attachedTo.startsWith('L:') && !k.attachedTo.startsWith('C:')) ensureFile(k.attachedTo.split('#')[0]!);
+      if (seen.has(k.attachedTo.split('#')[0]!)) links.push({ source: id, target: k.attachedTo.split('#')[0]!, rel: 'governs' });
+    }
+    for (const d of g.decisions.values()) {
+      if (!g.isActiveDecision(d)) continue;
+      const node = d.node.split('#')[0]!;
+      if (!node.startsWith('L:') && !node.startsWith('C:')) ensureFile(node);
+      if (!seen.has(node)) continue;
+      const target = d.serves.startsWith('C:') ? d.serves : `K:${d.serves}`;
+      if (seen.has(target)) links.push({ source: node, target, rel: 'serves', decision: d.id, who: d.who, date: d.date, text: d.text });
+      if (d.overrides && seen.has(`K:${d.overrides}`)) links.push({ source: node, target: `K:${d.overrides}`, rel: 'overrides', decision: d.id, who: d.who, date: d.date, text: d.text });
+    }
   }
   for (const [f, targets] of Object.entries(index.imports)) for (const t of targets) if (seen.has(t)) links.push({ source: f, target: t, rel: 'import' });
   const data = { root: s.root, nodes, links, builtAt: new Date().toISOString() };

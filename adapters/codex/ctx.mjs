@@ -32494,7 +32494,8 @@ async function startServer(opts) {
   const addr = server.address();
   const port = typeof addr === "object" && addr ? addr.port : opts.port;
   const serveFile = join18(ctxHome(), "serve.json");
-  if (!opts.hosted) {
+  const registered = !opts.hosted && opts.register !== false;
+  if (registered) {
     mkdirSync7(ctxHome(), { recursive: true });
     writeFileSync9(serveFile, JSON.stringify({ port, pid: process.pid, startedAt: (/* @__PURE__ */ new Date()).toISOString() }), "utf8");
   }
@@ -32512,7 +32513,7 @@ async function startServer(opts) {
       for (const ws of clients.keys()) ws.close();
       wss.close();
       server.close(() => {
-        if (!opts.hosted && existsSync19(serveFile)) {
+        if (registered && existsSync19(serveFile)) {
           try {
             unlinkSync(serveFile);
           } catch {
@@ -32603,23 +32604,49 @@ function snapshot(s) {
   };
   const g = ctx.graph;
   const decisionCount = (node) => g ? [...g.decisions.values()].filter((d) => d.node.split("#")[0] === node && g.isActiveDecision(d)).length : 0;
+  const pack2 = (from) => from?.split("@")[0];
+  const kc = (k) => ({ id: k.id, mode: k.mode, text: k.text, ...pack2(k.from) ? { pack: pack2(k.from) } : {} });
   if (g) {
     for (const l of g.logicals.values()) {
       const parent = g.parentsOf(l.id)[0];
-      add({ id: l.id, kind: "module", label: l.name, size: 1, constraints: g.constraintsOn(l.id).map((k) => ({ id: k.id, mode: k.mode, text: k.text })), decisions: decisionCount(l.id), ...parent ? { parent } : {} });
+      add({ id: l.id, kind: "module", label: l.name, size: 1, constraints: g.constraintsOn(l.id).map(kc), decisions: decisionCount(l.id), ...parent ? { parent } : {} });
     }
-    for (const c of g.concepts.values()) if (!c.proposed) add({ id: c.id, kind: "concept", label: c.name, size: 1, constraints: g.constraintsOn(c.id).map((k) => ({ id: k.id, mode: k.mode, text: k.text })) });
+    for (const c of g.concepts.values()) if (!c.proposed) add({ id: c.id, kind: "concept", label: c.name, size: 1, constraints: g.constraintsOn(c.id).map(kc), ...c.adr ? { adr: c.adr } : {} });
     for (const e of g.edges) if (!e.proposed && (e.rel === "in" || e.rel === "impl") && seen.has(e.from) && seen.has(e.to)) links.push({ source: e.from, target: e.to, rel: e.rel });
   }
   const files = Object.keys(index.imports);
   for (const f of files) {
     const m = g?.mapPath(f)?.logical;
     const own = g?.constraintsOn(f) ?? [];
-    add({ id: f, kind: "file", label: f.split("/").pop() ?? f, size: Math.max(1, Math.min(8, (index.imports[f]?.length ?? 0) / 2 + 1)), ...m ? { module: m } : {}, ...own.length ? { constraints: own.map((k) => ({ id: k.id, mode: k.mode, text: k.text })) } : {}, decisions: decisionCount(f) });
+    add({ id: f, kind: "file", label: f.split("/").pop() ?? f, size: Math.max(1, Math.min(8, (index.imports[f]?.length ?? 0) / 2 + 1)), ...m ? { module: m } : {}, ...own.length ? { constraints: own.map(kc) } : {}, decisions: decisionCount(f) });
     if (m && seen.has(m)) {
       const mod = nodes.find((n) => n.id === m);
       if (mod) mod.size += 1;
       links.push({ source: f, target: m, rel: "in" });
+    }
+  }
+  if (g) {
+    const ensureFile = (path) => {
+      if (seen.has(path)) return;
+      const m = g.mapPath(path)?.logical;
+      add({ id: path, kind: "file", label: path.split("/").pop() ?? path, size: 1, ...m ? { module: m } : {}, decisions: decisionCount(path) });
+      if (m && seen.has(m)) links.push({ source: path, target: m, rel: "in" });
+    };
+    for (const k of g.constraints.values()) {
+      if (g.isRetired(k.id)) continue;
+      const id = `K:${k.id}`;
+      add({ id, kind: "constraint", label: k.text, size: 1, mode: k.mode, attached: k.attachedTo, ...pack2(k.from) ? { pack: pack2(k.from) } : {} });
+      if (!k.attachedTo.startsWith("L:") && !k.attachedTo.startsWith("C:")) ensureFile(k.attachedTo.split("#")[0]);
+      if (seen.has(k.attachedTo.split("#")[0])) links.push({ source: id, target: k.attachedTo.split("#")[0], rel: "governs" });
+    }
+    for (const d of g.decisions.values()) {
+      if (!g.isActiveDecision(d)) continue;
+      const node = d.node.split("#")[0];
+      if (!node.startsWith("L:") && !node.startsWith("C:")) ensureFile(node);
+      if (!seen.has(node)) continue;
+      const target = d.serves.startsWith("C:") ? d.serves : `K:${d.serves}`;
+      if (seen.has(target)) links.push({ source: node, target, rel: "serves", decision: d.id, who: d.who, date: d.date, text: d.text });
+      if (d.overrides && seen.has(`K:${d.overrides}`)) links.push({ source: node, target: `K:${d.overrides}`, rel: "overrides", decision: d.id, who: d.who, date: d.date, text: d.text });
     }
   }
   for (const [f, targets] of Object.entries(index.imports)) for (const t of targets) if (seen.has(t)) links.push({ source: f, target: t, rel: "import" });
@@ -32702,13 +32729,14 @@ async function run4(args, env) {
     const cfg = loadConfig(root ? resolveGraphDir(root) : void 0);
     const hosted = args.flags.hosted === true;
     const port = Number(str(args.flags.port) ?? (hosted ? 7400 : cfg.serve.port));
-    const existing = !hosted && localServer();
+    const register = args.flags["no-register"] !== true;
+    const existing = !hosted && register && localServer();
     if (existing) {
-      console.log(`a local server is already running on port ${existing.port} (pid ${existing.pid})`);
+      console.log(`a local server is already running on port ${existing.port} (pid ${existing.pid}); pass --no-register to start a second, unadvertised instance`);
       return 0;
     }
     const token = str(args.flags.token) ?? process.env.CTX_OVERLAY_TOKEN;
-    const server = await startServer({ port, hosted, ...token ? { token } : {}, bufferEvents: cfg.serve.bufferEvents, ...root ? { repos: [root] } : {}, ...str(args.flags.bind) ? { bind: str(args.flags.bind) } : {} });
+    const server = await startServer({ port, hosted, register, ...token ? { token } : {}, bufferEvents: cfg.serve.bufferEvents, ...root ? { repos: [root] } : {}, ...str(args.flags.bind) ? { bind: str(args.flags.bind) } : {} });
     console.log(`ctx serve: ${hosted ? "hosted" : "local"} mode on http://${hosted ? "0.0.0.0" : "127.0.0.1"}:${server.port}  (view at /, API under /v1/)`);
     if (root) console.log(`  repository ${root} registered as ${repoHash(root)}`);
     if (hosted && !token) console.log("  warning: hosted mode without a token accepts anyone who can reach the port");

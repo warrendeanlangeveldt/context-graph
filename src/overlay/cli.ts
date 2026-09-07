@@ -12,10 +12,11 @@ export async function run(args: Args, env: { json: boolean }): Promise<number> {
     const cfg = loadConfig(root ? resolveGraphDir(root) : undefined);
     const hosted = args.flags.hosted === true;
     const port = Number(str(args.flags.port) ?? (hosted ? 7400 : cfg.serve.port));
-    const existing = !hosted && localServer();
-    if (existing) { console.log(`a local server is already running on port ${existing.port} (pid ${existing.pid})`); return 0; }
+    const register = args.flags['no-register'] !== true;
+    const existing = !hosted && register && localServer();
+    if (existing) { console.log(`a local server is already running on port ${existing.port} (pid ${existing.pid}); pass --no-register to start a second, unadvertised instance`); return 0; }
     const token = str(args.flags.token) ?? process.env.CTX_OVERLAY_TOKEN;
-    const server = await startServer({ port, hosted, ...(token ? { token } : {}), bufferEvents: cfg.serve.bufferEvents, ...(root ? { repos: [root] } : {}), ...(str(args.flags.bind) ? { bind: str(args.flags.bind)! } : {}) });
+    const server = await startServer({ port, hosted, register, ...(token ? { token } : {}), bufferEvents: cfg.serve.bufferEvents, ...(root ? { repos: [root] } : {}), ...(str(args.flags.bind) ? { bind: str(args.flags.bind)! } : {}) });
     console.log(`ctx serve: ${hosted ? 'hosted' : 'local'} mode on http://${hosted ? '0.0.0.0' : '127.0.0.1'}:${server.port}  (view at /, API under /v1/)`);
     if (root) console.log(`  repository ${root} registered as ${repoHash(root)}`);
     if (hosted && !token) console.log('  warning: hosted mode without a token accepts anyone who can reach the port');

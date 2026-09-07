@@ -54,6 +54,19 @@
     .pill.on { border-color: var(--accent); color: var(--accent); }
     .pill.dark { border-color: var(--hot); color: var(--hot); }
     .pill.good { border-color: var(--good); color: var(--good); }
+    #meaningPanel .concept { margin: 8px 0 10px; }
+    #meaningPanel .concept > b { display: block; cursor: pointer; }
+    #meaningPanel .concept > b:hover { color: var(--accent); }
+    #meaningPanel .concept small { color: var(--muted); }
+    #meaningPanel .k { display: flex; gap: 6px; align-items: baseline; margin: 3px 0 3px 10px; cursor: pointer; color: var(--muted); }
+    #meaningPanel .k:hover { color: var(--ink); }
+    #meaningPanel .k .mode { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 10.5px; padding: 0 5px; border-radius: 3px; border: 1px solid var(--line); color: var(--ink); }
+    #meaningPanel .k .mode.E { border-color: var(--warm); color: var(--warm); }
+    #meaningPanel .k .mode.G { border-color: var(--accent); color: var(--accent); }
+    #meaningPanel .k .counts { margin-left: auto; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    #meaningPanel .k .counts .s { color: var(--good); }
+    #meaningPanel .k .counts .o { color: var(--hot); }
+    #meaningPanel .packs { margin-top: 8px; color: var(--muted); }
     #findings, #evolution { padding-left: 0; list-style: none; margin: 0; }
     #findings li, #evolution li { margin: 6px 0; color: var(--muted); }
     #findings li b, #evolution li b { color: var(--ink); font-weight: 500; }
@@ -85,8 +98,9 @@
       <button id="mode2d" aria-pressed="false">2D</button>
       <label>files <select id="files"><option value="touched" selected>touched only</option><option value="all">all</option></select></label>
       <label>labels <select id="labels"><option value="modules" selected>modules</option><option value="lit">modules and lit files</option><option value="all">all</option><option value="none">none</option></select></label>
-      <label>links <select id="links"><option value="containment" selected>containment</option><option value="imports">imports</option><option value="both">both</option><option value="none">none</option></select></label>
-      <label>colour <select id="colour"><option value="mode" selected>by access mode</option><option value="session">by session</option></select></label>
+      <label>meaning <select id="meaning"><option value="both" selected>concepts and constraints</option><option value="concepts">concepts</option><option value="constraints">constraints</option><option value="none">hide</option></select></label>
+      <label>links <select id="links"><option value="containment">containment</option><option value="meaning" selected>containment and meaning</option><option value="imports">imports</option><option value="all">all</option><option value="none">none</option></select></label>
+      <label>colour <select id="colour"><option value="mode" selected>by access mode</option><option value="concept">by concept</option><option value="governance">by governance</option><option value="pack">by pack</option><option value="session">by session</option></select></label>
       <label>size <input id="size" type="range" min="0.5" max="3" step="0.1" value="1.4"></label>
       <button id="bloom" aria-pressed="false">glow</button>
       <button id="freeze" aria-pressed="false">freeze layout</button>
@@ -121,6 +135,8 @@
       <table id="coverage"><thead><tr><th>file</th><th>edits</th><th>slice</th><th>callers</th><th>dark</th></tr></thead><tbody></tbody></table>
       <h2>Selected</h2>
       <div id="detail">click a node, a row, or search</div>
+      <h2>Meaning</h2>
+      <div id="meaningPanel"></div>
       <h2>Evolution</h2>
       <ul id="evolution"></ul>
     </aside>
