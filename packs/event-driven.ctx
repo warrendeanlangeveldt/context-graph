@@ -1,0 +1,14 @@
+# pack: event-driven
+# version: 1
+# State changes are events; handlers are idempotent; projections can be rebuilt from the log.
+R {events}      dir:events|event-store|eventstore|messaging|pubsub
+R {projections} dir:projections|read-models|readmodels|views
+R {handlers}    dir:handlers|consumers|subscribers|listeners
+C C:event-sourced State is derived from an append-only event log
+K G events.only-via-events    {events}      state changes are recorded as events; no direct state writes bypass the log
+K G events.immutable          {events}      an event, once written, is never changed; corrections are new events
+K G events.versioned          {events}      an event schema change is a new version; consumers handle both until the old one is gone
+K G events.idempotent-handlers {handlers}   a handler applied twice has the effect of once; key idempotency on the event id
+K G events.projections-rebuildable {projections} a projection can be dropped and rebuilt from the log; it holds no truth of its own
+K G events.no-projection-writes {projections} {projections} never write to {events} rule:noimport:{projections}:{events}
+E {events} impl C:event-sourced

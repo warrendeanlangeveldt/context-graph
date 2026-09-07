@@ -1,0 +1,10 @@
+# pack: feature-slices
+# version: 1
+# Vertical slices: a feature owns its full stack and talks to other features only through a shared kernel.
+R {features} dir:features|slices|verticals
+R {shared}   dir:shared|common|kernel|lib
+C C:feature-slices A feature owns its full stack; features share only through {shared}
+K G slice.no-lateral-imports {features} a feature never imports another feature's internals; cross-feature access goes through {shared} or a public index rule:public-entry:{features}
+K G slice.shared-is-stable   {shared}   {shared} never imports {features}; it has no knowledge of any feature rule:noimport:{shared}:{features}
+K G slice.owns-its-stack     {features} a feature keeps its routes, handlers, models, and tests together; do not scatter one feature across layer folders
+E {features} impl C:feature-slices

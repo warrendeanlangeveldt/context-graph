@@ -1,0 +1,13 @@
+# pack: ports-and-adapters
+# version: 1
+# Layered architecture where dependencies point inward and the domain owns its interfaces.
+R {domain} dir:domain|core|model|entities
+R {app}    dir:application|app|use-cases|usecases|services
+R {infra}  dir:infrastructure|infra|adapters|integrations|persistence
+C C:ports-and-adapters Dependencies point inward; the domain owns its interfaces
+K G hex.domain-pure   {domain} {domain} never imports {infra} or a framework rule:noimport:{domain}:{infra}
+K G hex.domain-no-app {domain} {domain} never imports {app}; use cases depend on the domain, not the reverse rule:noimport:{domain}:{app}
+K G hex.app-thin      {app}    application code orchestrates; business rules live in {domain}
+K G hex.ports-in-core {infra}  adapters implement interfaces declared in {domain}, never the reverse
+K G hex.dto-boundary  {app}    data crossing the {app} boundary is a plain transfer shape, not a domain entity
+E {domain} impl C:ports-and-adapters

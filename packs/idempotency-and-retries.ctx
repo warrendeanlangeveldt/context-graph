@@ -1,0 +1,10 @@
+# pack: idempotency-and-retries
+# version: 1
+# Side effects that may be retried are safe to repeat, bounded, and honest about ordering.
+R {queue} dir:queue|queues|jobs|workers|worker|outbox|tasks
+C C:safe-retries Any side effect that can be retried is idempotent, bounded, and ordered on purpose
+K G retry.idempotent-by-key {queue} a side-effecting handler is idempotent on an explicit key; a duplicate delivery has no additional effect
+K G retry.bounded           {queue} retries are bounded with backoff and end in a dead-letter or an alert, never an infinite loop
+K G retry.ordering-explicit {queue} ordering assumptions are written down where the consumer lives; if order matters, it is enforced, not hoped for
+K G retry.outbox-for-dual-writes {queue} a write to the store plus a publish to a queue goes through an outbox; no dual writes
+E {queue} impl C:safe-retries

@@ -24,8 +24,8 @@ interface Base {
 
 export interface MRecord extends Base { kind: 'M'; glob: string; logical: string }
 export interface LRecord extends Base { kind: 'L'; id: string; name: string }
-export interface CRecord extends Base { kind: 'C'; id: string; name: string; adr?: string; proposed?: boolean }
-export interface ERecord extends Base { kind: 'E'; from: string; rel: Relation; to: string; proposed?: boolean }
+export interface CRecord extends Base { kind: 'C'; id: string; name: string; adr?: string; proposed?: boolean; since?: string }
+export interface ERecord extends Base { kind: 'E'; from: string; rel: Relation; to: string; proposed?: boolean; since?: string }
 export interface KRecord extends Base {
   kind: 'K';
   mode: ConstraintMode;
@@ -34,6 +34,9 @@ export interface KRecord extends Base {
   text: string;
   test?: string;
   from?: string;
+  /** Machine-checkable rule, e.g. `noimport:L:domain:L:infra` or `public-entry:L:core`. */
+  rule?: string;
+  since?: string;
 }
 export interface DRecord extends Base {
   kind: 'D';

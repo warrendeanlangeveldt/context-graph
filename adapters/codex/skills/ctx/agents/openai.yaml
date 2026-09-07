@@ -1,0 +1,9 @@
+interface:
+  display_name: Context Graph
+  short_description: Why a file is the way it is, and what applies before you edit it
+policy:
+  allow_implicit_invocation: true
+dependencies:
+  tools:
+    - type: mcp
+      value: ctx

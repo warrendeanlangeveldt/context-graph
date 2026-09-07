@@ -1,0 +1,4 @@
+#!/bin/sh
+# Context Graph hook entrypoint for Codex. The event name on stdin selects the handler.
+DIR="$(cd "$(dirname "$0")" && pwd)"
+exec node "$DIR/../../../dist/cli/main.js" hook --harness codex --agent codex

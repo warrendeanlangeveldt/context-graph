@@ -1,0 +1,32 @@
+{
+  "description": "Context Graph: slice before edits, observe every tool call, demand a decision at turn end.",
+  "hooks": {
+    "SessionStart": [
+      { "matcher": "", "hooks": [{ "type": "command", "command": "${PLUGIN_ROOT}/scripts/ctx-hook", "timeout": 10, "statusMessage": "Context Graph: loading" }] }
+    ],
+    "SessionEnd": [
+      { "matcher": "", "hooks": [{ "type": "command", "command": "${PLUGIN_ROOT}/scripts/ctx-hook", "timeout": 1, "async": true }] }
+    ],
+    "PreToolUse": [
+      { "matcher": "apply_patch|Bash", "hooks": [{ "type": "command", "command": "${PLUGIN_ROOT}/scripts/ctx-hook", "timeout": 10, "statusMessage": "Context Graph: slicing" }] }
+    ],
+    "PostToolUse": [
+      { "matcher": "apply_patch|Bash", "hooks": [{ "type": "command", "command": "${PLUGIN_ROOT}/scripts/ctx-hook", "timeout": 30, "async": true }] }
+    ],
+    "PreCompact": [
+      { "matcher": "", "hooks": [{ "type": "command", "command": "${PLUGIN_ROOT}/scripts/ctx-hook", "timeout": 10, "async": true }] }
+    ],
+    "SubagentStart": [
+      { "matcher": "", "hooks": [{ "type": "command", "command": "${PLUGIN_ROOT}/scripts/ctx-hook", "timeout": 5, "async": true }] }
+    ],
+    "SubagentStop": [
+      { "matcher": "", "hooks": [{ "type": "command", "command": "${PLUGIN_ROOT}/scripts/ctx-hook", "timeout": 5, "async": true }] }
+    ],
+    "Stop": [
+      { "matcher": "", "hooks": [{ "type": "command", "command": "${PLUGIN_ROOT}/scripts/ctx-hook", "timeout": 15, "statusMessage": "Context Graph: checking decisions" }] }
+    ],
+    "Interrupt": [
+      { "matcher": "", "hooks": [{ "type": "command", "command": "${PLUGIN_ROOT}/scripts/ctx-hook", "timeout": 1, "async": true }] }
+    ]
+  }
+}

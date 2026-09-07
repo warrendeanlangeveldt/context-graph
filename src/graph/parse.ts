@@ -40,10 +40,11 @@ export function parseLine(raw: string, line: number, file?: string): GraphRecord
       need(2, '<concept-id> <name>');
       const id = rest[0]!;
       if (!id.startsWith('C:')) fail(`concept id must start with C:, got ${id}`);
-      const { words, adr, proposed } = takeTrailing(rest.slice(1));
+      const { words, adr, proposed, since } = takeTrailing(rest.slice(1));
       const r: CRecord = { kind: 'C', id, name: words.join(' '), ...base };
       if (adr) r.adr = adr;
       if (proposed) r.proposed = true;
+      if (since) r.since = since;
       return r;
     }
     case 'E': {
@@ -51,18 +52,22 @@ export function parseLine(raw: string, line: number, file?: string): GraphRecord
       const rel = rest[1]!;
       if (!RELATIONS.has(rel)) fail(`edge relation must be in|impl|dep, got ${rel}`);
       const r: ERecord = { kind: 'E', from: rest[0]!, rel: rel as Relation, to: rest[2]!, ...base };
-      if (rest[3] === 'proposed') r.proposed = true;
+      const { proposed, since } = takeTrailing(rest.slice(3));
+      if (proposed) r.proposed = true;
+      if (since) r.since = since;
       return r;
     }
     case 'K': {
       need(4, '<mode> <k-id> <attached-to> <text>');
       const mode = rest[0]!;
       if (!MODES.has(mode)) fail(`constraint mode must be E|G|R|G?, got ${mode}`);
-      const { words, test, from } = takeTrailing(rest.slice(3));
+      const { words, test, from, rule, since } = takeTrailing(rest.slice(3));
       if (words.length === 0) fail('constraint text is required');
       const r: KRecord = { kind: 'K', mode: mode as ConstraintMode, id: rest[1]!, attachedTo: rest[2]!, text: words.join(' '), ...base };
       if (test) r.test = test;
       if (from) r.from = from;
+      if (rule) r.rule = rule;
+      if (since) r.since = since;
       if (mode === 'E' && !test) fail(`enforced constraint ${r.id} must carry test:<path>`);
       return r;
     }
@@ -128,9 +133,9 @@ export function parseLine(raw: string, line: number, file?: string): GraphRecord
 }
 
 /** Pull trailing `key:value` markers and the `proposed` flag off a token list. */
-function takeTrailing(tokens: string[]): { words: string[]; test?: string; from?: string; adr?: string; proposed: boolean } {
+function takeTrailing(tokens: string[]): { words: string[]; test?: string; from?: string; adr?: string; rule?: string; since?: string; proposed: boolean } {
   const words = [...tokens];
-  const out: { words: string[]; test?: string; from?: string; adr?: string; proposed: boolean } = { words, proposed: false };
+  const out: { words: string[]; test?: string; from?: string; adr?: string; rule?: string; since?: string; proposed: boolean } = { words, proposed: false };
   for (;;) {
     const last = words[words.length - 1];
     if (!last) break;
@@ -138,6 +143,8 @@ function takeTrailing(tokens: string[]): { words: string[]; test?: string; from?
     if (last.startsWith('test:')) { out.test = last.slice(5); words.pop(); continue; }
     if (last.startsWith('from:')) { out.from = last.slice(5); words.pop(); continue; }
     if (last.startsWith('adr:')) { out.adr = last.slice(4); words.pop(); continue; }
+    if (last.startsWith('rule:')) { out.rule = last.slice(5); words.pop(); continue; }
+    if (last.startsWith('since:')) { out.since = last.slice(6); words.pop(); continue; }
     break;
   }
   return out;

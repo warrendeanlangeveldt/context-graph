@@ -6,9 +6,9 @@ export function formatRecord(r: GraphRecord): string {
   switch (r.kind) {
     case 'M': return `M ${r.glob} ${r.logical}`;
     case 'L': return `L ${r.id} ${r.name}`;
-    case 'C': return `C ${r.id} ${r.name}${r.adr ? ` adr:${r.adr}` : ''}${r.proposed ? ' proposed' : ''}`;
-    case 'E': return `E ${r.from} ${r.rel} ${r.to}${r.proposed ? ' proposed' : ''}`;
-    case 'K': return `K ${r.mode} ${r.id} ${r.attachedTo} ${r.text}${r.test ? ` test:${r.test}` : ''}${r.from ? ` from:${r.from}` : ''}`;
+    case 'C': return `C ${r.id} ${r.name}${r.adr ? ` adr:${r.adr}` : ''}${r.since ? ` since:${r.since}` : ''}${r.proposed ? ' proposed' : ''}`;
+    case 'E': return `E ${r.from} ${r.rel} ${r.to}${r.since ? ` since:${r.since}` : ''}${r.proposed ? ' proposed' : ''}`;
+    case 'K': return `K ${r.mode} ${r.id} ${r.attachedTo} ${r.text}${r.test ? ` test:${r.test}` : ''}${r.rule ? ` rule:${r.rule}` : ''}${r.from ? ` from:${r.from}` : ''}${r.since ? ` since:${r.since}` : ''}`;
     case 'D': {
       const arrow = r.serves.startsWith('C:') ? `->C ${r.serves.slice(2)}` : `->K ${r.serves}`;
       const bang = r.overrides ? ` !K ${r.overrides}` : '';

@@ -1,0 +1,11 @@
+# pack: service-per-directory
+# version: 1
+# Independently deployable services that share contracts, never code or databases.
+R {services}  dir:services|svc|microservices
+R {contracts} dir:contracts|proto|schemas|api-spec|openapi
+C C:service-boundaries Services share contracts, never code or storage
+K G svc.no-shared-db      {services} a service owns its data store; no other service reads or writes it directly
+K G svc.contracts-only    {services} services communicate through {contracts}; no cross-service source imports rule:public-entry:{services}
+K G svc.own-build         {services} each service builds and deploys on its own; a change to one does not require redeploying another
+K G svc.contracts-stable  {contracts} a contract change is additive or versioned; consumers are never broken by a producer change
+E {services} impl C:service-boundaries

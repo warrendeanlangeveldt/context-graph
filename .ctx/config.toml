@@ -1,0 +1,29 @@
+# Context Graph configuration. See docs/design-spec.md §17.
+[repo]
+ratifiers = ["warren.langeveldt"]            # git identities (email local part or name) allowed to ratify concepts and enforced constraints
+default_branch = "main"
+
+[slice]
+enabled = true            # true | false (observe-only) | "random:0.5"
+max_tokens = 300
+max_decisions = 4
+
+[record]
+max_blocks = 2
+
+[observe]
+shell_parsing = true
+forward = false
+
+[gate]
+stale_basis = "warn"
+context_moved = "warn"
+
+[embed]
+enabled = false
+provider = "local:nomic-embed-text"
+min_score = 0.75
+include = ["docs/**/*.md"]
+
+[init]
+packs = ["auto"]

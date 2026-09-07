@@ -1,0 +1,14 @@
+# pack: kernel-and-extensions
+# version: 1
+# A reusable engine hosts modules it does not know by name; discovery goes through a registry.
+R {kernel}     dir:core|kernel|engine
+R {extensions} dir:integrations|extensions|plugins|providers|bundles
+R {modules}    dir:teams|tenants|modules|apps
+C C:kernel-pure The kernel never depends on its extensions or on any module by name
+K G kernel.no-extension-imports {kernel}     {kernel} never imports {extensions} rule:noimport:{kernel}:{extensions}
+K G kernel.no-module-imports    {kernel}     {kernel} never imports {modules} rule:noimport:{kernel}:{modules}
+K G kernel.extensions-agnostic  {extensions} {extensions} never import {modules}; universal implementations know no specific module rule:noimport:{extensions}:{modules}
+K G kernel.no-module-ids        {kernel}     no module identifier appears in {kernel} code or comments; use a placeholder
+K G kernel.registry-discovery   {modules}    modules are discovered through the registry or setup entrypoint, never imported by the kernel's bootstrap by name
+K G kernel.generalise           {kernel}     every mechanism in {kernel} works for any module; one module is the test case, not the target
+E {kernel} impl C:kernel-pure

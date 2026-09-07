@@ -1,0 +1,12 @@
+# pack: framework-conventions
+# version: 1
+# A web framework's own layering, where server and client code must not cross.
+R {web}        file:**/next.config.*
+R {server}     dir:server|api|routes|app
+R {components} dir:components|ui|client
+C C:framework-layering Server code and client code stay on their own side of the framework boundary
+K G fw.server-no-client   {server}     server code never imports client-only modules; a browser API has no place in a route or a loader
+K G fw.client-no-secrets  {components} client code never reads secrets or server-only configuration
+K G fw.data-at-boundary   {web}        data fetching happens at the framework's boundary layer, not scattered through components
+K G fw.routing-convention {web}        routes follow the framework's file convention; no parallel router
+E {web} impl C:framework-layering

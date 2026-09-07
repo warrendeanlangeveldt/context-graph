@@ -1,0 +1,109 @@
+# Context Graph for the Context Graph repository itself.
+# Modules and containment were bootstrapped by ctx init; constraints and concepts are the design's own rules.
+
+# ---- mappings: most specific first --------------------------------------------
+M src/adapters/claude-code/**  L:claude-code
+M src/adapters/codex/**        L:codex
+M src/adapters/**              L:adapters
+M src/bench/**                 L:bench
+M src/cli/**                   L:cli
+M src/core/**                  L:core
+M src/embed/**                 L:embed
+M src/gate/**                  L:gate
+M src/graph/**                 L:graph
+M src/hygiene/**               L:hygiene
+M src/index/**                 L:index
+M src/init/**                  L:init
+M src/mcp/**                   L:mcp
+M src/observe/**               L:observe
+M src/overlay/**               L:overlay
+M src/record/**                L:record
+M src/util/**                  L:util
+M src/walker/**                L:walker
+M src/**                       L:src
+M view/**                      L:view
+M packs/**                     L:packs
+M adapters/**                  L:packaging
+M docs/**                      L:docs
+M **                           L:repo
+
+# ---- logical nodes --------------------------------------------------------------
+L L:repo         Context Graph repository
+L L:src          Plugin source
+L L:graph        The .ctx grammar: parser, validator, writer, active set
+L L:walker       Deterministic walk and slice rendering
+L L:observe      Observation: shell and patch parsers, store, coverage, replay
+L L:index        Import graph and symbol lookup
+L L:record       Decision recording, loop guard, provenance
+L L:adapters     Harness adapters: shared core plus per-harness profiles
+L L:claude-code  Claude Code profile
+L L:codex        Codex profile
+L L:mcp          The pull surface
+L L:core         Repository context and configuration
+L L:cli          Command line entrypoint and lazily loaded command modules
+L L:gate         Merge gate
+L L:init         Bootstrap, packs, conformance, ratification
+L L:hygiene      Retirement, archival, hygiene report, timeline
+L L:overlay      Event server, client, hosted mode
+L L:embed        Embedding provider, chunker, vector store, hints
+L L:bench        Replay benchmark
+L L:util         Paths, git, tokens, toml
+L L:view         Synapse view, browser app
+L L:packs        Style packs
+L L:packaging    Harness plugin directories
+L L:docs         Design specification and research
+
+# ---- concepts ---------------------------------------------------------------------
+C C:floor-and-pull   The walker sets the floor deterministically; the agent pulls above it through the query surface
+C C:git-is-truth     The graph lives in git; a live overlay is only ever provisional state
+C C:never-delete     Records are superseded, retired, or archived, never deleted; the ledger is the proof a decision was made
+C C:harness-agnostic Harness differences live in a profile; everything else is shared
+
+# ---- containment ---------------------------------------------------------------------
+E L:claude-code in L:adapters
+E L:codex in L:adapters
+E L:adapters in L:src
+E L:bench in L:src
+E L:cli in L:src
+E L:core in L:src
+E L:embed in L:src
+E L:gate in L:src
+E L:graph in L:src
+E L:hygiene in L:src
+E L:index in L:src
+E L:init in L:src
+E L:mcp in L:src
+E L:observe in L:src
+E L:overlay in L:src
+E L:record in L:src
+E L:util in L:src
+E L:walker in L:src
+E L:src in L:repo
+E L:view in L:repo
+E L:packs in L:repo
+E L:packaging in L:repo
+E L:docs in L:repo
+
+# ---- what implements what ---------------------------------------------------------------
+E L:walker impl C:floor-and-pull
+E L:mcp impl C:floor-and-pull
+E L:overlay impl C:git-is-truth
+E L:graph impl C:never-delete
+E L:hygiene impl C:never-delete
+E L:adapters impl C:harness-agnostic
+
+# ---- enforced ----------------------------------------------------------------------------
+K E walker.pure L:walker the walker and slice renderer import nothing that touches the network, a model, a process, or the overlay; the applicable set is a pure function of graph and path test:src/walker/boundary.test.ts
+
+# ---- guided ------------------------------------------------------------------------------
+K G walker.floor-then-pull  L:walker    the slice is a deterministic floor; anything a model chooses to fetch is a reach event, never a change to the applicable set
+K G walker.hints-last       L:walker    hint lines render after decisions and are the first dropped under budget; they never become must lines
+K G adapters.profile-only   L:adapters  a harness profile supplies edit tools, input shapes, and response shapes; the hook flow lives in core.ts and is never duplicated per harness
+K G overlay.bounded         L:overlay   nothing on the edit path waits on the server without a timeout, and a missing server changes nothing but the live lines
+K G graph.active-set        L:graph     the walker reads only the active set; the archive is read by history, the gate, and the view
+K G hygiene.proposes        L:hygiene   hygiene proposes and a person retires; gc moves only records that are already inactive
+K G embed.hints-only        L:embed     retrieval results render as hint lines below constraints and are the first thing dropped under budget
+K G observe.no-contents     L:observe   observation events carry paths, ranges, and modes, never file contents
+K G cli.lazy-commands       L:cli       lifecycle and runtime commands load on demand so the hook path never pays for them
+K G record.why-points       L:record    a decision's why must point at a constraint or concept; a why that points at nothing is rejected
+K G packaging.script-dirs   L:packaging plugin scripts resolve the CLI relative to their own directory, never through a global install

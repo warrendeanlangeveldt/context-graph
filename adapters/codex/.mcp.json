@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "ctx": {
+      "command": "${PLUGIN_ROOT}/scripts/ctx-mcp",
+      "args": []
+    }
+  }
+}

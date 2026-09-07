@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Context Graph</title>
+  <style>
+    :root { color-scheme: dark; --bg: #0b0f14; --panel: #121821; --ink: #e6ebf1; --muted: #8b97a6; --line: #1f2a37; --accent: #56bcc0; --warm: #e3a65c; --hot: #ff6b6b; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font: 13px/1.45 "IBM Plex Sans", system-ui, sans-serif; }
+    #app { display: grid; grid-template-rows: auto 1fr; grid-template-columns: 1fr 380px; height: 100%; }
+    header { grid-column: 1 / -1; display: flex; gap: 12px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; }
+    header .title { font-weight: 600; letter-spacing: 0.02em; margin-right: 8px; }
+    header select, header button, header input[type=range] { background: #0e141c; color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 4px 8px; font: inherit; }
+    header button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+    header label { color: var(--muted); display: inline-flex; gap: 6px; align-items: center; }
+    header #time { width: 260px; }
+    header #status { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; }
+    #canvas { position: relative; min-width: 0; }
+    #canvas > div { position: absolute; inset: 0; }
+    #legend { position: absolute; left: 12px; bottom: 12px; background: rgba(18,24,33,0.85); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; font-size: 12px; color: var(--muted); }
+    #legend span { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
+    aside { border-left: 1px solid var(--line); background: var(--panel); overflow: auto; padding: 10px 12px; min-width: 0; }
+    aside h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 10px 0 6px; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+    th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { color: var(--muted); font-weight: 500; }
+    tr.selected td { background: rgba(86,188,192,0.12); }
+    td.path { max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .pill { display: inline-block; padding: 0 6px; border-radius: 10px; font-size: 11px; border: 1px solid var(--line); color: var(--muted); }
+    .pill.on { border-color: var(--accent); color: var(--accent); }
+    .pill.dark { border-color: var(--hot); color: var(--hot); }
+    #evolution li { margin: 4px 0; color: var(--muted); }
+    #evolution li b { color: var(--ink); font-weight: 500; }
+    #detail { white-space: pre-wrap; font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 11.5px; color: var(--muted); background: #0e141c; border: 1px solid var(--line); border-radius: 4px; padding: 8px; max-height: 220px; overflow: auto; }
+    @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+    @media (max-width: 900px) { #app { grid-template-columns: 1fr; grid-template-rows: auto 1fr 40vh; } aside { border-left: 0; border-top: 1px solid var(--line); } }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <header>
+      <span class="title">Context Graph</span>
+      <label>repo <select id="repo"></select></label>
+      <label>session <select id="session"><option value="">all</option></select></label>
+      <button id="mode3d" aria-pressed="true">3D</button>
+      <button id="mode2d" aria-pressed="false">2D</button>
+      <button id="collapse" aria-pressed="true">modules</button>
+      <label>time <input id="time" type="range" min="0" max="0" value="0"><span id="timeLabel">live</span></label>
+      <button id="live" aria-pressed="true">live</button>
+      <span id="status">connecting</span>
+    </header>
+    <main id="canvas"><div id="graph"></div>
+      <div id="legend"><span style="background:#56bcc0"></span>read in full &nbsp; <span style="background:#2d7f82"></span>range &nbsp; <span style="background:#3b4b5e"></span>grep or name &nbsp; <span style="background:#e3a65c"></span>edited &nbsp; <span style="background:#ff6b6b"></span>applicable, never loaded &nbsp; <span style="background:#7c6cf0"></span>module</div>
+    </main>
+    <aside>
+      <h2>Edits and coverage</h2>
+      <table id="coverage"><thead><tr><th>file</th><th>slice</th><th>callers</th><th>dark</th></tr></thead><tbody></tbody></table>
+      <h2>Selected</h2>
+      <div id="detail">click a node or a coverage row</div>
+      <h2>Evolution</h2>
+      <ul id="evolution"></ul>
+    </aside>
+  </div>
+  <script type="module" src="./src/main.ts"></script>
+</body>
+</html>

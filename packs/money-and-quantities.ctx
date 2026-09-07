@@ -1,0 +1,10 @@
+# pack: money-and-quantities
+# version: 1
+# Money and measured quantities are exact, typed, and rounded by one named policy.
+R {money} dir:money|billing|payments|pricing|finance|accounting|invoicing
+C C:exact-money Money is exact: integer minor units, one rounding policy, currency always attached
+K G money.integer-minor-units {money} amounts are integers in minor units (cents); never floating point arithmetic on money
+K G money.currency-attached   {money} an amount carries its currency; arithmetic across currencies is a conversion with a rate and a date
+K G money.one-rounding-policy {money} rounding happens in one named place with one named policy; callers never round
+K G money.totals-reconcile    {money} a total equals the sum of its lines to the cent; reconciliation failures are errors, not warnings
+E {money} impl C:exact-money

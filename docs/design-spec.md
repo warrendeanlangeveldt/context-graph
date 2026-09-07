@@ -1201,7 +1201,26 @@ Ordered by dependency and by what proves the idea earliest. No durations.
 12. Embeddings with the local provider and SQLite store.
 13. Hosted mode of the same server, forwarding, then cross-branch live checks.
 
-## 24. Sources
+## 24. Implementation status
+
+As of 2026-09-07 every delivery step in §23 has an implementation in the repository, tested, and run against a real production codebase. Where the implementation is narrower than the design, the difference is listed here rather than left to be discovered.
+
+| Area | Built | Narrower than the design, and why |
+|---|---|---|
+| Grammar, walker, slice | Complete, including `rule:`, `since:`, and `Z` records | |
+| Observation | Shell and patch observers, coverage, import and symbol indexes | Import resolution covers relative specifiers; path aliases such as `@/` are unresolved, so caller counts on aliased trees undercount |
+| Claude Code adapter | Hooks, MCP server, plugin packaging, observe-only and random arms | Pre-edit slice uses a command hook rather than the `mcp_tool` hook type, so it works before the server is registered |
+| Codex adapter | Hooks, packaging, user-level installer, patch-based edits | Verified against the documented hook payloads and the rollout format, not against a live Codex session on this machine |
+| Transcript replay | Claude Code JSONL, Codex rollouts, `codex exec --json` | Codex parsers are pinned to the documented shapes; the rollout format is declared unstable upstream |
+| Merge gate | All checks in §11.1 plus orphaned basis and unratified retirement | Coverage warnings use whatever local observation data exists; there is no cross-machine coverage source without the overlay |
+| Bootstrap and packs | Tree, import graph, architecture tests, instruction files, ADRs, eleven packs, conformance, ratification, export | Embedding-based module clustering is not part of bootstrap |
+| Hygiene | Every signal in §21.4, retirement, archival, timeline | |
+| Event server and view | Ingest, tail, stream with sequence numbers, live queries, snapshot, Three.js view with 2D mode, scrubber, coverage table, evolution panel | The view's evolution mode lists decisions over time; it does not yet animate them on the graph |
+| Embeddings | Provider interface with Ollama and OpenAI-compatible implementations, symbol-boundary chunker, SQLite vector store, hints in the slice, post-commit refresh | Exercised through unit tests; no embedding model was available on the build machine for a live index |
+| Hosted mode | Token, forwarding, provisional decisions, cross-branch opposed-arrows check, live lines in the slice, monitor tail, branch retirement | Double-supersession across branches needs `S` records, which the record path does not send to the overlay; the merge gate still catches it |
+| Benchmark | Corpus from history, three arms with the temporal cut, Claude, Codex, and command drivers, paired report with the §20.7 predictions judged | Not yet run with a model on a real corpus; the pipeline is proven with the command driver |
+
+## 25. Sources
 
 Claude Code, checked 2026-09-05:
 

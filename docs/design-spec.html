@@ -293,7 +293,9 @@ id="toc-21-hygiene-and-evolution">21. Hygiene and evolution</a></li>
 questions</a></li>
 <li><a href="#23-delivery-order" id="toc-23-delivery-order">23. Delivery
 order</a></li>
-<li><a href="#24-sources" id="toc-24-sources">24. Sources</a></li>
+<li><a href="#24-implementation-status"
+id="toc-24-implementation-status">24. Implementation status</a></li>
+<li><a href="#25-sources" id="toc-25-sources">25. Sources</a></li>
 </ul>
   </nav>
 
@@ -2670,7 +2672,108 @@ table beside it, evolution mode over the ledger.</li>
 <li>Hosted mode of the same server, forwarding, then cross-branch live
 checks.</li>
 </ol>
-<h2 id="24-sources">24. Sources</h2>
+<h2 id="24-implementation-status">24. Implementation status</h2>
+<p>As of 2026-09-07 every delivery step in §23 has an implementation in
+the repository, tested, and run against a real production codebase. Where the
+implementation is narrower than the design, the difference is listed
+here rather than left to be discovered.</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>Area</th>
+<th>Built</th>
+<th>Narrower than the design, and why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Grammar, walker, slice</td>
+<td>Complete, including <code>rule:</code>, <code>since:</code>, and
+<code>Z</code> records</td>
+<td></td>
+</tr>
+<tr>
+<td>Observation</td>
+<td>Shell and patch observers, coverage, import and symbol indexes</td>
+<td>Import resolution covers relative specifiers; path aliases such as
+<code>@/</code> are unresolved, so caller counts on aliased trees
+undercount</td>
+</tr>
+<tr>
+<td>Claude Code adapter</td>
+<td>Hooks, MCP server, plugin packaging, observe-only and random
+arms</td>
+<td>Pre-edit slice uses a command hook rather than the
+<code>mcp_tool</code> hook type, so it works before the server is
+registered</td>
+</tr>
+<tr>
+<td>Codex adapter</td>
+<td>Hooks, packaging, user-level installer, patch-based edits</td>
+<td>Verified against the documented hook payloads and the rollout
+format, not against a live Codex session on this machine</td>
+</tr>
+<tr>
+<td>Transcript replay</td>
+<td>Claude Code JSONL, Codex rollouts,
+<code>codex exec --json</code></td>
+<td>Codex parsers are pinned to the documented shapes; the rollout
+format is declared unstable upstream</td>
+</tr>
+<tr>
+<td>Merge gate</td>
+<td>All checks in §11.1 plus orphaned basis and unratified
+retirement</td>
+<td>Coverage warnings use whatever local observation data exists; there
+is no cross-machine coverage source without the overlay</td>
+</tr>
+<tr>
+<td>Bootstrap and packs</td>
+<td>Tree, import graph, architecture tests, instruction files, ADRs,
+eleven packs, conformance, ratification, export</td>
+<td>Embedding-based module clustering is not part of bootstrap</td>
+</tr>
+<tr>
+<td>Hygiene</td>
+<td>Every signal in §21.4, retirement, archival, timeline</td>
+<td></td>
+</tr>
+<tr>
+<td>Event server and view</td>
+<td>Ingest, tail, stream with sequence numbers, live queries, snapshot,
+Three.js view with 2D mode, scrubber, coverage table, evolution
+panel</td>
+<td>The view's evolution mode lists decisions over time; it does not yet
+animate them on the graph</td>
+</tr>
+<tr>
+<td>Embeddings</td>
+<td>Provider interface with Ollama and OpenAI-compatible
+implementations, symbol-boundary chunker, SQLite vector store, hints in
+the slice, post-commit refresh</td>
+<td>Exercised through unit tests; no embedding model was available on
+the build machine for a live index</td>
+</tr>
+<tr>
+<td>Hosted mode</td>
+<td>Token, forwarding, provisional decisions, cross-branch
+opposed-arrows check, live lines in the slice, monitor tail, branch
+retirement</td>
+<td>Double-supersession across branches needs <code>S</code> records,
+which the record path does not send to the overlay; the merge gate still
+catches it</td>
+</tr>
+<tr>
+<td>Benchmark</td>
+<td>Corpus from history, three arms with the temporal cut, Claude,
+Codex, and command drivers, paired report with the §20.7 predictions
+judged</td>
+<td>Not yet run with a model on a real corpus; the pipeline is proven
+with the command driver</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="25-sources">25. Sources</h2>
 <p>Claude Code, checked 2026-09-05:</p>
 <ul>
 <li>Hooks reference: <a

@@ -1,0 +1,3 @@
+D d-0001 2026-09-07 warren.langeveldt/claude - main src/adapters/core.ts ->K adapters.profile-only hook flow moved into a shared core; Claude Code and Codex differ only in a profile of edit tools, input shapes, and response shapes
+D d-0002 2026-09-07 warren.langeveldt/claude - main src/overlay/client.ts ->K overlay.bounded every overlay call is bounded by a 300 to 400 ms timeout and failure yields no live lines, never a failed hook
+D d-0003 2026-09-07 warren.langeveldt/claude - main src/walker/slice.ts ->K walker.hints-last hint lines render after decisions and are the first dropped under budget; they never become must lines

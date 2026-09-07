@@ -1,0 +1,11 @@
+# pack: monorepo-packages
+# version: 1
+# Packages import each other only through public entry points and never form cycles.
+R {packages} dir:packages|libs|libraries
+R {apps}     dir:apps|applications|services
+C C:monorepo-packages Packages depend acyclically and expose one public entry point
+K G mono.public-entry  {packages} a package is imported only through its public entry point, never by deep path rule:public-entry:{packages}
+K G mono.acyclic       {packages} the package dependency graph has no cycles; a shared need moves down to a lower package
+K G mono.apps-are-leaves {apps}   {packages} never import {apps}; applications are leaves of the dependency graph rule:noimport:{packages}:{apps}
+K G mono.declare-deps  {packages} a package declares every package it imports in its own manifest; no reliance on hoisting
+E {packages} impl C:monorepo-packages

@@ -59,15 +59,15 @@ describe('Claude Code hook adapter, end to end on a temporary repository', () =>
   const base = (): Pick<HookInput, 'session_id' | 'cwd'> => ({ session_id: 'sess-1', cwd: repo });
   const events = (): Envelope[] => new ObservationStore(repo, 'sess-1').readAll();
 
-  it('injects a slice before an edit, observes the edit with coverage, then demands a decision at Stop', () => {
-    const start = runClaudeHook({ ...base(), hook_event_name: 'SessionStart', start_reason: 'startup' });
+  it('injects a slice before an edit, observes the edit with coverage, then demands a decision at Stop', async () => {
+    const start = await runClaudeHook({ ...base(), hook_event_name: 'SessionStart', start_reason: 'startup' });
     expect(start.stdout).toContain('Context Graph is active');
     expect(start.stdout).toContain('bb = api/src/core/orch/bb.ts');
 
-    runClaudeHook({ ...base(), hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { command: 'grep -rn applyEvent api/src' } });
-    runClaudeHook({ ...base(), hook_event_name: 'PostToolUse', tool_name: 'Read', tool_input: { file_path: join(repo, 'api/src/core/orch/bb.ts'), offset: 3, limit: 4 } });
+    await runClaudeHook({ ...base(), hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { command: 'grep -rn applyEvent api/src' } });
+    await runClaudeHook({ ...base(), hook_event_name: 'PostToolUse', tool_name: 'Read', tool_input: { file_path: join(repo, 'api/src/core/orch/bb.ts'), offset: 3, limit: 4 } });
 
-    const pre = runClaudeHook({ ...base(), hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: join(repo, 'api/src/core/orch/bb.ts'), old_string: 'helper(e);', new_string: 'helper(e); this.count++;' } });
+    const pre = await runClaudeHook({ ...base(), hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: join(repo, 'api/src/core/orch/bb.ts'), old_string: 'helper(e);', new_string: 'helper(e); this.count++;' } });
     expect(pre.stdout).toBeDefined();
     const out = JSON.parse(pre.stdout!) as { hookSpecificOutput: { hookEventName: string; additionalContext: string } };
     expect(out.hookSpecificOutput.hookEventName).toBe('PreToolUse');
@@ -76,7 +76,7 @@ describe('Claude Code hook adapter, end to end on a temporary repository', () =>
     expect(out.hookSpecificOutput.additionalContext).toContain('[G orch.events]');
 
     writeFileSync(join(repo, 'api/src/core/orch/bb.ts'), BB.replace('helper(e);', 'helper(e); this.count++;'));
-    runClaudeHook({ ...base(), hook_event_name: 'PostToolUse', tool_name: 'Edit', tool_input: { file_path: join(repo, 'api/src/core/orch/bb.ts'), old_string: 'helper(e);', new_string: 'helper(e); this.count++;' } });
+    await runClaudeHook({ ...base(), hook_event_name: 'PostToolUse', tool_name: 'Edit', tool_input: { file_path: join(repo, 'api/src/core/orch/bb.ts'), old_string: 'helper(e);', new_string: 'helper(e); this.count++;' } });
 
     const evs = events();
     expect(evs.map((e) => e.t)).toEqual(['session', 'touch', 'touch', 'slice', 'edit', 'coverage', 'finding']);
@@ -90,38 +90,37 @@ describe('Claude Code hook adapter, end to end on a temporary repository', () =>
     expect(cov.applicable).toContain('orch.events');
     expect((evs.find((e) => e.t === 'finding')!.p as { rule: string }).rule).toBe('callers-dark');
 
-    const stop1 = runClaudeHook({ ...base(), hook_event_name: 'Stop' });
+    const stop1 = await runClaudeHook({ ...base(), hook_event_name: 'Stop' });
     const blocked = JSON.parse(stop1.stdout!) as { decision: string; reason: string };
     expect(blocked.decision).toBe('block');
     expect(blocked.reason).toContain('api/src/core/orch/bb.ts');
     expect(blocked.reason).toContain('orch.events');
   });
 
-  it('records shell-driven edits and stays quiet in observe-only mode', () => {
+  it('records shell-driven edits and stays quiet in observe-only mode', async () => {
     writeFileSync(join(repo, '.ctx/config.toml'), '[slice]\nenabled = false\n');
-    const start = runClaudeHook({ ...base(), hook_event_name: 'SessionStart', start_reason: 'startup' });
+    const start = await runClaudeHook({ ...base(), hook_event_name: 'SessionStart', start_reason: 'startup' });
     expect(start.stdout).toContain('observe-only');
-    const pre = runClaudeHook({ ...base(), hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: join(repo, 'api/src/core/orch/bb.ts'), old_string: 'x', new_string: 'y' } });
+    const pre = await runClaudeHook({ ...base(), hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: join(repo, 'api/src/core/orch/bb.ts'), old_string: 'x', new_string: 'y' } });
     expect(pre.stdout).toBeUndefined();
-    runClaudeHook({ ...base(), hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { command: "sed -i '' 's/helper/helper2/' api/src/core/orch/bb.ts" } });
+    await runClaudeHook({ ...base(), hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { command: "sed -i '' 's/helper/helper2/' api/src/core/orch/bb.ts" } });
     const evs = events();
     expect(evs.filter((e) => e.t === 'edit')).toHaveLength(1);
     expect(evs.some((e) => e.t === 'coverage')).toBe(true);
-    const stop = runClaudeHook({ ...base(), hook_event_name: 'Stop' });
+    const stop = await runClaudeHook({ ...base(), hook_event_name: 'Stop' });
     expect(stop.stdout).toBeUndefined();
   });
 
-  it('attributes subagent touches and emits compaction', () => {
-    runClaudeHook({ ...base(), hook_event_name: 'SessionStart', start_reason: 'startup' });
-    runClaudeHook({ ...base(), hook_event_name: 'PostToolUse', tool_name: 'Read', tool_input: { file_path: join(repo, 'api/src/core/helper.ts') } });
-    runClaudeHook({ ...base(), hook_event_name: 'PostToolUse', tool_name: 'Read', tool_input: { file_path: join(repo, 'api/src/core/caller.ts') }, agent_id: 'agent-9', agent_type: 'Explore' });
-    runClaudeHook({ ...base(), hook_event_name: 'SessionStart', start_reason: 'compact' });
+  it('attributes subagent touches and emits compaction', async () => {
+    await runClaudeHook({ ...base(), hook_event_name: 'SessionStart', start_reason: 'startup' });
+    await runClaudeHook({ ...base(), hook_event_name: 'PostToolUse', tool_name: 'Read', tool_input: { file_path: join(repo, 'api/src/core/helper.ts') } });
+    await runClaudeHook({ ...base(), hook_event_name: 'PostToolUse', tool_name: 'Read', tool_input: { file_path: join(repo, 'api/src/core/caller.ts') }, agent_id: 'agent-9', agent_type: 'Explore' });
+    await runClaudeHook({ ...base(), hook_event_name: 'SessionStart', start_reason: 'compact' });
     const evs = events();
     const sub = evs.find((e) => e.t === 'touch' && (e.p as { origin: string }).origin === 'subagent');
     expect(sub).toBeDefined();
     const compact = evs.find((e) => e.t === 'compact')!.p as { paths: string[] };
     expect(compact.paths).toEqual(['api/src/core/helper.ts']);
-    const session = evs.filter((e) => e.t === 'session').map((e) => (e.p as { kind: string }).kind);
-    expect(session).toEqual(['start']);
+    expect(evs.filter((e) => e.t === 'session').map((e) => (e.p as { kind: string }).kind)).toEqual(['start']);
   });
 });

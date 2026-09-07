@@ -1,0 +1,12 @@
+# pack: cqrs
+# version: 1
+# Commands mutate and queries read; the two sides have separate models.
+R {commands} dir:commands|command|write|mutations
+R {queries}  dir:queries|query|read|reads
+C C:cqrs A handler mutates or reads, never both
+K G cqrs.commands-mutate-only {commands} a command handler changes state and returns an acknowledgement, not a read model
+K G cqrs.queries-read-only    {queries}  a query handler reads and never changes state
+K G cqrs.separate-models      {queries}  {queries} never import {commands}; the read model is its own shape rule:noimport:{queries}:{commands}
+K G cqrs.no-query-in-command  {commands} {commands} never import {queries}; a command validates against the write model rule:noimport:{commands}:{queries}
+E {commands} impl C:cqrs
+E {queries} impl C:cqrs
