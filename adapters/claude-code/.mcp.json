@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "ctx": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/scripts/ctx-mcp"
+    }
+  }
+}

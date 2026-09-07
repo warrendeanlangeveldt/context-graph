@@ -1,0 +1,4 @@
+#!/bin/sh
+# Context Graph MCP server (stdio) for Claude Code: the pull surface for why, history, applies, record.
+DIR="$(cd "$(dirname "$0")" && pwd)"
+exec node "$DIR/../../../dist/cli/main.js" mcp --agent claude
