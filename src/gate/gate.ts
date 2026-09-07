@@ -189,7 +189,7 @@ function loadAt(root: string, graphRel: string, ref: string): Graph {
     const text = git(root, ['show', `${ref}:${graphRel}/${name}`]);
     if (text !== undefined) records.push(...parseText(text, `${ref}:${graphRel}/${name}`));
   }
-  if (!records.length) throw new Error(`no ${graphRel}/${GRAPH_FILE} at ${ref}`);
+  // A ref from before the graph was adopted is an empty graph, not an error: adoption is a branch like any other.
   return Graph.fromRecords(records, `${ref}:${graphRel}`);
 }
 
