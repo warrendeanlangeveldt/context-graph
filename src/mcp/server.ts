@@ -1,7 +1,10 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { existsSync } from 'node:fs';
+import { isAbsolute, join, resolve } from 'node:path';
 import { z } from 'zod';
 import { openRepo, type RepoContext } from '../core/context.js';
+import { toRepoRelative } from '../util/paths.js';
 import type { Graph } from '../graph/graph.js';
 import type { CoverageRecord } from '../observe/coverage.js';
 import { envelope, type ReachPayload } from '../observe/event.js';
@@ -27,6 +30,21 @@ export async function startMcpServer(opts: { agent: string; repo?: string; graph
     return ctx.graph;
   };
   const text = (t: string): { content: { type: 'text'; text: string }[] } => ({ content: [{ type: 'text', text: t }] });
+  /**
+   * Sessions often run in a subdirectory of the repository. A path is taken as repository-relative
+   * when it resolves there, otherwise relative to the process working directory, and absolute paths
+   * are converted. Node ids (L:, C:, aliases) pass through untouched.
+   */
+  const norm = (ctx: RepoContext, p: string): string => {
+    const g = ctx.graph;
+    if (!p || p.startsWith('L:') || p.startsWith('C:') || g?.aliases.has(p)) return p;
+    if (isAbsolute(p)) return toRepoRelative(ctx.root, p);
+    const bare = p.split('#')[0]!;
+    if (existsSync(join(ctx.root, bare)) || g?.mapPath(bare)) return p;
+    const fromCwd = resolve(process.cwd(), bare);
+    if (existsSync(fromCwd)) return toRepoRelative(ctx.root, fromCwd) + (p.includes('#') ? '#' + p.split('#')[1] : '');
+    return p;
+  };
   const reach = (ctx: RepoContext, tool: string, nodes: string[]): void => {
     const store = new ObservationStore(ctx.root, session);
     const p: ReachPayload = { tool, nodes };
@@ -35,11 +53,11 @@ export async function startMcpServer(opts: { agent: string; repo?: string; graph
 
   server.registerTool(
     'slice',
-    { description: 'The context slice for a repository-relative path: module chain, constraints that apply, and the latest decisions. Same text the pre-edit hook injects.', inputSchema: { path: z.string(), symbol: z.string().optional() } },
+    { description: 'The context slice for a file path (relative to the repository root, relative to the current directory, or absolute): module chain, constraints that apply, and the latest decisions. Same text the pre-edit hook injects.', inputSchema: { path: z.string(), symbol: z.string().optional() } },
     async ({ path, symbol }) => {
       const ctx = open();
       const g = need(ctx);
-      const w = walk(g, path, { maxDecisions: ctx.config.maxDecisions, ...(symbol ? { symbol } : {}) });
+      const w = walk(g, norm(ctx, path), { maxDecisions: ctx.config.maxDecisions, ...(symbol ? { symbol } : {}) });
       const s = renderSlice(g, w, { maxTokens: ctx.config.maxTokens });
       reach(ctx, 'slice', w.nodes);
       return text(s.text);
@@ -62,11 +80,11 @@ export async function startMcpServer(opts: { agent: string; repo?: string; graph
 
   server.registerTool(
     'applies',
-    { description: 'The applicable set for a path, as ids: module chain, concepts, constraints, active decisions.', inputSchema: { path: z.string() } },
+    { description: 'The applicable set for a file path (repository-relative, current-directory-relative, or absolute), as ids: module chain, concepts, constraints, active decisions.', inputSchema: { path: z.string() } },
     async ({ path }) => {
       const ctx = open();
       const g = need(ctx);
-      const w = walk(g, path, { maxDecisions: 1000 });
+      const w = walk(g, norm(ctx, path), { maxDecisions: 1000 });
       reach(ctx, 'applies', w.nodes);
       return text(JSON.stringify({ chain: w.chain, concepts: w.concepts, constraints: w.constraints.map((k) => `${k.mode} ${k.id}`), decisions: w.decisions.map((d) => d.id), mapped: w.mapped }, null, 2));
     },
@@ -74,11 +92,11 @@ export async function startMcpServer(opts: { agent: string; repo?: string; graph
 
   server.registerTool(
     'why',
-    { description: 'Active constraints and decisions on a node (a path, an L: module id, or a C: concept id), with provenance.', inputSchema: { node: z.string() } },
+    { description: 'Active constraints and decisions on a node (a file path in any form, an L: module id, or a C: concept id), with provenance.', inputSchema: { node: z.string() } },
     async ({ node }) => {
       const ctx = open();
       const g = need(ctx);
-      const id = g.resolve(node);
+      const id = g.resolve(norm(ctx, node));
       const w = walk(g, id, { maxDecisions: 1000 });
       reach(ctx, 'why', [id]);
       const lines = [id];
@@ -95,7 +113,7 @@ export async function startMcpServer(opts: { agent: string; repo?: string; graph
     async ({ node, limit }) => {
       const ctx = open();
       const g = need(ctx);
-      const id = g.resolve(node);
+      const id = g.resolve(norm(ctx, node));
       reach(ctx, 'history', [id]);
       const all = g.allDecisionsOn(id).slice(-(limit ?? 50));
       if (!all.length) return text(`${id}: no decisions`);
@@ -116,7 +134,7 @@ export async function startMcpServer(opts: { agent: string; repo?: string; graph
       const recorder = new Recorder(g, state);
       const who = `${gitPerson(ctx.root)}/${opts.agent}`;
       try {
-        const r = recorder.record({ node, serves, text: why, who, branch: currentBranch(ctx.root), ...(overrides ? { overrides } : {}) });
+        const r = recorder.record({ node: norm(ctx, node), serves, text: why, who, branch: currentBranch(ctx.root), ...(overrides ? { overrides } : {}) });
         new ObservationStore(ctx.root, session).append(envelope('decision', { session, who, branch: r.decision.branch, harness: 'mcp' }, r.decision));
         const lines = [`recorded ${r.decision.id} on ${r.decision.node} -> ${r.decision.serves}`];
         for (const w of r.warnings) lines.push(`warning: ${w}`);

@@ -4103,11 +4103,11 @@ function snippet(text) {
   return one.length > 90 ? one.slice(0, 87) + "..." : one;
 }
 function withTimeout(p, ms) {
-  return new Promise((resolve10, reject) => {
+  return new Promise((resolve11, reject) => {
     const t = setTimeout(() => reject(new Error("timeout")), ms);
     p.then((v) => {
       clearTimeout(t);
-      resolve10(v);
+      resolve11(v);
     }, (e) => {
       clearTimeout(t);
       reject(e);
@@ -17502,7 +17502,7 @@ var init_protocol = __esm({
               return;
             }
             const pollInterval = task2.pollInterval ?? this._options?.defaultTaskPollInterval ?? 1e3;
-            await new Promise((resolve10) => setTimeout(resolve10, pollInterval));
+            await new Promise((resolve11) => setTimeout(resolve11, pollInterval));
             options?.signal?.throwIfAborted();
           }
         } catch (error2) {
@@ -17519,7 +17519,7 @@ var init_protocol = __esm({
        */
       request(request2, resultSchema, options) {
         const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
-        return new Promise((resolve10, reject) => {
+        return new Promise((resolve11, reject) => {
           const earlyReject = (error2) => {
             reject(error2);
           };
@@ -17597,7 +17597,7 @@ var init_protocol = __esm({
               if (!parseResult.success) {
                 reject(parseResult.error);
               } else {
-                resolve10(parseResult.data);
+                resolve11(parseResult.data);
               }
             } catch (error2) {
               reject(error2);
@@ -17858,12 +17858,12 @@ var init_protocol = __esm({
           }
         } catch {
         }
-        return new Promise((resolve10, reject) => {
+        return new Promise((resolve11, reject) => {
           if (signal.aborted) {
             reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
             return;
           }
-          const timeoutId = setTimeout(resolve10, interval);
+          const timeoutId = setTimeout(resolve11, interval);
           signal.addEventListener("abort", () => {
             clearTimeout(timeoutId);
             reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
@@ -20890,7 +20890,7 @@ var require_compile = __commonJS({
       const schOrFunc = root.refs[ref];
       if (schOrFunc)
         return schOrFunc;
-      let _sch = resolve10.call(this, root, ref);
+      let _sch = resolve11.call(this, root, ref);
       if (_sch === void 0) {
         const schema = (_a = root.localRefs) === null || _a === void 0 ? void 0 : _a[ref];
         const { schemaId } = this.opts;
@@ -20917,7 +20917,7 @@ var require_compile = __commonJS({
     function sameSchemaEnv(s1, s2) {
       return s1.schema === s2.schema && s1.root === s2.root && s1.baseId === s2.baseId;
     }
-    function resolve10(root, ref) {
+    function resolve11(root, ref) {
       let sch;
       while (typeof (sch = this.refs[ref]) == "string")
         ref = sch;
@@ -21747,7 +21747,7 @@ var require_fast_uri = __commonJS({
       }
       return uri;
     }
-    function resolve10(baseURI, relativeURI, options) {
+    function resolve11(baseURI, relativeURI, options) {
       const schemelessOptions = options ? Object.assign({ scheme: "null" }, options) : { scheme: "null" };
       const {
         parsed: baseParsed,
@@ -22115,7 +22115,7 @@ var require_fast_uri = __commonJS({
     var fastUri = {
       SCHEMES,
       normalize,
-      resolve: resolve10,
+      resolve: resolve11,
       resolveComponent,
       equal,
       serialize,
@@ -26233,7 +26233,7 @@ var init_mcp = __esm({
         let task = createTaskResult.task;
         const pollInterval = task.pollInterval ?? 5e3;
         while (task.status !== "completed" && task.status !== "failed" && task.status !== "cancelled") {
-          await new Promise((resolve10) => setTimeout(resolve10, pollInterval));
+          await new Promise((resolve11) => setTimeout(resolve11, pollInterval));
           const updatedTask = await extra.taskStore.getTask(taskId);
           if (!updatedTask) {
             throw new McpError(ErrorCode.InternalError, `Task ${taskId} not found during polling`);
@@ -26842,12 +26842,12 @@ var init_stdio2 = __esm({
         this.onclose?.();
       }
       send(message) {
-        return new Promise((resolve10) => {
+        return new Promise((resolve11) => {
           const json = serializeMessage(message);
           if (this._stdout.write(json)) {
-            resolve10();
+            resolve11();
           } else {
-            this._stdout.once("drain", resolve10);
+            this._stdout.once("drain", resolve11);
           }
         });
       }
@@ -26856,6 +26856,8 @@ var init_stdio2 = __esm({
 });
 
 // src/mcp/server.ts
+import { existsSync as existsSync12 } from "node:fs";
+import { isAbsolute as isAbsolute3, join as join11, resolve as resolve6 } from "node:path";
 async function startMcpServer(opts) {
   const server = new McpServer({ name: "ctx", version: "0.1.0" });
   const session = process.env.CLAUDE_SESSION_ID ?? process.env.CTX_SESSION ?? "mcp";
@@ -26865,6 +26867,16 @@ async function startMcpServer(opts) {
     return ctx.graph;
   };
   const text = (t) => ({ content: [{ type: "text", text: t }] });
+  const norm = (ctx, p) => {
+    const g = ctx.graph;
+    if (!p || p.startsWith("L:") || p.startsWith("C:") || g?.aliases.has(p)) return p;
+    if (isAbsolute3(p)) return toRepoRelative(ctx.root, p);
+    const bare = p.split("#")[0];
+    if (existsSync12(join11(ctx.root, bare)) || g?.mapPath(bare)) return p;
+    const fromCwd = resolve6(process.cwd(), bare);
+    if (existsSync12(fromCwd)) return toRepoRelative(ctx.root, fromCwd) + (p.includes("#") ? "#" + p.split("#")[1] : "");
+    return p;
+  };
   const reach = (ctx, tool, nodes) => {
     const store = new ObservationStore(ctx.root, session);
     const p = { tool, nodes };
@@ -26872,11 +26884,11 @@ async function startMcpServer(opts) {
   };
   server.registerTool(
     "slice",
-    { description: "The context slice for a repository-relative path: module chain, constraints that apply, and the latest decisions. Same text the pre-edit hook injects.", inputSchema: { path: external_exports.string(), symbol: external_exports.string().optional() } },
+    { description: "The context slice for a file path (relative to the repository root, relative to the current directory, or absolute): module chain, constraints that apply, and the latest decisions. Same text the pre-edit hook injects.", inputSchema: { path: external_exports.string(), symbol: external_exports.string().optional() } },
     async ({ path, symbol }) => {
       const ctx = open();
       const g = need(ctx);
-      const w = walk(g, path, { maxDecisions: ctx.config.maxDecisions, ...symbol ? { symbol } : {} });
+      const w = walk(g, norm(ctx, path), { maxDecisions: ctx.config.maxDecisions, ...symbol ? { symbol } : {} });
       const s = renderSlice(g, w, { maxTokens: ctx.config.maxTokens });
       reach(ctx, "slice", w.nodes);
       return text(s.text);
@@ -26897,22 +26909,22 @@ async function startMcpServer(opts) {
   );
   server.registerTool(
     "applies",
-    { description: "The applicable set for a path, as ids: module chain, concepts, constraints, active decisions.", inputSchema: { path: external_exports.string() } },
+    { description: "The applicable set for a file path (repository-relative, current-directory-relative, or absolute), as ids: module chain, concepts, constraints, active decisions.", inputSchema: { path: external_exports.string() } },
     async ({ path }) => {
       const ctx = open();
       const g = need(ctx);
-      const w = walk(g, path, { maxDecisions: 1e3 });
+      const w = walk(g, norm(ctx, path), { maxDecisions: 1e3 });
       reach(ctx, "applies", w.nodes);
       return text(JSON.stringify({ chain: w.chain, concepts: w.concepts, constraints: w.constraints.map((k) => `${k.mode} ${k.id}`), decisions: w.decisions.map((d) => d.id), mapped: w.mapped }, null, 2));
     }
   );
   server.registerTool(
     "why",
-    { description: "Active constraints and decisions on a node (a path, an L: module id, or a C: concept id), with provenance.", inputSchema: { node: external_exports.string() } },
+    { description: "Active constraints and decisions on a node (a file path in any form, an L: module id, or a C: concept id), with provenance.", inputSchema: { node: external_exports.string() } },
     async ({ node }) => {
       const ctx = open();
       const g = need(ctx);
-      const id = g.resolve(node);
+      const id = g.resolve(norm(ctx, node));
       const w = walk(g, id, { maxDecisions: 1e3 });
       reach(ctx, "why", [id]);
       const lines = [id];
@@ -26928,7 +26940,7 @@ async function startMcpServer(opts) {
     async ({ node, limit }) => {
       const ctx = open();
       const g = need(ctx);
-      const id = g.resolve(node);
+      const id = g.resolve(norm(ctx, node));
       reach(ctx, "history", [id]);
       const all = g.allDecisionsOn(id).slice(-(limit ?? 50));
       if (!all.length) return text(`${id}: no decisions`);
@@ -26948,7 +26960,7 @@ async function startMcpServer(opts) {
       const recorder = new Recorder(g, state);
       const who = `${gitPerson(ctx.root)}/${opts.agent}`;
       try {
-        const r = recorder.record({ node, serves, text: why, who, branch: currentBranch(ctx.root), ...overrides ? { overrides } : {} });
+        const r = recorder.record({ node: norm(ctx, node), serves, text: why, who, branch: currentBranch(ctx.root), ...overrides ? { overrides } : {} });
         new ObservationStore(ctx.root, session).append(envelope("decision", { session, who, branch: r.decision.branch, harness: "mcp" }, r.decision));
         const lines = [`recorded ${r.decision.id} on ${r.decision.node} -> ${r.decision.serves}`];
         for (const w of r.warnings) lines.push(`warning: ${w}`);
@@ -26992,6 +27004,7 @@ var init_server3 = __esm({
     init_stdio2();
     init_zod();
     init_context();
+    init_paths();
     init_event();
     init_patch();
     init_store();
@@ -27003,7 +27016,7 @@ var init_server3 = __esm({
 });
 
 // src/observe/replay.ts
-import { existsSync as existsSync12, readFileSync as readFileSync11 } from "node:fs";
+import { existsSync as existsSync13, readFileSync as readFileSync11 } from "node:fs";
 import { basename } from "node:path";
 async function replayTranscript(file, opts = {}) {
   const text = readFileSync11(file, "utf8");
@@ -27016,7 +27029,7 @@ async function replayTranscript(file, opts = {}) {
   const tc = { root, cwd, shellParsing: ctx.config.shellParsing, rel: (p) => toRepoRelative(root, p, cwd), readFile: (p) => readRepoFile(root, p) };
   let session = parsed.session;
   let store = new ObservationStore(root, session);
-  if (existsSync12(store.file)) {
+  if (existsSync13(store.file)) {
     session = `${session}-replay`;
     store = new ObservationStore(root, session);
   }
@@ -27307,8 +27320,8 @@ var init_provenance = __esm({
 });
 
 // src/init/bootstrap.ts
-import { existsSync as existsSync13, readFileSync as readFileSync13, realpathSync } from "node:fs";
-import { basename as basename2, dirname as dirname5, join as join11 } from "node:path";
+import { existsSync as existsSync14, readFileSync as readFileSync13, realpathSync } from "node:fs";
+import { basename as basename2, dirname as dirname5, join as join12 } from "node:path";
 function bootstrap(ctx, opts = {}) {
   const root = ctx.root;
   const minFiles = opts.minFiles ?? 5;
@@ -27407,7 +27420,7 @@ function bootstrap(ctx, opts = {}) {
   const constraints = [];
   for (const f of files) {
     if (!/(boundary|architecture|layering|dependenc|arch-|-arch)[^/]*\.(test|spec)\.[cm]?[jt]sx?$/i.test(f)) continue;
-    const src = safeRead(join11(root, f));
+    const src = safeRead(join12(root, f));
     if (!src) continue;
     const node = moduleOf(f) ?? rootId;
     const names = [...src.matchAll(/\b(?:it|test)\(\s*['"`]([^'"`]{8,160})['"`]/g)].map((m) => m[1]);
@@ -27420,7 +27433,7 @@ function bootstrap(ctx, opts = {}) {
   const instructionFiles = files.filter((f) => INSTRUCTION_FILES.includes(basename2(f)) || INSTRUCTION_FILES.includes(f)).filter((f) => {
     let real = f;
     try {
-      real = realpathSync(join11(root, f));
+      real = realpathSync(join12(root, f));
     } catch {
     }
     if (seenReal.has(real)) {
@@ -27431,7 +27444,7 @@ function bootstrap(ctx, opts = {}) {
     return true;
   });
   for (const f of instructionFiles) {
-    const src = safeRead(join11(root, f));
+    const src = safeRead(join12(root, f));
     if (!src) continue;
     const node = moduleOf(f) ?? (f.includes("/") ? moduleOfDir(ids, dirname5(f)) ?? rootId : rootId);
     let n = 0;
@@ -27449,7 +27462,7 @@ function bootstrap(ctx, opts = {}) {
   for (const f of files) {
     if (!/(^|\/)(adr|adrs|decisions|decision-records)\/[^/]*\.md$/i.test(f)) continue;
     if (/template|readme|index/i.test(basename2(f))) continue;
-    const src = safeRead(join11(root, f));
+    const src = safeRead(join12(root, f));
     if (!src) continue;
     const num = /(\d{3,5})/.exec(basename2(f))?.[1];
     const title = (/^#\s+(.+)$/m.exec(src)?.[1] ?? basename2(f, ".md")).replace(/^ADR[-\s]*\d+[:\s-]*/i, "").trim();
@@ -27484,7 +27497,7 @@ function isoToday() {
 }
 function safeRead(p) {
   try {
-    return existsSync13(p) ? readFileSync13(p, "utf8") : void 0;
+    return existsSync14(p) ? readFileSync13(p, "utf8") : void 0;
   } catch {
     return void 0;
   }
@@ -27620,10 +27633,10 @@ var init_packs = __esm({
 });
 
 // src/init/packs.ts
-import { existsSync as existsSync14, readdirSync as readdirSync3, readFileSync as readFileSync14, writeFileSync as writeFileSync5 } from "node:fs";
-import { basename as basename3, join as join12 } from "node:path";
+import { existsSync as existsSync15, readdirSync as readdirSync3, readFileSync as readFileSync14, writeFileSync as writeFileSync5 } from "node:fs";
+import { basename as basename3, join as join13 } from "node:path";
 function packsDir() {
-  return join12(packageRoot(), "packs");
+  return join13(packageRoot(), "packs");
 }
 function loadPack(file) {
   return packFromText(basename3(file, ".ctx"), readFileSync14(file, "utf8"), file);
@@ -27635,7 +27648,7 @@ function packFromText(name, text, file) {
 }
 function loadPacks(names) {
   const dir = packsDir();
-  const all = existsSync14(dir) ? readdirSync3(dir).filter((f) => f.endsWith(".ctx")).sort().map((f) => loadPack(join12(dir, f))) : Object.entries(EMBEDDED_PACKS).map(([name, text]) => packFromText(name, text, `embedded:${name}.ctx`));
+  const all = existsSync15(dir) ? readdirSync3(dir).filter((f) => f.endsWith(".ctx")).sort().map((f) => loadPack(join13(dir, f))) : Object.entries(EMBEDDED_PACKS).map(([name, text]) => packFromText(name, text, `embedded:${name}.ctx`));
   return names.includes("auto") ? all : all.filter((p) => names.includes(p.name));
 }
 function detectBindings(pack2, graph, files, overrides = {}) {
@@ -27763,13 +27776,13 @@ var init_packs2 = __esm({
 });
 
 // src/init/ratify.ts
-import { existsSync as existsSync15, readFileSync as readFileSync15, writeFileSync as writeFileSync6 } from "node:fs";
-import { join as join13 } from "node:path";
+import { existsSync as existsSync16, readFileSync as readFileSync15, writeFileSync as writeFileSync6 } from "node:fs";
+import { join as join14 } from "node:path";
 function ratify(ctx, ids, opts = {}) {
   const dir = ctx.graphDir;
   if (!dir || !ctx.graph) throw new Error("no graph to ratify in");
-  const graphFile = join13(dir, GRAPH_FILE);
-  const proposalsFile = join13(dir, PROPOSALS_FILE);
+  const graphFile = join14(dir, GRAPH_FILE);
+  const proposalsFile = join14(dir, PROPOSALS_FILE);
   const today2 = opts.today ?? (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
   const wanted = new Set(ids);
   const ratified = [];
@@ -27827,7 +27840,7 @@ function ratify(ctx, ids, opts = {}) {
   const graphLines = readFileSync15(graphFile, "utf8").split("\n");
   const g = process3(graphLines, graphFile);
   let additions = [];
-  if (existsSync15(proposalsFile)) {
+  if (existsSync16(proposalsFile)) {
     const p = process3(readFileSync15(proposalsFile, "utf8").split("\n"), proposalsFile);
     additions = p.moved;
     writeFileSync6(proposalsFile, p.kept.join("\n").replace(/\n+$/, "\n"), "utf8");
@@ -27835,7 +27848,7 @@ function ratify(ctx, ids, opts = {}) {
   const graphOut = [...g.kept];
   if (additions.length) graphOut.push(...additions);
   writeFileSync6(graphFile, graphOut.join("\n").replace(/\n*$/, "\n"), "utf8");
-  for (const d of legacy) appendRecord(join13(dir, DECISIONS_FILE), d);
+  for (const d of legacy) appendRecord(join14(dir, DECISIONS_FILE), d);
   const missing = ids.filter((id) => !ratified.includes(id));
   const person = gitPerson(ctx.root);
   return { ratified, missing, legacy, trailer: `Ctx-Ratified-By: ${person}` };
@@ -27862,8 +27875,8 @@ var cli_exports = {};
 __export(cli_exports, {
   run: () => run
 });
-import { existsSync as existsSync16, mkdirSync as mkdirSync5, writeFileSync as writeFileSync7 } from "node:fs";
-import { join as join14, resolve as resolve6 } from "node:path";
+import { existsSync as existsSync17, mkdirSync as mkdirSync5, writeFileSync as writeFileSync7 } from "node:fs";
+import { join as join15, resolve as resolve7 } from "node:path";
 async function run(args, env) {
   if (args.cmd === "init") return init(args, env);
   if (args.cmd === "ratify") return doRatify(args, env);
@@ -27873,7 +27886,7 @@ async function run(args, env) {
 async function init(args, env) {
   const repoOpt = str(args.flags.repo);
   const ctx = openRepo({ ...repoOpt ? { repo: repoOpt } : {}, ...str(args.flags.graph) ? { graph: str(args.flags.graph) } : {} });
-  const target = ctx.graphDir ?? join14(ctx.root, ".ctx");
+  const target = ctx.graphDir ?? join15(ctx.root, ".ctx");
   const minFiles = str(args.flags["min-files"]);
   const maxModules = str(args.flags["max-modules"]);
   const result = bootstrap(ctx, { ...minFiles ? { minFiles: Number(minFiles) } : {}, ...maxModules ? { maxModules: Number(maxModules) } : {} });
@@ -27921,16 +27934,16 @@ async function init(args, env) {
   }
   if (args.flags.write) {
     mkdirSync5(target, { recursive: true });
-    const graphFile = join14(target, GRAPH_FILE);
-    if (!existsSync16(graphFile)) {
+    const graphFile = join15(target, GRAPH_FILE);
+    if (!existsSync17(graphFile)) {
       const header = `# Context Graph, bootstrapped ${today2} by ctx init. Everything here is a proposal until ratified (ctx ratify).
 `;
       writeFileSync7(graphFile, header + all.map(formatRecord).join("\n") + "\n", "utf8");
-      if (!existsSync16(join14(target, "config.toml"))) writeFileSync7(join14(target, "config.toml"), CONFIG_TEMPLATE, "utf8");
+      if (!existsSync17(join15(target, "config.toml"))) writeFileSync7(join15(target, "config.toml"), CONFIG_TEMPLATE, "utf8");
       console.log(`wrote ${graphFile} (${all.length} records) and config.toml`);
     } else {
-      for (const r of all) appendRecord(join14(target, PROPOSALS_FILE), r);
-      console.log(`appended ${all.length} proposal(s) to ${join14(target, PROPOSALS_FILE)}`);
+      for (const r of all) appendRecord(join15(target, PROPOSALS_FILE), r);
+      console.log(`appended ${all.length} proposal(s) to ${join15(target, PROPOSALS_FILE)}`);
     }
   }
   return 0;
@@ -27972,8 +27985,8 @@ async function pack(args, env) {
     const text = exportPack(g, name, str(args.flags.version) ?? "1");
     const out = str(args.flags.out);
     if (out) {
-      writeFileSync7(resolve6(out), text, "utf8");
-      console.log(`wrote ${resolve6(out)}`);
+      writeFileSync7(resolve7(out), text, "utf8");
+      console.log(`wrote ${resolve7(out)}`);
     } else process.stdout.write(text);
     return 0;
   }
@@ -28035,7 +28048,7 @@ packs = ["auto"]
 
 // src/gate/gate.ts
 import { execFileSync as execFileSync2 } from "node:child_process";
-import { join as join15, relative as relative3 } from "node:path";
+import { join as join16, relative as relative3 } from "node:path";
 function runGate(ctx, opts) {
   const root = ctx.root;
   const graphRel = graphRelativeDir(ctx);
@@ -28286,8 +28299,8 @@ __export(hygiene_exports, {
   retire: () => retire,
   timeline: () => timeline
 });
-import { existsSync as existsSync17, mkdirSync as mkdirSync6, readdirSync as readdirSync4, readFileSync as readFileSync16, writeFileSync as writeFileSync8 } from "node:fs";
-import { basename as basename4, join as join16 } from "node:path";
+import { existsSync as existsSync18, mkdirSync as mkdirSync6, readdirSync as readdirSync4, readFileSync as readFileSync16, writeFileSync as writeFileSync8 } from "node:fs";
+import { basename as basename4, join as join17 } from "node:path";
 function hygieneReport(ctx) {
   const g = ctx.graph;
   if (!g || !ctx.graphDir) throw new Error("no graph");
@@ -28375,7 +28388,7 @@ function retire(ctx, target, reason, succ) {
   const who = `${gitPerson(ctx.root)}/human`;
   const record2 = { kind: "Z", target, date: (/* @__PURE__ */ new Date()).toISOString().slice(0, 10), who, reason, line: 0 };
   if (succ) record2.succ = succ;
-  appendRecord(join16(ctx.graphDir, GRAPH_FILE), record2);
+  appendRecord(join17(ctx.graphDir, GRAPH_FILE), record2);
   const k = g.constraints.get(target);
   const needsTrailer = target.startsWith("C:") || k?.mode === "E";
   return { record: record2, needsTrailer, trailer: `Ctx-Ratified-By: ${gitPerson(ctx.root)}` };
@@ -28387,8 +28400,8 @@ function gc(ctx, opts = {}) {
   const cutoff = now.getTime() - ctx.config.hygiene.archiveAfterDays * 864e5;
   const old = (date3) => new Date(date3).getTime() < cutoff;
   const year = String(now.getFullYear());
-  const archiveDir = join16(ctx.graphDir, "archive");
-  const archiveFile = join16(archiveDir, `${year}.ctx`);
+  const archiveDir = join17(ctx.graphDir, "archive");
+  const archiveFile = join17(archiveDir, `${year}.ctx`);
   const toArchive = [];
   const ids = /* @__PURE__ */ new Set();
   for (const s of g.supersessions) {
@@ -28412,7 +28425,7 @@ function gc(ctx, opts = {}) {
   }
   if (opts.deleted) {
     for (const d of g.decisions.values()) {
-      if (ids.has(d.id) || !isPathId(d.node) || existsSync17(toAbsolute(ctx.root, splitSymbol(d.node).path))) continue;
+      if (ids.has(d.id) || !isPathId(d.node) || existsSync18(toAbsolute(ctx.root, splitSymbol(d.node).path))) continue;
       toArchive.push(d);
       ids.add(d.id);
     }
@@ -28420,7 +28433,7 @@ function gc(ctx, opts = {}) {
   const ttl = ctx.config.hygiene.proposalTtlDays * 864e5;
   const droppedProposals = [];
   const rewrite = (file) => {
-    if (!existsSync17(file)) return;
+    if (!existsSync18(file)) return;
     const lines = readFileSync16(file, "utf8").split("\n");
     const kept = [];
     for (let i = 0; i < lines.length; i++) {
@@ -28451,20 +28464,20 @@ function gc(ctx, opts = {}) {
   };
   if (toArchive.length) {
     mkdirSync6(archiveDir, { recursive: true });
-    const header = existsSync17(archiveFile) ? "" : `# archive ${year}: inactive records moved by ctx gc; ids stay resolvable, the walker never reads this file
+    const header = existsSync18(archiveFile) ? "" : `# archive ${year}: inactive records moved by ctx gc; ids stay resolvable, the walker never reads this file
 `;
-    writeFileSync8(archiveFile, (existsSync17(archiveFile) ? readFileSync16(archiveFile, "utf8") : header) + toArchive.map(formatRecord).join("\n") + "\n", "utf8");
+    writeFileSync8(archiveFile, (existsSync18(archiveFile) ? readFileSync16(archiveFile, "utf8") : header) + toArchive.map(formatRecord).join("\n") + "\n", "utf8");
   }
-  for (const f of [join16(ctx.graphDir, DECISIONS_FILE), join16(ctx.graphDir, GRAPH_FILE), join16(ctx.graphDir, "proposals.ctx")]) rewrite(f);
+  for (const f of [join17(ctx.graphDir, DECISIONS_FILE), join17(ctx.graphDir, GRAPH_FILE), join17(ctx.graphDir, "proposals.ctx")]) rewrite(f);
   const res = { archived: [...ids], droppedProposals };
   if (toArchive.length) res.archiveFile = archiveFile;
   return res;
 }
 function loadArchive(graphDir) {
-  const dir = join16(graphDir, "archive");
-  if (!existsSync17(dir)) return [];
+  const dir = join17(graphDir, "archive");
+  if (!existsSync18(dir)) return [];
   const out = [];
-  for (const f of readdirSync4(dir).filter((x) => x.endsWith(".ctx")).sort()) out.push(...parseText(readFileSync16(join16(dir, f), "utf8"), join16(dir, f)));
+  for (const f of readdirSync4(dir).filter((x) => x.endsWith(".ctx")).sort()) out.push(...parseText(readFileSync16(join17(dir, f), "utf8"), join17(dir, f)));
   return out;
 }
 function timeline(ctx, node) {
@@ -32253,16 +32266,16 @@ var init_wrapper = __esm({
 });
 
 // src/overlay/server.ts
-import { createReadStream, existsSync as existsSync18, mkdirSync as mkdirSync7, readdirSync as readdirSync5, readFileSync as readFileSync17, statSync as statSync3, unlinkSync, watch, writeFileSync as writeFileSync9 } from "node:fs";
+import { createReadStream, existsSync as existsSync19, mkdirSync as mkdirSync7, readdirSync as readdirSync5, readFileSync as readFileSync17, statSync as statSync3, unlinkSync, watch, writeFileSync as writeFileSync9 } from "node:fs";
 import { createServer } from "node:http";
-import { extname, join as join17, resolve as resolve7 } from "node:path";
+import { extname, join as join18, resolve as resolve8 } from "node:path";
 async function startServer(opts) {
   const cap = opts.bufferEvents ?? 5e4;
   const retentionMs = (opts.retentionDays ?? 30) * 864e5;
   const repos = /* @__PURE__ */ new Map();
   const clients = /* @__PURE__ */ new Map();
   const providers = /* @__PURE__ */ new Map();
-  const viewDir = opts.viewDir ?? join17(packageRoot(), "view", "dist");
+  const viewDir = opts.viewDir ?? join18(packageRoot(), "view", "dist");
   const state = (hash) => {
     let s = repos.get(hash);
     if (!s) {
@@ -32300,7 +32313,7 @@ async function startServer(opts) {
       }
       if (st.t === "session" && !opts.hosted && !s.root) {
         const cwd = st.p.cwd;
-        if (cwd && existsSync18(cwd)) s.root = findRepoRoot(cwd);
+        if (cwd && existsSync19(cwd)) s.root = findRepoRoot(cwd);
       }
     }
     broadcast(hash, out);
@@ -32340,12 +32353,12 @@ async function startServer(opts) {
   };
   let watcher;
   if (!opts.hosted) {
-    const obsDir = join17(ctxHome(), "observations");
+    const obsDir = join18(ctxHome(), "observations");
     mkdirSync7(obsDir, { recursive: true });
     for (const hash of readdirSync5(obsDir)) {
-      const dir = join17(obsDir, hash);
+      const dir = join18(obsDir, hash);
       if (!statSync3(dir).isDirectory()) continue;
-      for (const f of readdirSync5(dir).filter((x) => x.endsWith(".jsonl")).sort((a, b) => statSync3(join17(dir, a)).mtimeMs - statSync3(join17(dir, b)).mtimeMs)) readNew(join17(dir, f), hash);
+      for (const f of readdirSync5(dir).filter((x) => x.endsWith(".jsonl")).sort((a, b) => statSync3(join18(dir, a)).mtimeMs - statSync3(join18(dir, b)).mtimeMs)) readNew(join18(dir, f), hash);
     }
     for (const r of opts.repos ?? []) state(repoHash(r)).root = findRepoRoot(r);
     try {
@@ -32353,7 +32366,7 @@ async function startServer(opts) {
         if (!name || !String(name).endsWith(".jsonl")) return;
         const rel = String(name);
         const hash = rel.split(/[\\/]/)[0];
-        readNew(join17(obsDir, rel), hash);
+        readNew(join18(obsDir, rel), hash);
       });
     } catch {
     }
@@ -32390,7 +32403,7 @@ async function startServer(opts) {
       }
       if (req.method === "POST" && rest === "register") {
         const body = await readBody(req);
-        if (body.root && existsSync18(body.root) && !opts.hosted) s.root = findRepoRoot(body.root);
+        if (body.root && existsSync19(body.root) && !opts.hosted) s.root = findRepoRoot(body.root);
         return sendJson(res, { ok: true, root: s.root ?? null });
       }
       if (req.method === "POST" && rest === "provisional/retire") {
@@ -32437,15 +32450,15 @@ async function startServer(opts) {
       return;
     }
     let file = url.pathname === "/" ? "/index.html" : url.pathname;
-    const abs = join17(viewDir, file);
-    if (existsSync18(abs) && statSync3(abs).isFile()) {
+    const abs = join18(viewDir, file);
+    if (existsSync19(abs) && statSync3(abs).isFile()) {
       res.setHeader("content-type", MIME[extname(abs)] ?? "application/octet-stream");
       res.end(readFileSync17(abs));
       return;
     }
     if (url.pathname === "/" || url.pathname === "/index.html") {
       res.setHeader("content-type", "text/html; charset=utf-8");
-      res.end(`<!doctype html><title>Context Graph</title><body style="font-family:system-ui;padding:2rem;max-width:60ch"><h1>Context Graph server</h1><p>The event server is running on port ${opts.port}${opts.hosted ? " (hosted mode)" : ""}. ${repos.size} repository(ies) known.</p><p>The synapse view has not been built on this machine. From a clone, build it once with:</p><pre>cd ${resolve7(viewDir, "..")} &amp;&amp; npm install &amp;&amp; npm run build</pre><p>The published npm package ships it prebuilt. Reload this page afterwards. The API is live under <code>/v1/</code>.</p></body>`);
+      res.end(`<!doctype html><title>Context Graph</title><body style="font-family:system-ui;padding:2rem;max-width:60ch"><h1>Context Graph server</h1><p>The event server is running on port ${opts.port}${opts.hosted ? " (hosted mode)" : ""}. ${repos.size} repository(ies) known.</p><p>The synapse view has not been built on this machine. From a clone, build it once with:</p><pre>cd ${resolve8(viewDir, "..")} &amp;&amp; npm install &amp;&amp; npm run build</pre><p>The published npm package ships it prebuilt. Reload this page afterwards. The API is live under <code>/v1/</code>.</p></body>`);
       return;
     }
     res.statusCode = 404;
@@ -32480,7 +32493,7 @@ async function startServer(opts) {
   });
   const addr = server.address();
   const port = typeof addr === "object" && addr ? addr.port : opts.port;
-  const serveFile = join17(ctxHome(), "serve.json");
+  const serveFile = join18(ctxHome(), "serve.json");
   if (!opts.hosted) {
     mkdirSync7(ctxHome(), { recursive: true });
     writeFileSync9(serveFile, JSON.stringify({ port, pid: process.pid, startedAt: (/* @__PURE__ */ new Date()).toISOString() }), "utf8");
@@ -32499,7 +32512,7 @@ async function startServer(opts) {
       for (const ws of clients.keys()) ws.close();
       wss.close();
       server.close(() => {
-        if (!opts.hosted && existsSync18(serveFile)) {
+        if (!opts.hosted && existsSync19(serveFile)) {
           try {
             unlinkSync(serveFile);
           } catch {
@@ -32991,26 +33004,26 @@ var init_report = __esm({
 
 // src/bench/runner.ts
 import { execFileSync as execFileSync3, spawnSync } from "node:child_process";
-import { copyFileSync, existsSync as existsSync19, mkdirSync as mkdirSync8, readFileSync as readFileSync18, rmSync, writeFileSync as writeFileSync10, appendFileSync as appendFileSync3 } from "node:fs";
-import { join as join18 } from "node:path";
+import { copyFileSync, existsSync as existsSync20, mkdirSync as mkdirSync8, readFileSync as readFileSync18, rmSync, writeFileSync as writeFileSync10, appendFileSync as appendFileSync3 } from "node:fs";
+import { join as join19 } from "node:path";
 async function runBench(ctx, tasks, opts) {
   const log = opts.log ?? (() => void 0);
   const root = ctx.root;
   const stamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-").slice(0, 19);
-  const dir = opts.outDir ?? join18(ctx.graphDir && !ctx.graphDir.startsWith(root) ? ctx.graphDir : join18(root, ".ctx"), "bench", "results", stamp);
+  const dir = opts.outDir ?? join19(ctx.graphDir && !ctx.graphDir.startsWith(root) ? ctx.graphDir : join19(root, ".ctx"), "bench", "results", stamp);
   mkdirSync8(dir, { recursive: true });
-  const runsFile = join18(dir, "runs.jsonl");
+  const runsFile = join19(dir, "runs.jsonl");
   const selected = opts.tasks?.length ? tasks.filter((t) => opts.tasks.includes(t.id)) : tasks;
   if (!selected.length) throw new Error("no tasks selected");
-  writeFileSync10(join18(dir, "meta.json"), JSON.stringify({ startedAt: (/* @__PURE__ */ new Date()).toISOString(), repo: root, harness: opts.harness, arms: opts.arms, runs: opts.runs, tasks: selected.map((t) => t.id) }, null, 2));
+  writeFileSync10(join19(dir, "meta.json"), JSON.stringify({ startedAt: (/* @__PURE__ */ new Date()).toISOString(), repo: root, harness: opts.harness, arms: opts.arms, runs: opts.runs, tasks: selected.map((t) => t.id) }, null, 2));
   const records = [];
-  const wtRoot = join18(ctxHome(), "bench", repoHash(root));
+  const wtRoot = join19(ctxHome(), "bench", repoHash(root));
   mkdirSync8(wtRoot, { recursive: true });
   for (const task of selected) {
     for (const arm of opts.arms) {
       for (let run6 = 1; run6 <= opts.runs; run6++) {
         const label = `${task.id} ${arm} #${run6}`;
-        const wt = join18(wtRoot, `${task.id}-${arm}-${run6}`);
+        const wt = join19(wtRoot, `${task.id}-${arm}-${run6}`);
         rmWorktree(root, wt);
         log(`${label}: worktree at ${task.base}`);
         execFileSync3("git", ["worktree", "add", "--detach", "-f", wt, task.base], { cwd: root, stdio: "ignore" });
@@ -33029,7 +33042,7 @@ async function runBench(ctx, tasks, opts) {
           const check2 = spawnSync("sh", ["-c", task.check], { cwd: wt, encoding: "utf8", timeout: opts.timeoutMs ?? 10 * 6e4, env: { ...process.env, CI: "1" } });
           rec.checkExit = check2.status;
           rec.passed = check2.status === 0;
-          writeFileSync10(join18(dir, `${task.id}-${arm}-${run6}.check.log`), `${check2.stdout ?? ""}
+          writeFileSync10(join19(dir, `${task.id}-${arm}-${run6}.check.log`), `${check2.stdout ?? ""}
 ${check2.stderr ?? ""}`);
           if (h.session) collectMetrics(rec, new ObservationStore(wt, h.session).readAll().length ? new ObservationStore(wt, h.session) : new ObservationStore(root, h.session));
         } catch (e) {
@@ -33049,25 +33062,25 @@ ${check2.stderr ?? ""}`);
 function prepareArm(ctx, task, arm, wt, harness) {
   const env = { ...process.env, CLAUDE_PROJECT_DIR: wt };
   delete env.CTX_GRAPH_DIR;
-  const inTree = join18(wt, ".ctx");
+  const inTree = join19(wt, ".ctx");
   if (arm === "A") {
-    if (existsSync19(inTree)) rmSync(inTree, { recursive: true, force: true });
+    if (existsSync20(inTree)) rmSync(inTree, { recursive: true, force: true });
     env.CTX_GRAPH_DIR = "";
     delete env.CTX_GRAPH_DIR;
     return env;
   }
-  const snapshotDir = join18(wt, ".ctx-bench");
+  const snapshotDir = join19(wt, ".ctx-bench");
   mkdirSync8(snapshotDir, { recursive: true });
-  const graphDir = existsSync19(join18(inTree, "graph.ctx")) ? inTree : ctx.graphDir;
+  const graphDir = existsSync20(join19(inTree, "graph.ctx")) ? inTree : ctx.graphDir;
   if (!graphDir) throw new Error("no graph to snapshot for arm " + arm);
   const baseDate = git(ctx.root, ["show", "-s", "--format=%cI", task.base]) ?? "";
   if (!baseDate) throw new Error(`cannot date base commit ${task.base}`);
   const cut = new Date(baseDate).getTime();
-  for (const f of ["graph.ctx", "aliases.ctx", "proposals.ctx"]) if (existsSync19(join18(graphDir, f))) copyFileSync(join18(graphDir, f), join18(snapshotDir, f));
-  const decisionsFile = join18(graphDir, "decisions.ctx");
+  for (const f of ["graph.ctx", "aliases.ctx", "proposals.ctx"]) if (existsSync20(join19(graphDir, f))) copyFileSync(join19(graphDir, f), join19(snapshotDir, f));
+  const decisionsFile = join19(graphDir, "decisions.ctx");
   const kept = [];
   let dropped = 0;
-  if (existsSync19(decisionsFile)) {
+  if (existsSync20(decisionsFile)) {
     const recs = parseText(readFileSync18(decisionsFile, "utf8"), decisionsFile);
     const keptIds = /* @__PURE__ */ new Set();
     for (const r of recs) {
@@ -33084,20 +33097,20 @@ function prepareArm(ctx, task, arm, wt, harness) {
       } else kept.push(formatRecord(r));
     }
   }
-  writeFileSync10(join18(snapshotDir, "decisions.ctx"), `# temporal cut at ${task.base} (${baseDate}); ${dropped} later decision(s) excluded
+  writeFileSync10(join19(snapshotDir, "decisions.ctx"), `# temporal cut at ${task.base} (${baseDate}); ${dropped} later decision(s) excluded
 ` + kept.join("\n") + (kept.length ? "\n" : ""));
-  const cfg = existsSync19(join18(graphDir, "config.toml")) ? readFileSync18(join18(graphDir, "config.toml"), "utf8") : "";
+  const cfg = existsSync20(join19(graphDir, "config.toml")) ? readFileSync18(join19(graphDir, "config.toml"), "utf8") : "";
   const sliceOn = arm === "C";
-  writeFileSync10(join18(snapshotDir, "config.toml"), cfg.replace(/^\s*enabled\s*=.*$/m, "") + `
+  writeFileSync10(join19(snapshotDir, "config.toml"), cfg.replace(/^\s*enabled\s*=.*$/m, "") + `
 [slice]
 enabled = ${sliceOn}
 `, "utf8");
   env.CTX_GRAPH_DIR = snapshotDir;
-  if (existsSync19(inTree)) rmSync(inTree, { recursive: true, force: true });
+  if (existsSync20(inTree)) rmSync(inTree, { recursive: true, force: true });
   if (arm === "B") {
     const g = Graph.load(snapshotDir);
-    const file = join18(wt, harness === "codex" ? "AGENTS.md" : "CLAUDE.md");
-    const prior = existsSync19(file) ? readFileSync18(file, "utf8") : "";
+    const file = join19(wt, harness === "codex" ? "AGENTS.md" : "CLAUDE.md");
+    const prior = existsSync20(file) ? readFileSync18(file, "utf8") : "";
     writeFileSync10(file, prior + "\n\n" + renderWholeGraph(g), "utf8");
   }
   return env;
@@ -33115,8 +33128,8 @@ function renderWholeGraph(g) {
   return lines.join("\n") + "\n";
 }
 function adapterDir(name) {
-  const dir = join18(packageRoot(), "adapters", name);
-  if (!existsSync19(dir)) throw new Error(`adapter directory not found at ${dir}; the benchmark needs the full package or a clone`);
+  const dir = join19(packageRoot(), "adapters", name);
+  if (!existsSync20(dir)) throw new Error(`adapter directory not found at ${dir}; the benchmark needs the full package or a clone`);
   return dir;
 }
 function runHarness(opts, task, wt, env, session, log) {
@@ -33187,7 +33200,7 @@ function collectMetrics(rec, store) {
   });
 }
 function rmWorktree(root, wt) {
-  if (!existsSync19(wt)) return;
+  if (!existsSync20(wt)) return;
   try {
     execFileSync3("git", ["worktree", "remove", "--force", wt], { cwd: root, stdio: "ignore" });
   } catch {
@@ -33216,13 +33229,13 @@ var cli_exports5 = {};
 __export(cli_exports5, {
   run: () => run5
 });
-import { existsSync as existsSync20, mkdirSync as mkdirSync9, readFileSync as readFileSync19, readdirSync as readdirSync6, writeFileSync as writeFileSync11 } from "node:fs";
-import { join as join19, resolve as resolve8 } from "node:path";
+import { existsSync as existsSync21, mkdirSync as mkdirSync9, readFileSync as readFileSync19, readdirSync as readdirSync6, writeFileSync as writeFileSync11 } from "node:fs";
+import { join as join20, resolve as resolve9 } from "node:path";
 async function run5(args, env) {
   const sub = args.positional[0];
   const ctx = openFromArgs(args);
-  const benchDir = ctx.graphDir && !ctx.graphDir.startsWith(ctx.root) ? join19(ctx.graphDir, "bench") : join19(ctx.root, ".ctx", "bench");
-  const corpusFile = str(args.flags.corpus) ?? join19(benchDir, "tasks.ctx");
+  const benchDir = ctx.graphDir && !ctx.graphDir.startsWith(ctx.root) ? join20(ctx.graphDir, "bench") : join20(ctx.root, ".ctx", "bench");
+  const corpusFile = str(args.flags.corpus) ?? join20(benchDir, "tasks.ctx");
   if (sub === "corpus") {
     const { tasks, skipped } = proposeCorpus(ctx, { ...str(args.flags.since) ? { since: str(args.flags.since) } : {}, ...str(args.flags.limit) ? { limit: Number(str(args.flags.limit)) } : {}, ...str(args.flags["test-command"]) ? { testCommand: str(args.flags["test-command"]) } : {} });
     if (env.json) {
@@ -33239,7 +33252,7 @@ async function run5(args, env) {
     return 0;
   }
   if (sub === "run") {
-    if (!existsSync20(corpusFile)) throw new Error(`no corpus at ${corpusFile}; run ctx bench corpus --write first`);
+    if (!existsSync21(corpusFile)) throw new Error(`no corpus at ${corpusFile}; run ctx bench corpus --write first`);
     const tasks = parseCorpus(readFileSync19(corpusFile, "utf8"));
     const arms = (str(args.flags.arms) ?? "A,C").split(",").map((a) => a.trim().toUpperCase());
     for (const a of arms) if (!["A", "B", "C"].includes(a)) throw new Error(`unknown arm ${a}`);
@@ -33253,15 +33266,15 @@ async function run5(args, env) {
       ...str(args.flags.command) ? { command: str(args.flags.command) } : {},
       ...str(args.flags.tasks) ? { tasks: str(args.flags.tasks).split(",") } : {},
       ...str(args.flags.timeout) ? { timeoutMs: Number(str(args.flags.timeout)) * 1e3 } : {},
-      ...str(args.flags.out) ? { outDir: resolve8(str(args.flags.out)) } : {},
+      ...str(args.flags.out) ? { outDir: resolve9(str(args.flags.out)) } : {},
       keepWorktrees: args.flags.keep === true,
       log: (s) => {
         if (!env.json) console.log(s);
       }
     });
     const report = buildReport(r.records);
-    writeFileSync11(join19(r.dir, "report.md"), formatReport(report), "utf8");
-    writeFileSync11(join19(r.dir, "report.json"), JSON.stringify(report, null, 2), "utf8");
+    writeFileSync11(join20(r.dir, "report.md"), formatReport(report), "utf8");
+    writeFileSync11(join20(r.dir, "report.json"), JSON.stringify(report, null, 2), "utf8");
     if (env.json) console.log(JSON.stringify({ dir: r.dir, report }, null, 2));
     else {
       console.log("");
@@ -33273,12 +33286,12 @@ async function run5(args, env) {
   if (sub === "report") {
     let dir = str(args.flags.dir);
     if (!dir) {
-      const results = join19(benchDir, "results");
-      const runs = existsSync20(results) ? readdirSync6(results).sort() : [];
+      const results = join20(benchDir, "results");
+      const runs = existsSync21(results) ? readdirSync6(results).sort() : [];
       if (!runs.length) throw new Error(`no results under ${results}`);
-      dir = join19(results, runs[runs.length - 1]);
+      dir = join20(results, runs[runs.length - 1]);
     }
-    const records = readFileSync19(join19(dir, "runs.jsonl"), "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
+    const records = readFileSync19(join20(dir, "runs.jsonl"), "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
     const report = buildReport(records);
     if (env.json) console.log(JSON.stringify(report, null, 2));
     else console.log(formatReport(report));
@@ -33330,8 +33343,8 @@ var init_commands = __esm({
 });
 
 // src/cli/main.ts
-import { existsSync as existsSync21, lstatSync, mkdirSync as mkdirSync10, readFileSync as readFileSync20, symlinkSync, unlinkSync as unlinkSync2 } from "node:fs";
-import { join as join20, resolve as resolve9 } from "node:path";
+import { existsSync as existsSync22, lstatSync, mkdirSync as mkdirSync10, readFileSync as readFileSync20, symlinkSync, unlinkSync as unlinkSync2 } from "node:fs";
+import { join as join21, resolve as resolve10 } from "node:path";
 function parseArgs(argv) {
   const positional = [];
   const flags = {};
@@ -33540,7 +33553,7 @@ async function main() {
     case "replay": {
       const file = args.positional[0];
       if (!file) throw new Error("ctx replay <transcript.jsonl> [--harness auto|claude-code|codex]");
-      const r = await replayTranscript(resolve9(file), { ...str(args.flags.repo) ? { repo: str(args.flags.repo) } : {}, ...str(args.flags.graph) ? { graph: str(args.flags.graph) } : {}, ...str(args.flags.harness) ? { harness: str(args.flags.harness) } : {} });
+      const r = await replayTranscript(resolve10(file), { ...str(args.flags.repo) ? { repo: str(args.flags.repo) } : {}, ...str(args.flags.graph) ? { graph: str(args.flags.graph) } : {}, ...str(args.flags.harness) ? { harness: str(args.flags.harness) } : {} });
       if (json) console.log(JSON.stringify(r, null, 2));
       else {
         console.log(`${r.harness} session ${r.session}: ${r.events} events, ${r.edits} edits, ${r.coverage} coverage records${r.cliVersion ? `, cli ${r.cliVersion}` : ""}
@@ -33564,12 +33577,12 @@ async function main() {
       const graph = str(args.flags.graph);
       if (!graph) throw new Error("ctx link --graph <dir> [--repo <dir>]");
       const ctx = openRepo({ ...str(args.flags.repo) ? { repo: str(args.flags.repo) } : {} });
-      const target = resolve9(graph);
-      if (!existsSync21(join20(target, "graph.ctx"))) throw new Error(`${target} has no graph.ctx`);
-      const linkDir = join20(ctxHome(), "graphs");
+      const target = resolve10(graph);
+      if (!existsSync22(join21(target, "graph.ctx"))) throw new Error(`${target} has no graph.ctx`);
+      const linkDir = join21(ctxHome(), "graphs");
       mkdirSync10(linkDir, { recursive: true });
-      const link = join20(linkDir, repoHash(ctx.root));
-      if (existsSync21(link) || isSymlink(link)) unlinkSync2(link);
+      const link = join21(linkDir, repoHash(ctx.root));
+      if (existsSync22(link) || isSymlink(link)) unlinkSync2(link);
       symlinkSync(target, link);
       console.log(`${ctx.root}
   -> ${target}
