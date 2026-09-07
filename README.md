@@ -158,7 +158,7 @@ ctx replay <transcript.jsonl>   # reconstruct a session that ran before the plug
 ctx sessions                    ctx coverage
 ```
 
-The view collapses to modules by default, expands a module on click or when a session touches it, lights files by how much of them entered context, pulses on edits, flags applicable files that stayed dark, and replays a session with the scrubber. The evolution panel lists decisions and retirements over time.
+The view collapses to modules by default, expands a module on click or when a session touches it, lights files by how much of them entered context, pulses on edits, flags applicable files that stayed dark, and replays a session with the scrubber. The evolution panel lists decisions and retirements over time. The status line says whether the stream is live and how long ago the last event arrived; the window control (all time, today, last hour) keeps a long history from burying what is happening now. Times are shown in your zone. A tab left open across a server restart reloads itself.
 
 ## Hosted mode
 

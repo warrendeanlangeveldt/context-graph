@@ -61,6 +61,24 @@ describe('event server', () => {
     ws.close();
   });
 
+  it('drops the second copy of an event that arrives by both the POST and the file-tail path, and tells clients its boot id', async () => {
+    const received: (Envelope & { boot?: number; seq?: number })[] = [];
+    const ws = new WebSocket(`ws://127.0.0.1:${server.port}/v1/r2/stream`);
+    ws.on('message', (m) => received.push(JSON.parse(String(m)) as Envelope));
+    await new Promise<void>((res) => ws.on('open', () => res()));
+    await new Promise((r) => setTimeout(r, 50));
+    const touch = env('touch', 's9', 'main', { path: 'src/y.ts', mode: 'full', tool: 'Read', origin: 'main' });
+    await post('/v1/r2/observe', [touch]);
+    await post('/v1/r2/observe', [touch, { ...touch, ts: '2026-09-07T00:00:00.001Z' }]);
+    await new Promise((r) => setTimeout(r, 100));
+    const ready = received.find((e) => e.t === 'ready');
+    expect(typeof ready?.boot).toBe('number');
+    expect(received.filter((e) => e.t === 'touch').map((e) => e.seq)).toEqual([1, 2]);
+    const events = (await get('/v1/r2/events')) as { t: string }[];
+    expect(events.filter((e) => e.t === 'touch')).toHaveLength(2);
+    ws.close();
+  });
+
   it('serves the API explanation page when the view is not built and rejects a bad token in hosted mode', async () => {
     const html = await (await fetch(`http://127.0.0.1:${server.port}/`)).text();
     expect(html).toContain('The synapse view has not been built');

@@ -32702,11 +32702,15 @@ var init_wrapper = __esm({
 import { createReadStream, existsSync as existsSync20, mkdirSync as mkdirSync7, readdirSync as readdirSync5, readFileSync as readFileSync18, statSync as statSync4, unlinkSync, watch, writeFileSync as writeFileSync9 } from "node:fs";
 import { createServer } from "node:http";
 import { extname, join as join19, resolve as resolve10 } from "node:path";
+function eventKey(env) {
+  return `${env.session}|${env.ts}|${env.t}|${env.who}|${JSON.stringify(env.p)}`;
+}
 async function startServer(opts) {
   const cap = opts.bufferEvents ?? 5e4;
   const retentionMs = (opts.retentionDays ?? 30) * 864e5;
   const repos = /* @__PURE__ */ new Map();
   const clients = /* @__PURE__ */ new Map();
+  const boot = Date.now();
   const providers = /* @__PURE__ */ new Map();
   const viewDir = opts.viewDir ?? join19(packageRoot(), "view", "dist");
   const state = (hash) => {
@@ -32728,6 +32732,7 @@ async function startServer(opts) {
     const out = [];
     for (const env of envs) {
       if (!env || typeof env !== "object" || !env.t || !env.session) continue;
+      if (!s.fresh(env)) continue;
       const st = { ...env, seq: ++s.seq };
       s.buffer.push(st);
       if (s.buffer.length > cap) s.buffer.splice(0, s.buffer.length - cap);
@@ -32916,7 +32921,7 @@ async function startServer(opts) {
       clients.set(ws, session ? { hash, session } : { hash });
       const s = state(hash);
       for (const e of s.buffer) if (e.seq > since && (!session || e.session === session || e.t === "finding")) ws.send(JSON.stringify(e));
-      ws.send(JSON.stringify({ t: "ready", seq: s.seq }));
+      ws.send(JSON.stringify({ t: "ready", seq: s.seq, boot }));
       ws.on("close", () => clients.delete(ws));
     });
   });
@@ -32943,7 +32948,7 @@ async function startServer(opts) {
     close: () => new Promise((done) => {
       clearInterval(prune);
       watcher?.close();
-      for (const ws of clients.keys()) ws.close();
+      for (const ws of clients.keys()) ws.terminate();
       wss.close();
       server.close(() => {
         if (registered && existsSync20(serveFile)) {
@@ -32954,6 +32959,7 @@ async function startServer(opts) {
         }
         done();
       });
+      server.closeAllConnections();
     })
   };
 }
@@ -33120,7 +33126,7 @@ function readBody(req) {
     req.on("error", reject);
   });
 }
-var RepoState, MIME;
+var SEEN_CAP, RepoState, MIME;
 var init_server4 = __esm({
   "src/overlay/server.ts"() {
     "use strict";
@@ -33132,6 +33138,7 @@ var init_server4 = __esm({
     init_hygiene();
     init_imports();
     init_paths();
+    SEEN_CAP = 2e4;
     RepoState = class {
       constructor(hash, cap) {
         this.hash = hash;
@@ -33145,6 +33152,18 @@ var init_server4 = __esm({
       findings = [];
       root;
       snapshot;
+      seen = /* @__PURE__ */ new Set();
+      /** True the first time an event is seen; false for the copy that arrived by the other path. */
+      fresh(env) {
+        const k = eventKey(env);
+        if (this.seen.has(k)) return false;
+        this.seen.add(k);
+        if (this.seen.size > SEEN_CAP) {
+          const first = this.seen.values().next().value;
+          if (first !== void 0) this.seen.delete(first);
+        }
+        return true;
+      }
     };
     MIME = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".json": "application/json", ".svg": "image/svg+xml", ".png": "image/png", ".ico": "image/x-icon", ".map": "application/json", ".woff2": "font/woff2" };
   }
@@ -33174,6 +33193,7 @@ async function run4(args, env) {
     if (root) console.log(`  repository ${root} registered as ${repoHash(root)}`);
     if (hosted && !token) console.log("  warning: hosted mode without a token accepts anyone who can reach the port");
     const stop = () => {
+      setTimeout(() => process.exit(0), 2e3).unref();
       void server.close().then(() => process.exit(0));
     };
     process.on("SIGINT", stop);

@@ -20,7 +20,11 @@ export async function run(args: Args, env: { json: boolean }): Promise<number> {
     console.log(`ctx serve: ${hosted ? 'hosted' : 'local'} mode on http://${hosted ? '0.0.0.0' : '127.0.0.1'}:${server.port}  (view at /, API under /v1/)`);
     if (root) console.log(`  repository ${root} registered as ${repoHash(root)}`);
     if (hosted && !token) console.log('  warning: hosted mode without a token accepts anyone who can reach the port');
-    const stop = (): void => { void server.close().then(() => process.exit(0)); };
+    const stop = (): void => {
+      // If anything still holds the loop open after the sockets are gone, leave anyway: a hung server blocks the next start.
+      setTimeout(() => process.exit(0), 2000).unref();
+      void server.close().then(() => process.exit(0));
+    };
     process.on('SIGINT', stop);
     process.on('SIGTERM', stop);
     await new Promise<void>(() => undefined);

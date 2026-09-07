@@ -18,6 +18,7 @@
     button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
     label { color: var(--muted); display: inline-flex; gap: 6px; align-items: center; white-space: nowrap; }
     #status { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+    #status.warn { color: var(--warm); }
     #headline { gap: 18px; padding: 8px 12px; }
     .stat { display: inline-flex; flex-direction: column; line-height: 1.15; min-width: 84px; }
     .stat b { font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; }
@@ -106,6 +107,7 @@
       <span class="title">Context Graph</span>
       <label>repo <select id="repo"></select></label>
       <label>session <select id="session"><option value="">all sessions</option></select></label>
+      <label>window <select id="window" title="events before the window start are left out of the graph, counters, and timeline"><option value="all">all time</option><option value="day">today</option><option value="hour">last hour</option></select></label>
       <label>time <input id="time" type="range" min="0" max="0" value="0"><span id="timeLabel">live</span></label>
       <button id="play" title="replay from the scrubber position">play</button>
       <label>speed <select id="speed"><option value="5">5×</option><option value="20" selected>20×</option><option value="100">100×</option></select></label>

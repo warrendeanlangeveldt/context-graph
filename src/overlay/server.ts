@@ -35,6 +35,10 @@ export interface ServeOptions {
 }
 
 interface Stamped extends Envelope { seq: number }
+
+/** Local hooks both POST an event and append it to the observation file the server tails, so the same event arrives twice. Keyed on its content, the second copy is dropped. */
+const SEEN_CAP = 20_000;
+function eventKey(env: Envelope): string { return `${env.session}|${env.ts}|${env.t}|${env.who}|${JSON.stringify(env.p)}`; }
 interface SessionInfo { session: string; who: string; branch: string; harness: string; cwd?: string; arm?: string; first: string; last: string; events: number }
 interface Provisional { decision: DRecord; who: string; branch: string; session: string; ts: string }
 interface TouchInfo { who: string; session: string; branch: string; mode: string; ts: string }
@@ -48,7 +52,16 @@ class RepoState {
   findings: Stamped[] = [];
   root?: string;
   snapshot?: { at: number; data: unknown };
+  seen = new Set<string>();
   constructor(readonly hash: string, readonly cap: number) {}
+  /** True the first time an event is seen; false for the copy that arrived by the other path. */
+  fresh(env: Envelope): boolean {
+    const k = eventKey(env);
+    if (this.seen.has(k)) return false;
+    this.seen.add(k);
+    if (this.seen.size > SEEN_CAP) { const first = this.seen.values().next().value; if (first !== undefined) this.seen.delete(first); }
+    return true;
+  }
 }
 
 export interface RunningServer { port: number; close(): Promise<void>; state(hash: string): RepoState | undefined; ingest(hash: string, envs: Envelope[]): Stamped[] }
@@ -58,6 +71,8 @@ export async function startServer(opts: ServeOptions): Promise<RunningServer> {
   const retentionMs = (opts.retentionDays ?? 30) * 86_400_000;
   const repos = new Map<string, RepoState>();
   const clients = new Map<WebSocket, { hash: string; session?: string }>();
+  // Sequence numbers restart with the process; the view compares this to know when to resync rather than trust its last seq.
+  const boot = Date.now();
   // Warm embedding providers, one per provider id, so hint queries from hooks never pay the model load.
   const providers = new Map<string, EmbeddingProvider>();
   const viewDir = opts.viewDir ?? join(packageRoot(), 'view', 'dist');
@@ -75,6 +90,7 @@ export async function startServer(opts: ServeOptions): Promise<RunningServer> {
     const out: Stamped[] = [];
     for (const env of envs) {
       if (!env || typeof env !== 'object' || !env.t || !env.session) continue;
+      if (!s.fresh(env)) continue;
       const st: Stamped = { ...env, seq: ++s.seq };
       s.buffer.push(st);
       if (s.buffer.length > cap) s.buffer.splice(0, s.buffer.length - cap);
@@ -204,7 +220,7 @@ export async function startServer(opts: ServeOptions): Promise<RunningServer> {
       clients.set(ws, session ? { hash, session } : { hash });
       const s = state(hash);
       for (const e of s.buffer) if (e.seq > since && (!session || e.session === session || e.t === 'finding')) ws.send(JSON.stringify(e));
-      ws.send(JSON.stringify({ t: 'ready', seq: s.seq }));
+      ws.send(JSON.stringify({ t: 'ready', seq: s.seq, boot }));
       ws.on('close', () => clients.delete(ws));
     });
   });
@@ -228,9 +244,11 @@ export async function startServer(opts: ServeOptions): Promise<RunningServer> {
     close: () => new Promise<void>((done) => {
       clearInterval(prune);
       watcher?.close();
-      for (const ws of clients.keys()) ws.close();
+      // Terminate rather than close: a background tab answers a close handshake late or never, and server.close waits for every socket.
+      for (const ws of clients.keys()) ws.terminate();
       wss.close();
       server.close(() => { if (registered && existsSync(serveFile)) { try { unlinkSync(serveFile); } catch { /* ignore */ } } done(); });
+      server.closeAllConnections();
     }),
   };
 }

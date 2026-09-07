@@ -49,17 +49,20 @@ const CATEGORIES: { key: Category; name: string; color: (p: Palette) => string }
   { key: 'proposed', name: 'proposed', color: (p) => p.proposed },
 ];
 
-interface Controls { theme: 'dark' | 'light'; mode: '3d' | '2d'; files: 'touched' | 'all'; labels: 'modules' | 'lit' | 'all' | 'none'; meaning: 'both' | 'concepts' | 'constraints' | 'none'; links: 'containment' | 'meaning' | 'imports' | 'all' | 'none'; colour: 'mode' | 'concept' | 'governance' | 'pack' | 'session'; size: number; bloom: boolean; freeze: boolean; speed: number; risky: boolean }
-const DEFAULTS: Controls = { theme: 'dark', mode: '3d', files: 'touched', labels: 'modules', meaning: 'both', links: 'meaning', colour: 'mode', size: 1.4, bloom: false, freeze: false, speed: 20, risky: true };
+interface Controls { theme: 'dark' | 'light'; mode: '3d' | '2d'; window: 'all' | 'day' | 'hour'; files: 'touched' | 'all'; labels: 'modules' | 'lit' | 'all' | 'none'; meaning: 'both' | 'concepts' | 'constraints' | 'none'; links: 'containment' | 'meaning' | 'imports' | 'all' | 'none'; colour: 'mode' | 'concept' | 'governance' | 'pack' | 'session'; size: number; bloom: boolean; freeze: boolean; speed: number; risky: boolean }
+const DEFAULTS: Controls = { theme: 'dark', mode: '3d', window: 'all', files: 'touched', labels: 'modules', meaning: 'both', links: 'meaning', colour: 'mode', size: 1.4, bloom: false, freeze: false, speed: 20, risky: true };
 const controls: Controls = { ...DEFAULTS, ...load() };
 if (!['containment', 'meaning', 'imports', 'all', 'none'].includes(controls.links)) controls.links = 'meaning';
 
-interface State { repo: string; snapshot: Snapshot; events: Env[]; session: string; expanded: Set<string>; live: boolean; cursor: number; ws?: WebSocket; selected?: string; playing?: number; lens?: string; isolate?: Category; sessionColor: Map<string, string> }
+interface State { repo: string; snapshot: Snapshot; events: Env[]; session: string; expanded: Set<string>; live: boolean; cursor: number; ws?: WebSocket; boot?: number; lastEventAt?: number; selected?: string; playing?: number; lens?: string; isolate?: Category; sessionColor: Map<string, string> }
 const state: State = { repo: '', snapshot: { nodes: [], links: [] }, events: [], session: '', expanded: new Set(), live: true, cursor: 0, sessionColor: new Map() };
 
 function load(): Partial<Controls> { try { return JSON.parse(localStorage.getItem('ctx-view') ?? '{}') as Partial<Controls>; } catch { return {}; } }
 function save(): void { try { localStorage.setItem('ctx-view', JSON.stringify(controls)); } catch { /* private mode */ } }
 const pal = (): Palette => PALETTES[controls.theme];
+/** Times are shown in the viewer's zone, not the UTC the stream carries. */
+const clock = (ts: string | number): string => { const d = new Date(ts); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`; };
+const stamp = (ts: string | number): string => { const d = new Date(ts); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${clock(ts).slice(0, 5)}`; };
 
 // ---- data --------------------------------------------------------------------------------
 
@@ -83,12 +86,9 @@ async function loadRepo(): Promise<void> {
   state.snapshot = await api<Snapshot>(`/v1/${state.repo}/graph`);
   $('empty').hidden = !state.snapshot.error;
   indexSnapshot();
-  const sessions = await api<{ session: string; who: string; branch: string; last: string; events: number }[]>(`/v1/${state.repo}/sessions`);
-  const sel = $<HTMLSelectElement>('session');
-  sel.innerHTML = '<option value="">all sessions</option>';
-  state.sessionColor.clear();
-  sessions.forEach((s, i) => { state.sessionColor.set(s.session, HUES[i % HUES.length]!); const o = document.createElement('option'); o.value = s.session; o.textContent = `${s.session.slice(0, 8)}  ${s.who}  ${s.branch}  (${s.events})`; sel.appendChild(o); });
+  await loadSessions();
   state.events = await api<Env[]>(`/v1/${state.repo}/events`);
+  state.lastEventAt = Date.now();
   state.cursor = state.events.length;
   connect();
   await loadEvolution();
@@ -106,13 +106,49 @@ function connect(): void {
   const last = state.events[state.events.length - 1]?.seq ?? 0;
   const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/v1/${state.repo}/stream?since=${last}`);
   ws.onmessage = (m) => {
-    const e = JSON.parse(m.data as string) as Env;
-    if (e.t === 'ready') return;
+    const e = JSON.parse(m.data as string) as Env & { boot?: number };
+    if (e.t === 'ready') {
+      // A restarted server numbers events from one again: what this tab holds is no longer comparable, so reload it.
+      if (state.boot !== undefined && e.boot !== undefined && e.boot !== state.boot) { state.boot = e.boot; void resync(); return; }
+      if (e.boot !== undefined) state.boot = e.boot;
+      setStatus();
+      return;
+    }
+    if (state.events.some((x) => x.seq === e.seq)) return;
     state.events.push(e);
+    state.lastEventAt = Date.now();
+    if (e.t === 'session' && !state.sessionColor.has(e.session)) addSessionOption(e);
     if (state.live) { state.cursor = state.events.length; applyEvent(e, true); refreshTime(); refreshPanels(); }
   };
-  ws.onclose = () => { setStatus('disconnected, retrying'); setTimeout(() => { if (state.ws === ws) connect(); }, 3000); };
+  ws.onclose = () => { setStatus(); setTimeout(() => { if (state.ws === ws) connect(); }, 3000); };
   state.ws = ws;
+}
+
+/** Reload everything the stream cannot patch: after a server restart, or when the tab has been away. */
+async function resync(): Promise<void> {
+  await loadSessions();
+  state.events = await api<Env[]>(`/v1/${state.repo}/events`);
+  state.lastEventAt = Date.now();
+  if (state.live) state.cursor = state.events.length;
+  connect();
+  replayTo(state.cursor);
+  refreshTime();
+}
+
+async function loadSessions(): Promise<void> {
+  const sessions = await api<{ session: string; who: string; branch: string; last: string; events: number }[]>(`/v1/${state.repo}/sessions`);
+  const sel = $<HTMLSelectElement>('session');
+  const keep = sel.value;
+  sel.innerHTML = '<option value="">all sessions</option>';
+  state.sessionColor.clear();
+  sessions.forEach((s, i) => { state.sessionColor.set(s.session, HUES[i % HUES.length]!); const o = document.createElement('option'); o.value = s.session; o.textContent = `${s.session.slice(0, 8)}  ${s.who}  ${s.branch}  (${s.events})`; sel.appendChild(o); });
+  if ([...sel.options].some((o) => o.value === keep)) sel.value = keep;
+}
+
+function addSessionOption(e: Env): void {
+  const sel = $<HTMLSelectElement>('session');
+  state.sessionColor.set(e.session, HUES[state.sessionColor.size % HUES.length]!);
+  const o = document.createElement('option'); o.value = e.session; o.textContent = `${e.session.slice(0, 8)}  ${e.who}  ${e.branch}  (live)`; sel.appendChild(o);
 }
 
 async function loadEvolution(): Promise<void> {
@@ -244,9 +280,18 @@ function applyEvent(e: Env, animate: boolean): void {
   }
 }
 
+/** Earliest timestamp the chosen window admits; everything before it is left out of the graph, counters, and timeline. */
+function windowStart(): number {
+  if (controls.window === 'hour') return Date.now() - 3_600_000;
+  if (controls.window === 'day') { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); }
+  return 0;
+}
+function inWindow(e: Env, start: number): boolean { return start === 0 || new Date(e.ts).getTime() >= start; }
+
 function replayTo(cursor: number): void {
   resetDerived();
-  for (let i = 0; i < cursor && i < state.events.length; i++) applyEvent(state.events[i]!, false);
+  const start = windowStart();
+  for (let i = 0; i < cursor && i < state.events.length; i++) { const e = state.events[i]!; if (inWindow(e, start)) applyEvent(e, false); }
   refreshPanels();
   refreshGraph();
 }
@@ -560,14 +605,14 @@ function select(id: string): void {
     for (const k of ks) lines.push(`  [${k.mode}] ${k.id.slice(2)}${k.pack ? ` (${k.pack})` : ''}  ${k.label}`);
     const rows = coverageRows.filter((c) => c.path === id);
     for (const c of rows.slice(-3)) {
-      lines.push('', `edit ${c.ts?.slice(11, 19) ?? ''}  slice ${c.slice_injected ? 'injected' : 'absent'}  callers ${c.callers_loaded}/${c.callers_total}${c.summarized_since ? '  after compaction' : ''}`);
+      lines.push('', `edit ${c.ts ? clock(c.ts) : ''}  slice ${c.slice_injected ? 'injected' : 'absent'}  callers ${c.callers_loaded}/${c.callers_total}${c.summarized_since ? '  after compaction' : ''}`);
       const darkCallers = c.callers.filter((x) => !['full', 'range', 'edit', 'write'].includes(c.loaded[x] ?? ''));
       if (darkCallers.length) lines.push(`  never loaded: ${darkCallers.map(short).join(', ')}`);
     }
     const sl = slices.get(id);
-    if (sl?.length) lines.push('', `slice injected ${sl[sl.length - 1]!.ts.slice(11, 19)}:`, sl[sl.length - 1]!.rendered.split('\n').map((l) => `  ${l}`).join('\n'));
+    if (sl?.length) lines.push('', `slice injected ${clock(sl[sl.length - 1]!.ts)}:`, sl[sl.length - 1]!.rendered.split('\n').map((l) => `  ${l}`).join('\n'));
     const ds = decisionsSeen.filter((d) => d.node.split('#')[0] === id);
-    for (const d of ds) lines.push('', `decision ${d.ts.slice(11, 19)}  ${d.overrides ? `!${d.overrides}` : `->${d.serves}`}  ${d.text}`);
+    for (const d of ds) lines.push('', `decision ${clock(d.ts)}  ${d.overrides ? `!${d.overrides}` : `->${d.serves}`}  ${d.text}`);
     if (sl?.length && ds.length) { const last = sl[sl.length - 1]!; const pointsBack = ds.some((d) => last.applicable.includes(d.serves) || (d.overrides !== undefined && last.applicable.includes(d.overrides))); lines.push('', pointsBack ? 'the decision points back at the slice that was injected' : 'the decision points outside the slice that was injected (a reach)'); }
     const callers = callersOf.get(id) ?? [];
     const c = rows.slice(-1)[0];
@@ -821,7 +866,7 @@ function renderFindings(): void {
   for (const f of rows) {
     const li = document.createElement('li');
     li.className = f.level;
-    li.innerHTML = `<i>●</i> ${f.ts.slice(11, 19)} <b>${esc(f.rule)}</b> ${esc(f.message)}`;
+    li.innerHTML = `<i>●</i> ${clock(f.ts)} <b>${esc(f.rule)}</b> ${esc(f.message)}`;
     if (f.path) { li.style.cursor = 'pointer'; li.onclick = () => select(f.path!); }
     ul.appendChild(li);
   }
@@ -935,7 +980,8 @@ function drawTimeline(): void {
   if (!ctx) return;
   const p = pal();
   ctx.clearRect(0, 0, w, h);
-  const evs = state.events.filter((e) => !state.session || e.session === state.session || e.t === 'finding');
+  const start = windowStart();
+  const evs = state.events.filter((e) => inWindow(e, start) && (!state.session || e.session === state.session || e.t === 'finding'));
   if (!evs.length) return;
   const times = evs.map((e) => new Date(e.ts).getTime()).filter((t) => Number.isFinite(t));
   const t0 = Math.min(...times);
@@ -962,8 +1008,8 @@ function drawTimeline(): void {
   const cursorEv = state.events[Math.max(0, state.cursor - 1)];
   if (cursorEv && !state.live) { const x = ((new Date(cursorEv.ts).getTime() - t0) / span) * w; ctx.fillStyle = p.labelModule; ctx.fillRect(x - 1, 0, 2, h); }
   const day = 86_400_000;
-  $('tl-start').textContent = new Date(t0).toISOString().slice(0, 16).replace('T', ' ');
-  $('tl-end').textContent = span > day ? new Date(t1).toISOString().slice(0, 16).replace('T', ' ') : new Date(t1).toISOString().slice(11, 16);
+  $('tl-start').textContent = stamp(t0);
+  $('tl-end').textContent = span > day ? stamp(t1) : clock(t1).slice(0, 5);
   canvas.title = 'grey: reads · orange: edits · red: edits with all callers dark · marks: session start (purple), compaction (orange), decision (teal). Click to seek.';
 }
 
@@ -971,7 +1017,17 @@ function drawTimeline(): void {
 
 function short(p: string): string { const parts = p.split('/'); return parts.length > 2 ? `…/${parts.slice(-2).join('/')}` : p; }
 function esc(s: string): string { return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!)); }
-function setStatus(text?: string): void { const snap = state.snapshot.nodes; $('status').textContent = text ?? `${state.events.length} events · ${nodeState.size} nodes lit · ${snap.filter((n) => n.kind === 'module').length} modules, ${snap.filter((n) => n.kind === 'file').length} files, ${snap.filter((n) => n.kind === 'concept').length} concepts, ${snap.filter((n) => n.kind === 'constraint').length} rules`; }
+function ago(ms: number): string { const s = Math.round(ms / 1000); return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m` : `${Math.floor(s / 3600)}h`; }
+function setStatus(text?: string): void {
+  const snap = state.snapshot.nodes;
+  const open = state.ws?.readyState === WebSocket.OPEN;
+  const fresh = state.lastEventAt ? `last event ${ago(Date.now() - state.lastEventAt)} ago` : 'no events yet';
+  const link = open ? (state.live ? `live · ${fresh}` : `paused at ${state.cursor} · ${fresh}`) : 'reconnecting';
+  const el = $('status');
+  el.textContent = text ?? `${link} · ${state.events.length} events · ${nodeState.size} nodes lit · ${snap.filter((n) => n.kind === 'module').length} modules, ${snap.filter((n) => n.kind === 'file').length} files, ${snap.filter((n) => n.kind === 'concept').length} concepts, ${snap.filter((n) => n.kind === 'constraint').length} rules`;
+  el.classList.toggle('warn', !open);
+}
+window.setInterval(() => { if (state.repo) setStatus(); }, 1000);
 function refreshTime(): void { const r = $<HTMLInputElement>('time'); r.max = String(state.events.length); if (state.live) r.value = r.max; drawTimeline(); }
 function press(on: string, off: string): void { $(on).setAttribute('aria-pressed', 'true'); $(off).setAttribute('aria-pressed', 'false'); }
 function applyTheme(): void { document.documentElement.dataset.theme = controls.theme; $('theme').textContent = controls.theme === 'dark' ? 'light theme' : 'dark theme'; }
@@ -979,6 +1035,7 @@ function syncControls(): void {
   applyTheme();
   press(controls.mode === '3d' ? 'mode3d' : 'mode2d', controls.mode === '3d' ? 'mode2d' : 'mode3d');
   $<HTMLSelectElement>('files').value = controls.files;
+  $<HTMLSelectElement>('window').value = controls.window;
   $<HTMLSelectElement>('labels').value = controls.labels;
   $<HTMLSelectElement>('meaning').value = controls.meaning;
   $<HTMLSelectElement>('links').value = controls.links;
@@ -995,6 +1052,7 @@ $<HTMLSelectElement>('session').onchange = (e) => { state.session = (e.target as
 $('mode3d').onclick = () => { controls.mode = '3d'; save(); syncControls(); rebuild(); };
 $('mode2d').onclick = () => { controls.mode = '2d'; save(); syncControls(); rebuild(); };
 $<HTMLSelectElement>('files').onchange = (e) => { controls.files = (e.target as HTMLSelectElement).value as Controls['files']; save(); refreshGraph(); };
+$<HTMLSelectElement>('window').onchange = (e) => { controls.window = (e.target as HTMLSelectElement).value as Controls['window']; save(); replayTo(state.cursor); refreshTime(); };
 $<HTMLSelectElement>('labels').onchange = (e) => { controls.labels = (e.target as HTMLSelectElement).value as Controls['labels']; save(); rebuild(); };
 $<HTMLSelectElement>('meaning').onchange = (e) => { controls.meaning = (e.target as HTMLSelectElement).value as Controls['meaning']; save(); refreshGraph(); renderLegend(); };
 $<HTMLSelectElement>('links').onchange = (e) => { controls.links = (e.target as HTMLSelectElement).value as Controls['links']; save(); refreshGraph(); };
@@ -1017,7 +1075,7 @@ $<HTMLInputElement>('search').onchange = (e) => {
 };
 $<HTMLSelectElement>('speed').onchange = (e) => { controls.speed = Number((e.target as HTMLSelectElement).value); save(); };
 $('live').onclick = () => { stopPlay(); state.live = true; $('live').setAttribute('aria-pressed', 'true'); state.cursor = state.events.length; $('timeLabel').textContent = 'live'; replayTo(state.cursor); refreshTime(); };
-$<HTMLInputElement>('time').oninput = (e) => { stopPlay(); state.live = false; $('live').setAttribute('aria-pressed', 'false'); state.cursor = Number((e.target as HTMLInputElement).value); const ev = state.events[state.cursor - 1]; $('timeLabel').textContent = ev ? ev.ts.slice(11, 19) : 'start'; replayTo(state.cursor); };
+$<HTMLInputElement>('time').oninput = (e) => { stopPlay(); state.live = false; $('live').setAttribute('aria-pressed', 'false'); state.cursor = Number((e.target as HTMLInputElement).value); const ev = state.events[state.cursor - 1]; $('timeLabel').textContent = ev ? clock(ev.ts) : 'start'; replayTo(state.cursor); };
 $<HTMLCanvasElement>('tl').onclick = (e) => {
   const canvas = e.currentTarget as HTMLCanvasElement;
   const frac = (e.clientX - canvas.getBoundingClientRect().left) / canvas.clientWidth;
@@ -1029,7 +1087,7 @@ $<HTMLCanvasElement>('tl').onclick = (e) => {
   const idx = times.filter((t) => t <= target).length;
   stopPlay(); state.live = false; $('live').setAttribute('aria-pressed', 'false');
   state.cursor = idx; $<HTMLInputElement>('time').value = String(idx);
-  const ev = evs[idx - 1]; $('timeLabel').textContent = ev ? ev.ts.slice(11, 19) : 'start';
+  const ev = evs[idx - 1]; $('timeLabel').textContent = ev ? clock(ev.ts) : 'start';
   replayTo(idx);
 };
 $('play').onclick = () => {
@@ -1043,7 +1101,7 @@ $('play').onclick = () => {
     for (let i = state.cursor; i < next; i++) applyEvent(state.events[i]!, true);
     state.cursor = next;
     $<HTMLInputElement>('time').value = String(next);
-    const ev = state.events[next - 1]; $('timeLabel').textContent = ev ? ev.ts.slice(11, 19) : 'start';
+    const ev = state.events[next - 1]; $('timeLabel').textContent = ev ? clock(ev.ts) : 'start';
     refreshPanels();
     if (next >= state.events.length) stopPlay();
   }, 100);
