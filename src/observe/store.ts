@@ -57,6 +57,8 @@ export interface SessionStateData {
   armSet?: boolean;
   /** The session has been told a graph exists; set at start, or on the first hook after a mid-session bootstrap. */
   graphAnnounced?: boolean;
+  /** Modules whose card this session has already seen, by id. */
+  modulesAnnounced?: string[];
   delegations: Record<string, { agentType?: string; since: string }>;
 }
 

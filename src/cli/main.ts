@@ -9,6 +9,7 @@ import { buildEmbedIndex, openStore } from '../embed/index.js';
 import { makeProvider } from '../embed/provider.js';
 import { hydrate } from '../hydrate/hydrate.js';
 import { installClaudeUser, installCodexUser, installGitHooks } from '../install/install.js';
+import { INSTRUCTION_BLOCK, appendInstructionBlock } from '../init/instructions.js';
 import { startMcpServer } from '../mcp/server.js';
 import type { CoverageRecord } from '../observe/coverage.js';
 import { envelope } from '../observe/event.js';
@@ -60,7 +61,7 @@ Lifecycle
 Runtime
   ctx serve [--hosted] [--port <n>] [--token <t>]  event server, stream, and the synapse view
   ctx overlay tail                                 one line per live finding, for harness monitors
-  ctx install codex|claude-code|git-hooks          write harness or repository hooks
+  ctx install codex|claude-code|git-hooks|instructions   write harness or repository hooks, or the agent-instruction block
   ctx link --graph <dir> [--repo <dir>]            use a graph kept outside the repository
   ctx info
   ctx hook --harness claude-code|codex [--agent <name>]
@@ -316,11 +317,18 @@ async function main(): Promise<number> {
 
     case 'install': {
       const target = args.positional[0];
+      if (target === 'instructions') {
+        const ins = appendInstructionBlock(openFromArgs(args).root);
+        if (ins.status === 'appended') console.log(`appended the Context Graph block to ${ins.file}`);
+        else if (ins.status === 'present') console.log(`${ins.file} already carries the Context Graph block`);
+        else console.log(`no AGENTS.md or CLAUDE.md here; add this to your agent instructions:\n\n${INSTRUCTION_BLOCK}`);
+        return 0;
+      }
       const r = target === 'codex' ? installCodexUser()
         : target === 'claude-code' ? installClaudeUser()
         : target === 'git-hooks' ? installGitHooks(openFromArgs(args).root)
         : undefined;
-      if (!r) throw new Error('ctx install codex|claude-code|git-hooks');
+      if (!r) throw new Error('ctx install codex|claude-code|git-hooks|instructions');
       for (const c of r.changed) console.log(`wrote ${c}`);
       for (const n of r.notes) console.log(`note: ${n}`);
       return 0;

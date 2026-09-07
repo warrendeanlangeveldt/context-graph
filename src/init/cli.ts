@@ -6,6 +6,7 @@ import { GRAPH_FILE, Graph, PROPOSALS_FILE } from '../graph/graph.js';
 import type { GraphRecord } from '../graph/records.js';
 import { appendRecord, formatRecord } from '../graph/write.js';
 import { gitPerson } from '../util/git.js';
+import { INSTRUCTION_BLOCK, appendInstructionBlock } from './instructions.js';
 import { bootstrap, newRecordsOnly } from './bootstrap.js';
 import { conformanceReport, violationsFor } from './conformance.js';
 import { detectBindings, exportPack, instantiate, loadPacks } from './packs.js';
@@ -119,6 +120,10 @@ async function init(args: Args, env: { json: boolean }): Promise<number> {
       // The person who bootstraps can ratify; an empty list would leave every proposal stuck as proposed.
       if (!existsSync(join(target, 'config.toml'))) writeFileSync(join(target, 'config.toml'), CONFIG_TEMPLATE.replace('{RATIFIERS}', JSON.stringify(gitPerson(ctx.root))), 'utf8');
       console.log(`wrote ${graphFile} (${all.length} records) and config.toml`);
+      const ins = appendInstructionBlock(ctx.root);
+      if (ins.status === 'appended') console.log(`appended the Context Graph block to ${ins.file}`);
+      else if (ins.status === 'present') console.log(`${ins.file} already carries the Context Graph block`);
+      else console.log(`no AGENTS.md or CLAUDE.md to carry the Context Graph block; add this to your agent instructions:\n\n${INSTRUCTION_BLOCK}`);
     } else {
       for (const r of all) appendRecord(join(target, PROPOSALS_FILE), r);
       console.log(`appended ${all.length} proposal(s) to ${join(target, PROPOSALS_FILE)}`);

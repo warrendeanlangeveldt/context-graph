@@ -18,7 +18,7 @@ export interface Touch {
 }
 
 export type EnvelopeType =
-  | 'touch' | 'edit' | 'slice' | 'decision' | 'coverage' | 'session' | 'compact' | 'reach' | 'finding';
+  | 'touch' | 'edit' | 'slice' | 'card' | 'decision' | 'coverage' | 'session' | 'compact' | 'reach' | 'finding';
 
 export interface Envelope<T = unknown> {
   t: EnvelopeType;
@@ -31,6 +31,8 @@ export interface Envelope<T = unknown> {
 }
 
 export interface SlicePayload { path: string; applicable: string[]; tokens: number; rendered: string; dropped: string[] }
+/** A module card, injected the first time a session reads under a module. */
+export interface CardPayload { module: string; path: string; tokens: number; rendered: string; dropped: string[] }
 export interface SessionPayload { kind: 'start' | 'end' | 'subagent-start' | 'subagent-stop'; cwd: string; worktree?: string; arm: 'on' | 'off'; agent?: string; agentType?: string; reason?: string }
 export interface CompactPayload { paths: string[] }
 export interface ReachPayload { tool: string; nodes: string[] }

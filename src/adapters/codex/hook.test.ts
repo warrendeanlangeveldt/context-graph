@@ -69,6 +69,18 @@ describe('Codex hook adapter', () => {
     expect(evs.length).toBeGreaterThan(0);
   });
 
+  it('hands over a module card before the first shell read under a module', async () => {
+    base.cwd = repo;
+    await runCodexHook({ ...base, hook_event_name: 'SessionStart', source: 'startup' });
+    const pre = await runCodexHook({ ...base, hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: 'cat api/src/core/a.ts' } });
+    const out = JSON.parse(pre.stdout!) as { hookSpecificOutput: { hookEventName: string; additionalContext: string } };
+    expect(out.hookSpecificOutput.hookEventName).toBe('PreToolUse');
+    expect(out.hookSpecificOutput.additionalContext.split('\n')[0]).toMatch(/^module L:core/);
+    expect(out.hookSpecificOutput.additionalContext).toContain('[G core.events]');
+    const again = await runCodexHook({ ...base, hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: 'sed -n 1,5p api/src/core/a.ts' } });
+    expect(again.stdout).toBeUndefined();
+  });
+
   it('emits compaction on PreCompact and a finding on Interrupt', async () => {
     base.cwd = repo;
     await runCodexHook({ ...base, hook_event_name: 'SessionStart', source: 'startup' });

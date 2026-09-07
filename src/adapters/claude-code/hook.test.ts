@@ -68,6 +68,26 @@ describe('Claude Code hook adapter, end to end on a temporary repository', () =>
     expect(seen.find((x) => x.path === '/etc/hosts')).toMatchObject({ t: 'touch', mode: 'external' });
   });
 
+  it('hands over a module card the first time the session reads or greps under a module, once per module', async () => {
+    await runClaudeHook({ ...base(), hook_event_name: 'SessionStart', start_reason: 'startup' });
+    const grep = await runClaudeHook({ ...base(), hook_event_name: 'PreToolUse', tool_name: 'Grep', tool_input: { pattern: 'applyEvent', path: join(repo, 'api/src/core/orch') } });
+    const card = (JSON.parse(grep.stdout!) as { hookSpecificOutput: { additionalContext: string } }).hookSpecificOutput.additionalContext;
+    expect(card.split('\n')[0]).toBe('module L:orch  Orchestration  in L:core  impl C:pure');
+    expect(card).toContain('[G orch.events]');
+    expect(card).toContain('[E boundary.core]');
+    expect(card).toContain('hydrate L:orch for callers, history, and what this session already holds');
+    // Same module again: nothing. A sibling module: its own card.
+    const again = await runClaudeHook({ ...base(), hook_event_name: 'PreToolUse', tool_name: 'Read', tool_input: { file_path: join(repo, 'api/src/core/orch/bb.ts') } });
+    expect(again.stdout).toBeUndefined();
+    const core = await runClaudeHook({ ...base(), hook_event_name: 'PreToolUse', tool_name: 'Read', tool_input: { file_path: join(repo, 'api/src/core/helper.ts') } });
+    expect((JSON.parse(core.stdout!) as { hookSpecificOutput: { additionalContext: string } }).hookSpecificOutput.additionalContext.split('\n')[0]).toBe('module L:core  Engine  impl C:pure');
+    const cards = events().filter((e) => e.t === 'card').map((e) => (e.p as { module: string }).module);
+    expect(cards).toEqual(['L:orch', 'L:core']);
+    // An edit's slice covers its module, so no card follows for it.
+    const pre = await runClaudeHook({ ...base(), hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: join(repo, 'api/src/core/orch/bb.ts'), old_string: 'x', new_string: 'y' } });
+    expect((JSON.parse(pre.stdout!) as { hookSpecificOutput: { additionalContext: string } }).hookSpecificOutput.additionalContext).not.toContain('module L:');
+  });
+
   it('announces a graph that appears after the session started, once', async () => {
     const graphText = readFileSync(join(repo, '.ctx/graph.ctx'), 'utf8');
     rmSync(join(repo, '.ctx'), { recursive: true });

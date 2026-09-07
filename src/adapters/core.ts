@@ -1,14 +1,15 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { openRepo, type RepoContext } from '../core/context.js';
 import { callersOf, loadOrBuildImportIndex } from '../index/imports.js';
 import { enclosingSymbol, lineRangeOf } from '../index/symbols.js';
 import { computeCoverage } from '../observe/coverage.js';
-import { envelope, isEditMode, type AccessMode, type CompactPayload, type SessionPayload, type SlicePayload, type Touch } from '../observe/event.js';
+import { envelope, isEditMode, type AccessMode, type CardPayload, type CompactPayload, type SessionPayload, type SlicePayload, type Touch } from '../observe/event.js';
 import { ObservationStore, SessionState } from '../observe/store.js';
 import { Recorder } from '../record/recorder.js';
 import { currentBranch, gitPerson } from '../util/git.js';
 import { toAbsolute, toRepoRelative } from '../util/paths.js';
+import { renderCard } from '../walker/card.js';
 import { renderSlice } from '../walker/slice.js';
 import { walk, type WalkResult } from '../walker/walk.js';
 import { liveLinesFor, notifyOverlay } from '../overlay/client.js';
@@ -175,11 +176,32 @@ export async function runHook(input: HookInput, profile: HarnessProfile): Promis
     const recorder = new Recorder(ctx.graph, state);
     const slices: string[] = announce ? [announce] : [];
     const intent = intentOf(ti);
+    const announced = new Set(state.data.modulesAnnounced ?? []);
     for (const t of profile.preEditTargets(tool, ti, tc).slice(0, 3)) {
       if (t.path.startsWith('/') || t.path === '.') continue;
       const s = await sliceFor(t.path, t.range, intent);
-      if (s) { slices.push(s.text); recorder.notePending(s.walk); }
+      if (s) { slices.push(s.text); recorder.notePending(s.walk); if (s.walk.chain[0]) announced.add(s.walk.chain[0]); }
     }
+    // The module card: the first time this session reads or greps under a module, say what governs it,
+    // before a line of its code is in context. Once per module per session, at most two per call.
+    let cards = 0;
+    for (const t of profile.touches(tool, ti, tc)) {
+      if (cards >= 2) break;
+      if (!(t.mode === 'full' || t.mode === 'range' || t.mode === 'grep' || t.mode === 'name') || t.path.startsWith('/')) continue;
+      const w = walk(ctx.graph, walkablePath(root, t.path), { maxDecisions: ctx.config.maxDecisions });
+      const mod = w.chain[0];
+      if (!mod || announced.has(mod)) continue;
+      const card = renderCard(ctx.graph, w, { maxTokens: Math.min(200, ctx.config.maxTokens) });
+      if (!card) continue;
+      announced.add(mod);
+      cards++;
+      slices.push(card.text);
+      const payload: CardPayload = { module: mod, path: t.path, tokens: card.tokens, rendered: card.text, dropped: card.dropped };
+      const env = envelope('card', meta, payload);
+      store.append(env);
+      notifyOverlay(ctx, env);
+    }
+    if (announced.size !== (state.data.modulesAnnounced ?? []).length) { state.data.modulesAnnounced = [...announced]; state.save(); }
     if (!slices.length) return { exitCode: 0 };
     return { stdout: profile.formatPreToolUse(slices.join('\n\n')), exitCode: 0 };
   }
@@ -252,6 +274,13 @@ export async function runHook(input: HookInput, profile: HarnessProfile): Promis
 }
 
 // ---- shared helpers -----------------------------------------------------------------
+
+/** A directory maps through a synthetic child, so a grep under `api/src/platform` finds that module; `.` is the root. */
+function walkablePath(root: string, p: string): string {
+  if (p === '.' || p === '') return '_';
+  try { if (statSync(join(root, p)).isDirectory()) return `${p}/_`; } catch { /* a path that does not exist yet walks as itself */ }
+  return p;
+}
 
 function emitCompact(store: ObservationStore, meta: { session: string; who: string; branch: string; harness: string }): void {
   const paths = new Set<string>();
