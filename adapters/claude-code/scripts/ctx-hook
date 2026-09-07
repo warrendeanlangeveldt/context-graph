@@ -1,4 +1,5 @@
 #!/bin/sh
 # Context Graph hook entrypoint for Claude Code. The event name on stdin selects the handler.
+# The plugin carries its own bundled CLI, so this works from a bare clone or a marketplace install.
 DIR="$(cd "$(dirname "$0")" && pwd)"
-exec node "$DIR/../../../dist/cli/main.js" hook --harness claude-code --agent claude
+exec node "$DIR/../ctx.mjs" hook --harness claude-code --agent claude

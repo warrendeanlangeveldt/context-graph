@@ -29,15 +29,52 @@ Every delivery step of the specification has an implementation:
 
 Also: commit provenance linking (`ctx provenance`, and a post-commit hook installer), and a real graph for this repository under `.ctx/`.
 
-## Build
+## Install
+
+Three ways, none of which point at a particular machine.
+
+**As a Claude Code plugin, from the marketplace in this repository.** The plugin directory carries its own bundled CLI, so nothing has to be built:
+
+```
+/plugin marketplace add <owner>/context-graph
+/plugin install context-graph@context-graph
+```
+
+A team pins it in the repository's `.claude/settings.json` so everyone gets the same version:
+
+```json
+{ "extraKnownMarketplaces": { "context-graph": { "source": { "source": "github", "repo": "<owner>/context-graph" } } },
+  "enabledPlugins": { "context-graph@context-graph": true } }
+```
+
+**As a Codex plugin.** The same repository is a Codex marketplace through `.agents/plugins/marketplace.json`:
 
 ```sh
-npm install && npm run build        # tsc -> dist/
+codex plugin marketplace add <owner>/context-graph
+```
+
+Codex requires hooks to be trusted once, with `/hooks` inside a session. Plugins do not reach the Codex IDE extension; `ctx install codex` writes user-level hooks for that case.
+
+**As an npm package**, for the `ctx` command line, CI, the server, and the view:
+
+```sh
+npm pack                            # a tarball with dist/, adapters/, packs/, and the built view
+npm install -g ./context-graph-0.1.0.tgz
+ctx --help
+```
+
+The package is marked private until a registry and scope are chosen; remove that flag to publish.
+
+## Build from a clone
+
+```sh
+npm install && npm run build        # generates the embedded packs, then tsc -> dist/
 npm test                            # vitest
+npm run bundle                      # the single-file CLI each adapter directory carries; CI checks it is current
 cd view && npm install && npm run build   # the synapse view, served by ctx serve
 ```
 
-Node 20 or later. The vector store uses Node's built-in SQLite.
+Node 22.5 or later, for the built-in SQLite the vector store uses. Installing pulls the ONNX runtime for in-process embeddings, which is about 200MB on disk; hooks never load it unless embeddings are enabled.
 
 ## Give a repository a graph
 
@@ -128,11 +165,21 @@ Arm A has no graph, B has the whole graph in the instruction file, C has slices 
 ## Embeddings
 
 ```sh
-ctx embed build     # [embed] enabled = true, provider = local:<model> | openai:<model> | <url>#<model>
+ctx embed build     # [embed] enabled = true; provider = minilm (default) | onnx:<model> | local:<ollama-model> | openai:<model> | <url>#<model>
 ctx embed query "retry handling for queue consumers"
 ```
 
-Hints appear in the slice below the constraints, scored, and are dropped first under budget.
+The default provider runs MiniLM in-process through the ONNX runtime: no service, no key, and the model (about 23MB) is fetched once into `~/.ctx/models`. Hints appear in the slice below the constraints, scored, and are dropped first under budget.
+
+Hooks are short-lived processes, so they do not load the model themselves. A running `ctx serve` keeps it warm and answers hint queries; with no server there are no hints unless `in_process_hooks = true`, which costs a model load per edit. In a team, the hosted overlay is the natural place for one shared index, and the compose file adds an Ollama service for teams that prefer a served model.
+
+## Hosted overlay in a container
+
+```sh
+docker build -t context-graph .
+docker run -p 7400:7400 -e CTX_OVERLAY_TOKEN=change-me -v ctx-data:/data context-graph
+# or: CTX_OVERLAY_TOKEN=change-me docker compose up -d
+```
 
 ## The graph grammar, in one screen
 

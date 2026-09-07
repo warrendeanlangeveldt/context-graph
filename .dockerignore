@@ -1,0 +1,9 @@
+node_modules
+view/node_modules
+dist
+view/dist
+.git
+.ctx
+docs
+examples
+*.log

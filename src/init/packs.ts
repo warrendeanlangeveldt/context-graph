@@ -1,10 +1,11 @@
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { basename, dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { basename, join } from 'node:path';
+import { EMBEDDED_PACKS } from '../generated/packs.js';
 import type { Graph } from '../graph/graph.js';
 import { parseText } from '../graph/parse.js';
 import type { CRecord, ERecord, GraphRecord, KRecord, LRecord, MRecord, RRecord } from '../graph/records.js';
 import { formatRecord } from '../graph/write.js';
+import { packageRoot } from '../util/root.js';
 
 /**
  * Style packs (design spec §16.1). A pack is a `.ctx` file whose nodes are role placeholders.
@@ -35,22 +36,26 @@ export interface Instantiation {
 }
 
 export function packsDir(): string {
-  return resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', 'packs');
+  return join(packageRoot(), 'packs');
 }
 
 export function loadPack(file: string): Pack {
-  const text = readFileSync(file, 'utf8');
-  const version = /^#\s*version:\s*(\S+)/m.exec(text)?.[1] ?? '1';
-  const records = parseText(text, file);
-  return { name: basename(file, '.ctx'), version, file, roles: records.filter((r): r is RRecord => r.kind === 'R'), records: records.filter((r) => r.kind !== 'R') };
+  return packFromText(basename(file, '.ctx'), readFileSync(file, 'utf8'), file);
 }
 
+export function packFromText(name: string, text: string, file: string): Pack {
+  const version = /^#\s*version:\s*(\S+)/m.exec(text)?.[1] ?? '1';
+  const records = parseText(text, file);
+  return { name, version, file, roles: records.filter((r): r is RRecord => r.kind === 'R'), records: records.filter((r) => r.kind !== 'R') };
+}
+
+/** Packs from the packs directory when the package is present, else the copies embedded at build time. */
 export function loadPacks(names: string[]): Pack[] {
   const dir = packsDir();
-  if (!existsSync(dir)) return [];
-  const all = readdirSync(dir).filter((f) => f.endsWith('.ctx')).map((f) => join(dir, f));
-  const wanted = names.includes('auto') ? all : all.filter((f) => names.includes(basename(f, '.ctx')));
-  return wanted.map(loadPack);
+  const all: Pack[] = existsSync(dir)
+    ? readdirSync(dir).filter((f) => f.endsWith('.ctx')).sort().map((f) => loadPack(join(dir, f)))
+    : Object.entries(EMBEDDED_PACKS).map(([name, text]) => packFromText(name, text, `embedded:${name}.ctx`));
+  return names.includes('auto') ? all : all.filter((p) => names.includes(p.name));
 }
 
 /** Bind each role of a pack to logical nodes of the graph, honouring configured overrides. */

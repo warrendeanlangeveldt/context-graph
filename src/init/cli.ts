@@ -33,9 +33,11 @@ context_moved = "warn"
 
 [embed]
 enabled = false
-provider = "local:nomic-embed-text"
-min_score = 0.75
+provider = "minilm"       # in-process; or local:<ollama-model>, openai:<model>, <url>#<model>
+min_score = 0.45          # cosine threshold; MiniLM scores related passages around 0.45 to 0.6
 include = ["docs/**/*.md"]
+exclude = ["**/generated/**", "**/*.lock", "**/package-lock.json"]
+in_process_hooks = false  # hints in hooks come from a running ctx serve; set true to embed inside each hook instead
 
 [init]
 packs = ["auto"]

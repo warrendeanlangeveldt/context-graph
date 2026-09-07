@@ -1,8 +1,8 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, appendFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import type { RepoContext } from '../core/context.js';
+import { packageRoot } from '../util/root.js';
 import { Graph } from '../graph/graph.js';
 import { parseText } from '../graph/parse.js';
 import { formatRecord } from '../graph/write.js';
@@ -186,7 +186,9 @@ export function renderWholeGraph(g: Graph): string {
 interface HarnessResult { session: string | null; tokensIn: number | null; tokensOut: number | null; turns: number | null; error: string | null }
 
 function adapterDir(name: string): string {
-  return resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', 'adapters', name);
+  const dir = join(packageRoot(), 'adapters', name);
+  if (!existsSync(dir)) throw new Error(`adapter directory not found at ${dir}; the benchmark needs the full package or a clone`);
+  return dir;
 }
 
 function runHarness(opts: RunOptions, task: Task, wt: string, env: NodeJS.ProcessEnv, session: string, log: (s: string) => void): HarnessResult {

@@ -1,7 +1,7 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
+import { packageRoot } from '../util/root.js';
 
 /**
  * Installers. Each writes exactly the configuration a harness needs to load the adapter, merging
@@ -11,8 +11,7 @@ import { fileURLToPath } from 'node:url';
 const MARK = 'context-graph';
 
 function pluginRoot(): string {
-  // dist/install/install.js -> repository root
-  return resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+  return packageRoot();
 }
 
 export interface InstallResult { changed: string[]; notes: string[] }
@@ -86,7 +85,8 @@ export function installGitHooks(root: string): InstallResult {
   const hooksDir = join(root, '.git', 'hooks');
   if (!existsSync(join(root, '.git'))) throw new Error(`${root} is not a git repository root`);
   mkdirSync(hooksDir, { recursive: true });
-  const cli = join(pluginRoot(), 'dist', 'cli', 'main.js');
+  const bundled = join(pluginRoot(), 'adapters', 'claude-code', 'ctx.mjs');
+  const cli = existsSync(join(pluginRoot(), 'dist', 'cli', 'main.js')) ? join(pluginRoot(), 'dist', 'cli', 'main.js') : bundled;
   const file = join(hooksDir, 'post-commit');
   const marker = `# ${MARK}`;
   const snippet = `${marker}\nnode "${cli}" provenance --repo "$(git rev-parse --show-toplevel)" >/dev/null 2>&1 || true\nnode "${cli}" embed update --repo "$(git rev-parse --show-toplevel)" --if-enabled >/dev/null 2>&1 || true\n`;

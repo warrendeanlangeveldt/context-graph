@@ -2748,11 +2748,22 @@ animate them on the graph</td>
 </tr>
 <tr>
 <td>Embeddings</td>
-<td>Provider interface with Ollama and OpenAI-compatible
-implementations, symbol-boundary chunker, SQLite vector store, hints in
-the slice, post-commit refresh</td>
-<td>Exercised through unit tests; no embedding model was available on
-the build machine for a live index</td>
+<td>In-process MiniLM through the ONNX runtime as the default, plus
+Ollama and OpenAI-compatible providers; symbol-boundary chunker; SQLite
+vector store; hints in the slice; post-commit refresh; the local server
+keeps the model warm and answers hint queries for hooks</td>
+<td>Hooks embed in-process only when <code>in_process_hooks</code> is
+set, because a model load per hook process costs more than a hint is
+worth; without a running server there are no hints</td>
+</tr>
+<tr>
+<td>Packaging</td>
+<td>Single-file bundle committed in each adapter directory with a CI
+freshness check; Claude Code and Codex marketplace manifests; npm
+<code>files</code> and <code>bin</code>; a Dockerfile and compose file
+for the hosted overlay with an optional embedding service</td>
+<td>The package is marked private until a registry and scope are chosen;
+<code>npm pack</code> produces the tarball today</td>
 </tr>
 <tr>
 <td>Hosted mode</td>

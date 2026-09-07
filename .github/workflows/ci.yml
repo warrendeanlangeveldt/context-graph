@@ -1,0 +1,25 @@
+name: ci
+on:
+  push:
+  pull_request:
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run gen:packs:check
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - run: npm run bundle:check
+      - run: cd view && npm ci && npm run build
+      - name: merge gate on the plugin's own graph
+        if: github.event_name == 'pull_request'
+        run: node dist/cli/main.js gate --base origin/${{ github.base_ref }} --run-tests

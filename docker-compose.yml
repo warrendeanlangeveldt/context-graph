@@ -1,0 +1,25 @@
+# The hosted overlay plus an optional shared embedding service.
+#   CTX_OVERLAY_TOKEN=change-me docker compose up -d
+#   docker compose exec ollama ollama pull nomic-embed-text     # once, if the team prefers a served model over in-process MiniLM
+services:
+  overlay:
+    build: .
+    ports:
+      - "7400:7400"
+    environment:
+      CTX_OVERLAY_TOKEN: ${CTX_OVERLAY_TOKEN:?set CTX_OVERLAY_TOKEN}
+    volumes:
+      - ctx-data:/data
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+    restart: unless-stopped
+
+volumes:
+  ctx-data:
+  ollama-models:

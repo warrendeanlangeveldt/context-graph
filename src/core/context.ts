@@ -13,7 +13,11 @@ export interface EmbedConfig {
   minScore: number;
   maxHints: number;
   include: string[];
+  /** Globs never indexed: generated code and lockfiles produce large chunks that crowd out real hints. */
+  exclude: string[];
   includeArchived: boolean;
+  /** Embed inside hook processes when no local server is running. Off by default: loading a model per edit costs more than the hint is worth. */
+  inProcessHooks: boolean;
 }
 
 export interface Config {
@@ -59,7 +63,7 @@ export function defaultConfig(): Config {
     hygiene: { archiveAfterDays: 90, dormantAfterDays: 180, overrideStreak: 3, proposalTtlDays: 30 },
     serve: { port: 7399, bufferEvents: 50_000 },
     view: { expandThreshold: 1500 },
-    embed: { enabled: false, provider: 'local:nomic-embed-text', apiKeyEnv: 'OPENAI_API_KEY', minScore: 0.75, maxHints: 2, include: ['docs/**/*.md'], includeArchived: false },
+    embed: { enabled: false, provider: 'minilm', apiKeyEnv: 'OPENAI_API_KEY', minScore: 0.45, maxHints: 2, include: ['docs/**/*.md'], exclude: ['**/generated/**', '**/*.lock', '**/package-lock.json', '**/*.min.js'], includeArchived: false, inProcessHooks: false },
     packs: ['auto'],
     packBindings: {},
   };
@@ -123,7 +127,9 @@ export function loadConfig(graphDir: string | undefined): Config {
     cfg.embed.minScore = tomlGet(t, 'embed', 'min_score', cfg.embed.minScore);
     cfg.embed.maxHints = tomlGet(t, 'embed', 'max_hints', cfg.embed.maxHints);
     cfg.embed.include = tomlGet(t, 'embed', 'include', cfg.embed.include);
+    cfg.embed.exclude = tomlGet(t, 'embed', 'exclude', cfg.embed.exclude);
     cfg.embed.includeArchived = tomlGet(t, 'embed', 'include_archived', cfg.embed.includeArchived);
+    cfg.embed.inProcessHooks = tomlGet(t, 'embed', 'in_process_hooks', cfg.embed.inProcessHooks);
     cfg.packs = tomlGet(t, 'init', 'packs', cfg.packs);
     const bindings = t['init.packs'];
     if (bindings) for (const [k, v] of Object.entries(bindings)) if (typeof v === 'string') cfg.packBindings[k] = v;

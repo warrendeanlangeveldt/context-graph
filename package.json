@@ -5,20 +5,36 @@
   "type": "module",
   "license": "UNLICENSED",
   "private": true,
+  "contextGraph": true,
   "bin": {
     "ctx": "./dist/cli/main.js"
   },
+  "files": [
+    "dist",
+    "adapters",
+    "packs",
+    "view/dist",
+    "README.md",
+    "docs/design-spec.md"
+  ],
   "engines": {
-    "node": ">=20"
+    "node": ">=22.5"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "gen:packs": "node scripts/gen-packs.mjs",
+    "gen:packs:check": "node scripts/gen-packs.mjs --check",
+    "build": "npm run gen:packs && tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "bundle": "node scripts/bundle.mjs",
+    "bundle:check": "node scripts/bundle.mjs --check",
+    "view:build": "cd view && npm install --no-audit --no-fund && npm run build",
+    "prepack": "npm run build && npm run bundle && npm run view:build",
     "ctx": "node dist/cli/main.js"
   },
   "dependencies": {
+    "@huggingface/transformers": "^3.0.0",
     "@modelcontextprotocol/sdk": "^1.12.0",
     "picomatch": "^4.0.2",
     "ws": "^8.21.3",
@@ -28,6 +44,7 @@
     "@types/node": "^22.15.0",
     "@types/picomatch": "^3.0.2",
     "@types/ws": "^8.18.1",
+    "esbuild": "^0.25.0",
     "typescript": "^5.8.0",
     "vitest": "^3.1.0"
   }

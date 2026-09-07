@@ -1,9 +1,11 @@
 import { createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, watch, writeFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { dirname, extname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { extname, join, resolve } from 'node:path';
 import { WebSocket, WebSocketServer } from 'ws';
+import { packageRoot } from '../util/root.js';
 import { openRepo } from '../core/context.js';
+import { retrieveHints } from '../embed/hints.js';
+import { makeProvider, type EmbeddingProvider } from '../embed/provider.js';
 import type { DRecord } from '../graph/records.js';
 import { loadArchive } from '../hygiene/hygiene.js';
 import { loadOrBuildImportIndex } from '../index/imports.js';
@@ -54,7 +56,9 @@ export async function startServer(opts: ServeOptions): Promise<RunningServer> {
   const retentionMs = (opts.retentionDays ?? 30) * 86_400_000;
   const repos = new Map<string, RepoState>();
   const clients = new Map<WebSocket, { hash: string; session?: string }>();
-  const viewDir = opts.viewDir ?? resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', 'view', 'dist');
+  // Warm embedding providers, one per provider id, so hint queries from hooks never pay the model load.
+  const providers = new Map<string, EmbeddingProvider>();
+  const viewDir = opts.viewDir ?? join(packageRoot(), 'view', 'dist');
   const state = (hash: string): RepoState => { let s = repos.get(hash); if (!s) { s = new RepoState(hash, cap); repos.set(hash, s); } return s; };
 
   const broadcast = (hash: string, items: Stamped[]): void => {
@@ -158,6 +162,15 @@ export async function startServer(opts: ServeOptions): Promise<RunningServer> {
       if (rest === 'coverage') { const session = url.searchParams.get('session'); return sendJson(res, s.buffer.filter((e) => e.t === 'coverage' && (!session || e.session === session)).map((e) => ({ seq: e.seq, ts: e.ts, session: e.session, ...(e.p as CoverageRecord) }))); }
       if (rest === 'graph') return sendJson(res, snapshot(s));
       if (rest === 'decisions') return sendJson(res, decisionsFor(s));
+      if (rest === 'hints') {
+        const q = url.searchParams.get('q') ?? '';
+        if (!s.root || !q) return sendJson(res, []);
+        const ctx = openRepo({ repo: s.root });
+        if (!ctx.config.embed.enabled) return sendJson(res, []);
+        let provider = providers.get(ctx.config.embed.provider);
+        if (!provider) { provider = makeProvider(ctx.config.embed); providers.set(ctx.config.embed.provider, provider); }
+        return sendJson(res, await retrieveHints(ctx, q, url.searchParams.get('path') ?? undefined, provider));
+      }
       res.statusCode = 404; res.end(JSON.stringify({ error: 'not found' })); return;
     }
     // Static view.
@@ -170,7 +183,7 @@ export async function startServer(opts: ServeOptions): Promise<RunningServer> {
     }
     if (url.pathname === '/' || url.pathname === '/index.html') {
       res.setHeader('content-type', 'text/html; charset=utf-8');
-      res.end(`<!doctype html><title>Context Graph</title><body style="font-family:system-ui;padding:2rem;max-width:60ch"><h1>Context Graph server</h1><p>The event server is running on port ${opts.port}${opts.hosted ? ' (hosted mode)' : ''}. ${repos.size} repository(ies) known.</p><p>The synapse view has not been built on this machine. Build it once with:</p><pre>cd ${resolve(viewDir, '..')} &amp;&amp; npm install &amp;&amp; npm run build</pre><p>then reload this page. The API is live under <code>/v1/</code>.</p></body>`);
+      res.end(`<!doctype html><title>Context Graph</title><body style="font-family:system-ui;padding:2rem;max-width:60ch"><h1>Context Graph server</h1><p>The event server is running on port ${opts.port}${opts.hosted ? ' (hosted mode)' : ''}. ${repos.size} repository(ies) known.</p><p>The synapse view has not been built on this machine. From a clone, build it once with:</p><pre>cd ${resolve(viewDir, '..')} &amp;&amp; npm install &amp;&amp; npm run build</pre><p>The published npm package ships it prebuilt. Reload this page afterwards. The API is live under <code>/v1/</code>.</p></body>`);
       return;
     }
     res.statusCode = 404; res.end('not found');

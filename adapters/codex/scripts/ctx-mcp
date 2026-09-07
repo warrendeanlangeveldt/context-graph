@@ -1,4 +1,4 @@
 #!/bin/sh
 # Context Graph MCP server (stdio) for Codex.
 DIR="$(cd "$(dirname "$0")" && pwd)"
-exec node "$DIR/../../../dist/cli/main.js" mcp --agent codex
+exec node "$DIR/../ctx.mjs" mcp --agent codex

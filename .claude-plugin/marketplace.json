@@ -1,0 +1,16 @@
+{
+  "name": "context-graph",
+  "owner": {
+    "name": "Warren Langeveldt"
+  },
+  "plugins": [
+    {
+      "name": "context-graph",
+      "source": "./adapters/claude-code",
+      "description": "Per-edit context slices, decision recording, and context observation for any repository",
+      "version": "0.1.0",
+      "category": "development",
+      "tags": ["context", "architecture", "decisions", "observability"]
+    }
+  ]
+}
