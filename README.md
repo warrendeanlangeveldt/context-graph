@@ -96,6 +96,8 @@ ctx slice src/services/booking-service.ts --repo ~/code/my-service
 
 `CTX_GRAPH_DIR` overrides both. Ratifying a checkable constraint records its current violations as legacy decisions, so the walker tells the next agent a file is a known exception rather than letting it discover a contradiction.
 
+What a bootstrap finds, in order of how much it is worth: the repository's own rule-stating tests (`no-*.test.ts`, `never-*`, boundary, architecture, contract, invariant, policy suites; a describe block or header sentence written as a rule becomes a proposed constraint with `test:` set, so ratifying it makes it enforced); imperative lines in instruction files; ADRs as concepts; file headers that carry a rationale, kept as notes on that file; then packs. Modules are named by their leaf directory, prefixed with the enclosing module when leaves collide (`L:web-app`, `L:mobile-app`), and a `src` directory is treated as a convention rather than a module. An auto-selected pack applies only when at least half its roles bind; name it in `[init] packs` to force it. The bootstrapping git identity becomes the first ratifier. A proposed rule asks for a decision at turn end like a ratified one: decisions that serve it are what ratify it, and the graph would never grow otherwise. If a graph is created while a session is already running, the next tool call announces it.
+
 ## Use it in Claude Code
 
 ```sh

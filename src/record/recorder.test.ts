@@ -20,6 +20,9 @@ E L:core impl C:pure
 K G orch.events L:orch state via events only
 K E boundary.core L:core never imports impls test:api/boundary.test.ts
 K G other.rule L:other something about other
+M api/src/fresh/** L:fresh
+L L:fresh Freshly bootstrapped
+K G? fresh.proposed L:fresh a rule the bootstrap guessed
 `;
 
 describe('Recorder', () => {
@@ -50,6 +53,15 @@ describe('Recorder', () => {
     expect(r.notePending(walk(g, 'web/page.tsx'))).toBe(false);
     expect(r.pending().map((p) => p.path)).toEqual(['api/src/core/orch/bb.ts']);
     expect(r.pending()[0]?.constraints).toEqual(['orch.events', 'boundary.core']);
+  });
+
+  it('asks for a decision under a proposed rule too, and says why', () => {
+    const { g, r } = setup();
+    expect(r.notePending(walk(g, 'api/src/fresh/thing.ts'))).toBe(true);
+    const verdict = r.stopDecision({ maxBlocks: 2, who: 'w/claude', branch: 'main' });
+    expect(verdict.block).toBe(true);
+    expect(verdict.reason).toContain('[fresh.proposed]');
+    expect(verdict.reason).toContain('These rules are proposed, not yet ratified.');
   });
 
   it('records a decision, appends it, and clears pending', () => {

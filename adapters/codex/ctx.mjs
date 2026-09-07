@@ -3388,7 +3388,7 @@ function walk(graph, pathIn, opts = {}) {
   return result;
 }
 function demandsDecision(w) {
-  return w.constraints.some(isActiveMode);
+  return w.constraints.some((k) => isActiveMode(k) || k.mode === "G?");
 }
 var init_walk = __esm({
   "src/walker/walk.ts"() {
@@ -3427,7 +3427,7 @@ var init_recorder = __esm({
         const existing = this.state.data.pending[key];
         const entry = {
           path: w.path,
-          constraints: w.constraints.filter(isActiveMode).map((k) => k.id),
+          constraints: w.constraints.filter((k) => isActiveMode(k) || k.mode === "G?").map((k) => k.id),
           since: existing?.since ?? (/* @__PURE__ */ new Date()).toISOString()
         };
         if (w.symbol) entry.symbol = w.symbol;
@@ -3537,9 +3537,11 @@ var init_recorder = __esm({
           return { block: false, gaveUp };
         }
         const lines = pending.map((p) => `  ${p.path}${p.symbol ? `#${p.symbol}` : ""}  [${p.constraints.join(", ")}]`);
+        const proposedOnly = pending.every((p) => p.constraints.every((id) => this.graph.constraints.get(id)?.mode === "G?"));
         const reason = [
           `Context Graph: ${pending.length} edited ${pending.length === 1 ? "file has" : "files have"} constraints and no recorded decision.`,
           ...lines,
+          ...proposedOnly ? ["These rules are proposed, not yet ratified. A decision that serves one is the evidence that ratifies it; one that overrides it is the evidence that retires it. Record what you actually did and why."] : [],
           'Record one decision per file with the ctx MCP tool `record` (node, serves = the constraint or concept it honours, text = why; add overrides when you deliberately broke a guided constraint), or from the shell: ctx record --node <path> --serves <id> --text "<why>".',
           'To decline, point serves at the most specific constraint and set text to "no-decision: <reason>".'
         ].join("\n");
@@ -4527,7 +4529,9 @@ async function runHook(input, profile) {
   const emitTouches = (touches, tool, failed = false) => {
     const out = [];
     for (const t of touches) {
-      const touch = { path: t.path, mode: failed ? "failed" : t.mode, tool, origin };
+      if (t.path === "/dev/null") continue;
+      const outside = t.path.startsWith("/");
+      const touch = { path: t.path, mode: failed ? "failed" : outside ? "external" : t.mode, tool, origin };
       if (t.range) touch.range = t.range;
       if (t.unparsed) touch.unparsed = true;
       if (input.agent_id) touch.agent = input.agent_id;
@@ -4561,6 +4565,10 @@ async function runHook(input, profile) {
       store.append(env);
       notifyOverlay(ctx, env);
     }
+    if (ctx.graph) {
+      state.data.graphAnnounced = true;
+      state.save();
+    }
     return { stdout: profile.formatSessionStart(sessionContext(ctx, injecting, reason === "compact")), exitCode: 0 };
   }
   if (profile.preCompactEvent && event === profile.preCompactEvent) {
@@ -4589,11 +4597,17 @@ async function runHook(input, profile) {
     return { exitCode: 0 };
   }
   if (event === "PreToolUse") {
-    if (!injecting || !ctx.graph) return { exitCode: 0 };
+    const announce = ctx.graph && !state.data.graphAnnounced ? `Context Graph became active during this session: a graph now exists for this repository.
+${sessionContext(ctx, injecting, false)}` : void 0;
+    if (announce) {
+      state.data.graphAnnounced = true;
+      state.save();
+    }
+    if (!injecting || !ctx.graph) return announce ? { stdout: profile.formatPreToolUse(announce), exitCode: 0 } : { exitCode: 0 };
     const tool = input.tool_name ?? "";
     const ti = input.tool_input ?? {};
     const recorder = new Recorder(ctx.graph, state);
-    const slices = [];
+    const slices = announce ? [announce] : [];
     const intent = intentOf(ti);
     for (const t of profile.preEditTargets(tool, ti, tc).slice(0, 3)) {
       if (t.path.startsWith("/") || t.path === ".") continue;
@@ -27755,6 +27769,18 @@ var init_provenance = __esm({
 // src/init/bootstrap.ts
 import { existsSync as existsSync15, readFileSync as readFileSync14, realpathSync } from "node:fs";
 import { basename as basename3, dirname as dirname6, join as join13 } from "node:path";
+function headerSentences(src) {
+  const m = /^\s*(?:#![^\n]*\n)?\s*\/\*\*?([\s\S]*?)\*\//.exec(src);
+  if (!m) return [];
+  const body = m[1].split(/\r?\n/).map((l) => l.replace(/^\s*\*\s?/, "")).join("\n");
+  const paragraphs = body.split(/\n\s*\n/).map((p) => p.replace(/\s+/g, " ").trim()).filter((p) => p && !/^@/.test(p) && !/^\s*[-|`]/.test(p));
+  const out = [];
+  for (const p of paragraphs.slice(0, 3)) for (const sentence of p.split(/(?<=[.!?])\s+(?=[A-Z"'(])/)) {
+    const t = sentence.trim();
+    if (t.length >= 16 && t.length <= 240 && !/->|=>/.test(t) && (t.split('"').length - 1) % 2 === 0) out.push(t);
+  }
+  return out.slice(0, 8);
+}
 function bootstrap(ctx, opts = {}) {
   const root = ctx.root;
   const minFiles = opts.minFiles ?? 5;
@@ -27777,10 +27803,13 @@ function bootstrap(ctx, opts = {}) {
     }
   }
   let candidates = [...counts.entries()].filter(([dir, n]) => n >= minFiles && dir.split("/").length <= maxDepth).map(([dir, n]) => ({ dir, n }));
-  candidates = candidates.filter((c) => {
+  const dropped = /* @__PURE__ */ new Set();
+  for (const c of candidates) {
     const children = candidates.filter((o) => dirname6(o.dir) === c.dir);
-    return !(children.length === 1 && (direct.get(c.dir) ?? 0) === 0 && children[0].n === c.n);
-  });
+    if (!(children.length === 1 && (direct.get(c.dir) ?? 0) === 0 && children[0].n === c.n)) continue;
+    dropped.add(GENERIC_DIRS.has(basename3(children[0].dir)) ? children[0].dir : c.dir);
+  }
+  candidates = candidates.filter((c) => !dropped.has(c.dir));
   if (candidates.length > maxModules) {
     const keep = new Set(candidates.sort((a, b) => b.n - a.n).slice(0, maxModules).map((c) => c.dir));
     for (const c of [...keep]) {
@@ -27793,21 +27822,39 @@ function bootstrap(ctx, opts = {}) {
     candidates = candidates.filter((c) => keep.has(c.dir));
     notes.push(`kept the ${keep.size} largest modules of ${counts.size} candidate directories; raise --max-modules to see more`);
   }
+  candidates = candidates.filter((c) => !(GENERIC_DIRS.has(basename3(c.dir)) && candidates.some((o) => o.dir !== c.dir && c.dir.startsWith(o.dir + "/"))));
   candidates.sort((a, b) => b.dir.split("/").length - a.dir.split("/").length || a.dir.localeCompare(b.dir));
   const ids = /* @__PURE__ */ new Map();
   const used = /* @__PURE__ */ new Set();
   const mappings = [];
   const logicals = [];
+  const leafCount = /* @__PURE__ */ new Map();
+  for (const c of candidates) {
+    const l = slug(basename3(c.dir));
+    leafCount.set(l, (leafCount.get(l) ?? 0) + 1);
+  }
   const idFor = (dir) => {
     const parts = dir.split("/");
-    let id = `L:${slug(parts[parts.length - 1])}`;
-    for (let i = parts.length - 2; used.has(id) && i >= 0; i--) id = `L:${slug(parts[i])}-${id.slice(2)}`;
+    const leaf = slug(parts[parts.length - 1]);
+    let id = `L:${leaf}`;
+    let i = parts.length - 2;
+    if ((leafCount.get(leaf) ?? 0) > 1 || used.has(id)) {
+      while (i >= 0 && GENERIC_DIRS.has(parts[i])) i--;
+      if (i >= 0) {
+        id = `L:${slug(parts[i])}-${leaf}`;
+        i--;
+      }
+    }
+    for (; used.has(id) && i >= 0; i--) {
+      if (GENERIC_DIRS.has(parts[i])) continue;
+      id = `L:${slug(parts[i])}-${id.slice(2)}`;
+    }
     used.add(id);
     return id;
   };
+  for (const c of [...candidates].sort((a, b) => a.dir.split("/").length - b.dir.split("/").length || a.dir.localeCompare(b.dir))) ids.set(c.dir, idFor(c.dir));
   for (const c of candidates) {
-    const id = idFor(c.dir);
-    ids.set(c.dir, id);
+    const id = ids.get(c.dir);
     mappings.push({ kind: "M", glob: `${c.dir}/**`, logical: id, line: 0 });
     logicals.push({ kind: "L", id, name: `${basename3(c.dir)} (${c.n} source files)`, line: 0 });
   }
@@ -27851,17 +27898,43 @@ function bootstrap(ctx, opts = {}) {
     edges.push({ kind: "E", from: a, rel: "dep", to: b, proposed: true, since: today2, line: 0 });
   }
   const constraints = [];
+  const seenRule = /* @__PURE__ */ new Set();
   for (const f of files) {
-    if (!/(boundary|architecture|layering|dependenc|arch-|-arch)[^/]*\.(test|spec)\.[cm]?[jt]sx?$/i.test(f)) continue;
+    if (!TEST_FILE.test(f)) continue;
     const src = safeRead(join13(root, f));
     if (!src) continue;
+    const head = headerSentences(src);
+    const headRule = head.find((x) => RULE_TEXT.test(x) && ruleShaped(x));
+    const strong = STRONG_ARCH_FILE.test(f);
+    if (!ARCH_FILE.test(f) && !headRule) continue;
     const node = moduleOf(f) ?? rootId;
-    const names = [...src.matchAll(/\b(?:it|test)\(\s*['"`]([^'"`]{8,160})['"`]/g)].map((m) => m[1]);
-    if (!names.length) names.push(`rules enforced by ${basename3(f)}`);
-    for (const n of names.slice(0, 12)) {
-      constraints.push({ kind: "K", mode: "G?", id: `arch.${slug(n).slice(0, 48)}`, attachedTo: node, text: n.replace(/\s+/g, " "), test: f, since: today2, line: 0 });
-    }
+    const push = (text) => {
+      const id = `arch.${slug(text).slice(0, 48)}`;
+      if (seenRule.has(id)) return;
+      seenRule.add(id);
+      constraints.push({ kind: "K", mode: "G?", id, attachedTo: node, text: text.replace(/\s+/g, " ").trim(), test: f, since: today2, line: 0 });
+    };
+    const isRule = (n) => ruleShaped(n) && (strong || RULE_TEXT.test(n));
+    const describes = [...src.matchAll(/\bdescribe\(\s*['"`]([^'"`]{8,160})['"`]/g)].map((m) => m[1]).filter(isRule);
+    const its = [...src.matchAll(/\b(?:it|test)\(\s*['"`]([^'"`]{8,160})['"`]/g)].map((m) => m[1]).filter(isRule);
+    const names = describes.length ? describes.slice(0, 4) : headRule ? [headRule] : its.slice(0, 4);
+    if (!names.length && strong) names.push(`rules enforced by ${basename3(f)}`);
+    for (const n of names) push(n);
   }
+  let headerNotes = 0;
+  for (const f of files) {
+    if (headerNotes >= 120 || TEST_FILE.test(f) || !/\.[cm]?[jt]sx?$/.test(f)) continue;
+    const src = safeRead(join13(root, f));
+    if (!src) continue;
+    const sentences = headerSentences(src);
+    if (sentences.length < 2) continue;
+    const why = sentences.slice(1).find((x) => RATIONALE.test(x));
+    if (!why) continue;
+    const text = clip(`${sentences[0]} ${why}`.replace(/\s+/g, " ").trim(), 220);
+    constraints.push({ kind: "K", mode: "R", id: `hdr.${slug(f.replace(/\.[^.]+$/, "")).slice(0, 60)}`, attachedTo: f, text, since: today2, line: 0 });
+    headerNotes++;
+  }
+  if (headerNotes) notes.push(`${headerNotes} file header(s) carry a rationale; recorded as notes on those files`);
   const seenReal = /* @__PURE__ */ new Set();
   const instructionFiles = files.filter((f) => INSTRUCTION_FILES.includes(basename3(f)) || INSTRUCTION_FILES.includes(f)).filter((f) => {
     let real = f;
@@ -27922,6 +27995,11 @@ function newRecordsOnly(result, graph) {
   for (const k of result.constraints) if (!graph.constraints.has(k.id)) out.push(k);
   return out;
 }
+function clip(t, max) {
+  if (t.length <= max) return t;
+  const cut = t.lastIndexOf(" ", max - 1);
+  return `${t.slice(0, cut > max / 2 ? cut : max - 1)}\u2026`;
+}
 function slug(s) {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "x";
 }
@@ -27954,7 +28032,7 @@ function moduleOfDir(ids, dir) {
   }
   return void 0;
 }
-var CODE_EXT3, NOISE_DIRS, INSTRUCTION_FILES, IMPERATIVE;
+var CODE_EXT3, NOISE_DIRS, INSTRUCTION_FILES, IMPERATIVE, GENERIC_DIRS, TEST_FILE, ARCH_FILE, RULE_TEXT, STRONG_ARCH_FILE, ruleShaped, RATIONALE;
 var init_bootstrap = __esm({
   "src/init/bootstrap.ts"() {
     "use strict";
@@ -27964,6 +28042,13 @@ var init_bootstrap = __esm({
     NOISE_DIRS = /* @__PURE__ */ new Set(["node_modules", "dist", "build", "out", ".git", "coverage", "__pycache__", ".next", "vendor", "target", "bin", "obj", "test", "tests", "__tests__", "spec", "fixtures", "generated"]);
     INSTRUCTION_FILES = ["AGENTS.md", "CLAUDE.md", ".cursorrules", "CONTRIBUTING.md", "GEMINI.md", ".github/copilot-instructions.md"];
     IMPERATIVE = /\b(never|do not|don't|must|always|only|no\s+\w+|required|forbidden|not allowed)\b/i;
+    GENERIC_DIRS = /* @__PURE__ */ new Set(["src", "source", "sources"]);
+    TEST_FILE = /\.(test|spec)\.[cm]?[jt]sx?$/i;
+    ARCH_FILE = /(boundary|architecture|layering|dependenc|arch-|-arch|\.arch\.|invariant|contract|policy|conventions|(^|\/)(no|never|must|only|rules?|guards?)-[^/]*)[^/]*\.(test|spec)\.[cm]?[jt]sx?$/i;
+    RULE_TEXT = /\b(never|must|may not|cannot|can't|only|does not|do not|no longer|is not allowed|forbidden|no)\b/i;
+    STRONG_ARCH_FILE = /(boundary|architecture|layering|\.arch\.|(^|\/)(no|never)-[^/]*)[^/]*\.(test|spec)\.[cm]?[jt]sx?$/i;
+    ruleShaped = (t) => t.length <= 140 && t.split(/\s+/).length <= 22 && !/->|=>|\bbelow\b|\bhere\b|^(So|Two|Three|Both|Neither|Every case|What is|Runs|This|These|Those|It|There)\b/.test(t);
+    RATIONALE = /\b(because|so that|so a|so the|so they|there were|there was|used to|instead of|rather than|otherwise|deliberately|on purpose|never|must|one of each|the reason)\b/i;
   }
 });
 
@@ -27978,7 +28063,7 @@ function violationsFor(graph, k, index) {
   if (!k.rule) return [];
   const includeTests = k.rule.endsWith("+tests");
   const [kind, ...args] = k.rule.replace(/\+tests$/, "").split(":");
-  const skip = (file) => !includeTests && TEST_FILE.test(file);
+  const skip = (file) => !includeTests && TEST_FILE2.test(file);
   const under = (file, logical) => {
     const m = graph.mapPath(file);
     if (!m) return false;
@@ -28035,12 +28120,12 @@ function conformanceFindings(ctx) {
   }
   return findings;
 }
-var TEST_FILE;
+var TEST_FILE2;
 var init_conformance = __esm({
   "src/init/conformance.ts"() {
     "use strict";
     init_imports();
-    TEST_FILE = /(\.test\.[cm]?[jt]sx?|\.spec\.[cm]?[jt]sx?|(^|\/)__tests__\/|(^|\/)tests?\/)/;
+    TEST_FILE2 = /(\.test\.[cm]?[jt]sx?|\.spec\.[cm]?[jt]sx?|(^|\/)__tests__\/|(^|\/)tests?\/)/;
   }
 });
 
@@ -28332,12 +28417,18 @@ async function init(args, env) {
   if (!packNames.includes("none")) {
     for (const p of loadPacks(packNames)) {
       const { bindings, unbound } = detectBindings(p, merged, result.files, ctx.config.packBindings);
-      const inst = instantiate(p, bindings, unbound, today2);
-      const usable = inst.records.filter((r) => !(r.kind === "K" && merged.constraints.has(r.id)) && !(r.kind === "C" && merged.concepts.has(r.id)));
       if (!bindings.length) {
         packReport.push(`${p.name}: no roles bound`);
         continue;
       }
+      const boundRoles = new Set(bindings.map((b) => b.role)).size;
+      const explicit = packNames.includes(p.name);
+      if (!explicit && boundRoles < Math.ceil(p.roles.length / 2)) {
+        packReport.push(`${p.name}: ${boundRoles} of ${p.roles.length} roles bind (${bindings.map((b) => `{${b.role}}=${b.logical}`).join(", ")}); too little to apply automatically, set packs = ["${p.name}"] to force`);
+        continue;
+      }
+      const inst = instantiate(p, bindings, unbound, today2);
+      const usable = inst.records.filter((r) => !(r.kind === "K" && merged.constraints.has(r.id)) && !(r.kind === "C" && merged.concepts.has(r.id)));
       packReport.push(`${p.name}@${p.version}: ${bindings.map((b) => `{${b.role}}=${b.logical} (${b.evidence})`).join(", ")}${unbound.length ? `; unbound: ${unbound.join(", ")}` : ""}; ${usable.length} record(s)`);
       packRecords.push(...usable);
     }
@@ -28372,7 +28463,7 @@ async function init(args, env) {
       const header = `# Context Graph, bootstrapped ${today2} by ctx init. Everything here is a proposal until ratified (ctx ratify).
 `;
       writeFileSync7(graphFile, header + all.map(formatRecord).join("\n") + "\n", "utf8");
-      if (!existsSync18(join16(target, "config.toml"))) writeFileSync7(join16(target, "config.toml"), CONFIG_TEMPLATE, "utf8");
+      if (!existsSync18(join16(target, "config.toml"))) writeFileSync7(join16(target, "config.toml"), CONFIG_TEMPLATE.replace("{RATIFIERS}", JSON.stringify(gitPerson(ctx.root))), "utf8");
       console.log(`wrote ${graphFile} (${all.length} records) and config.toml`);
     } else {
       for (const r of all) appendRecord(join16(target, PROPOSALS_FILE), r);
@@ -28440,13 +28531,14 @@ var init_cli = __esm({
     init_context();
     init_graph();
     init_write();
+    init_git();
     init_bootstrap();
     init_conformance();
     init_packs2();
     init_ratify();
     CONFIG_TEMPLATE = `# Context Graph configuration. See docs/design-spec.md \xA717.
 [repo]
-ratifiers = []            # git identities (email local part or name) allowed to ratify concepts and enforced constraints
+ratifiers = [{RATIFIERS}]  # git identities (email local part or name) allowed to ratify concepts and enforced constraints
 default_branch = "main"
 
 [slice]
@@ -33299,8 +33391,8 @@ function proposeCorpus(ctx, opts = {}) {
     const [sha, , subject, body] = entry.trim().split("");
     if (!sha || !subject) continue;
     const files = (git(root, ["diff-tree", "--no-commit-id", "--name-only", "-r", sha]) ?? "").split("\n").filter(Boolean);
-    const tests = files.filter((f) => TEST_FILE2.test(f));
-    const code = files.filter((f) => !TEST_FILE2.test(f) && !/\.(md|txt|json|ya?ml|lock)$/.test(f) && !f.startsWith(".ctx/"));
+    const tests = files.filter((f) => TEST_FILE3.test(f));
+    const code = files.filter((f) => !TEST_FILE3.test(f) && !/\.(md|txt|json|ya?ml|lock)$/.test(f) && !f.startsWith(".ctx/"));
     if (!tests.length) {
       skipped.push({ sha: sha.slice(0, 8), reason: "no test touched" });
       continue;
@@ -33341,12 +33433,12 @@ function classify2(ctx, subject, code) {
   const modules = new Set(code.map((f) => ctx.graph?.mapPath(f)?.logical ?? f.split("/").slice(0, -1).join("/")));
   return modules.size === 1 ? "multi-file-module" : "cross-module";
 }
-var TEST_FILE2;
+var TEST_FILE3;
 var init_corpus = __esm({
   "src/bench/corpus.ts"() {
     "use strict";
     init_git();
-    TEST_FILE2 = /(\.test\.[cm]?[jt]sx?|\.spec\.[cm]?[jt]sx?|(^|\/)test_[^/]*\.py|_test\.py|_test\.go)$/;
+    TEST_FILE3 = /(\.test\.[cm]?[jt]sx?|\.spec\.[cm]?[jt]sx?|(^|\/)test_[^/]*\.py|_test\.py|_test\.go)$/;
   }
 });
 

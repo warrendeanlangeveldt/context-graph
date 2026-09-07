@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -58,6 +58,30 @@ describe('Claude Code hook adapter, end to end on a temporary repository', () =>
 
   const base = (): Pick<HookInput, 'session_id' | 'cwd'> => ({ session_id: 'sess-1', cwd: repo });
   const events = (): Envelope[] => new ObservationStore(repo, 'sess-1').readAll();
+
+  it('keeps paths outside the repository as sightings, never edits, and ignores /dev/null', async () => {
+    await runClaudeHook({ ...base(), hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { command: `cat ${repo}/api/src/core/helper.ts > /dev/null; cat /etc/hosts > /private/tmp/scratch/notes.txt` } });
+    const seen = events().filter((e) => e.t === 'touch' || e.t === 'edit').map((e) => ({ t: e.t, ...(e.p as { path: string; mode: string }) }));
+    expect(seen.some((x) => x.path === '/dev/null')).toBe(false);
+    expect(seen.find((x) => x.path === 'api/src/core/helper.ts')?.mode).toBe('full');
+    expect(seen.find((x) => x.path === '/private/tmp/scratch/notes.txt')).toMatchObject({ t: 'touch', mode: 'external' });
+    expect(seen.find((x) => x.path === '/etc/hosts')).toMatchObject({ t: 'touch', mode: 'external' });
+  });
+
+  it('announces a graph that appears after the session started, once', async () => {
+    const graphText = readFileSync(join(repo, '.ctx/graph.ctx'), 'utf8');
+    rmSync(join(repo, '.ctx'), { recursive: true });
+    const start = await runClaudeHook({ ...base(), hook_event_name: 'SessionStart', start_reason: 'startup' });
+    expect(start.stdout).toContain('no graph for this repository');
+    mkdirSync(join(repo, '.ctx'));
+    writeFileSync(join(repo, '.ctx/graph.ctx'), graphText);
+    const first = await runClaudeHook({ ...base(), hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: 'ls' } });
+    const out = JSON.parse(first.stdout!) as { hookSpecificOutput: { additionalContext: string } };
+    expect(out.hookSpecificOutput.additionalContext).toContain('Context Graph became active during this session');
+    expect(out.hookSpecificOutput.additionalContext).toContain('bb = api/src/core/orch/bb.ts');
+    const second = await runClaudeHook({ ...base(), hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: 'ls' } });
+    expect(second.stdout).toBeUndefined();
+  });
 
   it('injects a slice before an edit, observes the edit with coverage, then demands a decision at Stop', async () => {
     const start = await runClaudeHook({ ...base(), hook_event_name: 'SessionStart', start_reason: 'startup' });

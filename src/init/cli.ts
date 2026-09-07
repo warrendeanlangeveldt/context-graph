@@ -5,6 +5,7 @@ import { openRepo } from '../core/context.js';
 import { GRAPH_FILE, Graph, PROPOSALS_FILE } from '../graph/graph.js';
 import type { GraphRecord } from '../graph/records.js';
 import { appendRecord, formatRecord } from '../graph/write.js';
+import { gitPerson } from '../util/git.js';
 import { bootstrap, newRecordsOnly } from './bootstrap.js';
 import { conformanceReport, violationsFor } from './conformance.js';
 import { detectBindings, exportPack, instantiate, loadPacks } from './packs.js';
@@ -12,7 +13,7 @@ import { ratify } from './ratify.js';
 
 const CONFIG_TEMPLATE = `# Context Graph configuration. See docs/design-spec.md §17.
 [repo]
-ratifiers = []            # git identities (email local part or name) allowed to ratify concepts and enforced constraints
+ratifiers = [{RATIFIERS}]  # git identities (email local part or name) allowed to ratify concepts and enforced constraints
 default_branch = "main"
 
 [slice]
@@ -68,9 +69,17 @@ async function init(args: Args, env: { json: boolean }): Promise<number> {
   if (!packNames.includes('none')) {
     for (const p of loadPacks(packNames)) {
       const { bindings, unbound } = detectBindings(p, merged, result.files, ctx.config.packBindings);
+      if (!bindings.length) { packReport.push(`${p.name}: no roles bound`); continue; }
+      // One directory called `routes` is not evidence for a whole framework's conventions. An auto-selected
+      // pack applies only when at least half its roles bind; naming the pack in config forces it.
+      const boundRoles = new Set(bindings.map((b) => b.role)).size;
+      const explicit = packNames.includes(p.name);
+      if (!explicit && boundRoles < Math.ceil(p.roles.length / 2)) {
+        packReport.push(`${p.name}: ${boundRoles} of ${p.roles.length} roles bind (${bindings.map((b) => `{${b.role}}=${b.logical}`).join(', ')}); too little to apply automatically, set packs = ["${p.name}"] to force`);
+        continue;
+      }
       const inst = instantiate(p, bindings, unbound, today);
       const usable = inst.records.filter((r) => !(r.kind === 'K' && merged.constraints.has(r.id)) && !(r.kind === 'C' && merged.concepts.has(r.id)));
-      if (!bindings.length) { packReport.push(`${p.name}: no roles bound`); continue; }
       packReport.push(`${p.name}@${p.version}: ${bindings.map((b) => `{${b.role}}=${b.logical} (${b.evidence})`).join(', ')}${unbound.length ? `; unbound: ${unbound.join(', ')}` : ''}; ${usable.length} record(s)`);
       packRecords.push(...usable);
     }
@@ -107,7 +116,8 @@ async function init(args: Args, env: { json: boolean }): Promise<number> {
     if (!existsSync(graphFile)) {
       const header = `# Context Graph, bootstrapped ${today} by ctx init. Everything here is a proposal until ratified (ctx ratify).\n`;
       writeFileSync(graphFile, header + all.map(formatRecord).join('\n') + '\n', 'utf8');
-      if (!existsSync(join(target, 'config.toml'))) writeFileSync(join(target, 'config.toml'), CONFIG_TEMPLATE, 'utf8');
+      // The person who bootstraps can ratify; an empty list would leave every proposal stuck as proposed.
+      if (!existsSync(join(target, 'config.toml'))) writeFileSync(join(target, 'config.toml'), CONFIG_TEMPLATE.replace('{RATIFIERS}', JSON.stringify(gitPerson(ctx.root))), 'utf8');
       console.log(`wrote ${graphFile} (${all.length} records) and config.toml`);
     } else {
       for (const r of all) appendRecord(join(target, PROPOSALS_FILE), r);

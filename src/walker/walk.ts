@@ -65,6 +65,11 @@ export function walk(graph: Graph, pathIn: string, opts: WalkOptions = {}): Walk
 }
 
 /** Whether an edit to this node demands a decision: at least one enforced or guided constraint applies. */
+/**
+ * Whether an edit here owes a decision. Enforced and guided rules ask; so do proposed ones, because a
+ * decision that serves a proposal is the evidence that ratifies it, and one that overrides it is the
+ * evidence that retires it. A freshly bootstrapped graph would otherwise never grow.
+ */
 export function demandsDecision(w: WalkResult): boolean {
-  return w.constraints.some(isActiveMode);
+  return w.constraints.some((k) => isActiveMode(k) || k.mode === 'G?');
 }

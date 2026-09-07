@@ -55,6 +55,8 @@ export interface SessionStateData {
   arm: 'on' | 'off';
   /** Whether the arm was decided for this session; random assignment happens once. */
   armSet?: boolean;
+  /** The session has been told a graph exists; set at start, or on the first hook after a mid-session bootstrap. */
+  graphAnnounced?: boolean;
   delegations: Record<string, { agentType?: string; since: string }>;
 }
 

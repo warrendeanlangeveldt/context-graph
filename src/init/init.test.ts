@@ -63,6 +63,34 @@ describe('bootstrap, packs, conformance, ratify', () => {
     expect(newRecordsOnly(r, undefined).length).toBe(r.mappings.length + r.logicals.length + r.edges.length + r.concepts.length + r.constraints.length);
   });
 
+  it('names colliding leaves by their enclosing module, treats src as a convention, takes rules from negative tests, and keeps header rationale as notes', () => {
+    w('app/web/src/app/page.tsx', 'export default 1;\n');
+    w('app/web/src/app/layout.tsx', 'export default 2;\n');
+    w('app/mobile/src/app/index.tsx', 'export default 3;\n');
+    w('app/api/src/services/scan.ts', '/**\n * The canonical scan writer. One writer, because two of them drifted for a year and\n * nobody could say which row was right.\n */\nexport const scan = 1;\n');
+    w('app/api/src/services/plain.ts', '/** Helpers for scans. */\nexport const plain = 1;\n');
+    w('app/api/src/services/__tests__/no-auto-diagnosis.test.ts', '/**\n * P0-02 negative test — a scan must never create a chronic condition.\n *\n * The removed code wrote isActive onto a condition whenever a detection cleared 0.8.\n */\ndescribe("P0-02 scans cannot create a diagnosis", () => { it("never calls createUserCondition", () => {}); });\ndescribe("P0-02 the documented policy is stated in one place", () => {});\n');
+    w('app/api/src/services/__tests__/observation-contract.test.ts', 'describe("the observation schema", () => { it("parses a printed range", () => {}); });\n');
+    g(['add', '-A']);
+    const ctx = openRepo({ repo });
+    const r = bootstrap(ctx, { minFiles: 1, today: '2026-09-07' });
+    const globs = Object.fromEntries(r.mappings.map((m) => [m.glob, m.logical]));
+    expect(globs['app/web/src/app/**']).toBe('L:web-app');
+    expect(globs['app/mobile/src/app/**']).toBe('L:mobile-app');
+    expect(globs['app/api/src/services/**']).toBe('L:services');
+    expect(globs['app/web/**']).toBe('L:web');
+    expect(globs['app/api/src/**']).toBeUndefined();
+    expect(globs['src/**']).toBe('L:src');
+    const arch = r.constraints.filter((k) => k.id.startsWith('arch.') && k.test?.includes('app/api'));
+    expect(arch.map((k) => k.text)).toEqual(['P0-02 scans cannot create a diagnosis', 'P0-02 the documented policy is stated in one place']);
+    expect(arch[0]).toMatchObject({ mode: 'G?', attachedTo: 'L:services', test: 'app/api/src/services/__tests__/no-auto-diagnosis.test.ts' });
+    const notes = r.constraints.filter((k) => k.mode === 'R');
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toMatchObject({ id: 'hdr.app-api-src-services-scan', attachedTo: 'app/api/src/services/scan.ts' });
+    expect(notes[0]!.text).toBe('The canonical scan writer. One writer, because two of them drifted for a year and nobody could say which row was right.');
+    expect(Graph.fromRecords(newRecordsOnly(r, undefined)).validate().filter((f) => f.level === 'error')).toEqual([]);
+  });
+
   it('binds the ports-and-adapters pack, counts violations, ratifies with legacy decisions, and exports', () => {
     const ctx = openRepo({ repo });
     const r = bootstrap(ctx, { minFiles: 1, today: '2026-09-07' });

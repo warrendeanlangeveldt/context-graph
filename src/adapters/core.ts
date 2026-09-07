@@ -93,7 +93,10 @@ export async function runHook(input: HookInput, profile: HarnessProfile): Promis
   const emitTouches = (touches: TouchLike[], tool: string, failed = false): Touch[] => {
     const out: Touch[] = [];
     for (const t of touches) {
-      const touch: Touch = { path: t.path, mode: failed ? 'failed' : t.mode, tool, origin };
+      if (t.path === '/dev/null') continue;
+      // A path outside the repository is not this codebase's context: keep it as a sighting, never as an edit.
+      const outside = t.path.startsWith('/');
+      const touch: Touch = { path: t.path, mode: failed ? 'failed' : outside ? 'external' : t.mode, tool, origin };
       if (t.range) touch.range = t.range;
       if (t.unparsed) touch.unparsed = true;
       if (input.agent_id) touch.agent = input.agent_id;
@@ -130,6 +133,7 @@ export async function runHook(input: HookInput, profile: HarnessProfile): Promis
       store.append(env);
       notifyOverlay(ctx, env);
     }
+    if (ctx.graph) { state.data.graphAnnounced = true; state.save(); }
     return { stdout: profile.formatSessionStart(sessionContext(ctx, injecting, reason === 'compact')), exitCode: 0 };
   }
 
@@ -162,11 +166,14 @@ export async function runHook(input: HookInput, profile: HarnessProfile): Promis
   }
 
   if (event === 'PreToolUse') {
-    if (!injecting || !ctx.graph) return { exitCode: 0 };
+    // A graph created after the session started (ctx init mid-session) was never announced; say so once.
+    const announce = ctx.graph && !state.data.graphAnnounced ? `Context Graph became active during this session: a graph now exists for this repository.\n${sessionContext(ctx, injecting, false)}` : undefined;
+    if (announce) { state.data.graphAnnounced = true; state.save(); }
+    if (!injecting || !ctx.graph) return announce ? { stdout: profile.formatPreToolUse(announce), exitCode: 0 } : { exitCode: 0 };
     const tool = input.tool_name ?? '';
     const ti = input.tool_input ?? {};
     const recorder = new Recorder(ctx.graph, state);
-    const slices: string[] = [];
+    const slices: string[] = announce ? [announce] : [];
     const intent = intentOf(ti);
     for (const t of profile.preEditTargets(tool, ti, tc).slice(0, 3)) {
       if (t.path.startsWith('/') || t.path === '.') continue;

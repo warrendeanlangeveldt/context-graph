@@ -39,7 +39,7 @@ export class Recorder {
     const existing = this.state.data.pending[key];
     const entry: PendingEntry = {
       path: w.path,
-      constraints: w.constraints.filter(isActiveMode).map((k) => k.id),
+      constraints: w.constraints.filter((k) => isActiveMode(k) || k.mode === 'G?').map((k) => k.id),
       since: existing?.since ?? new Date().toISOString(),
     };
     if (w.symbol) entry.symbol = w.symbol;
@@ -158,9 +158,11 @@ export class Recorder {
     }
 
     const lines = pending.map((p) => `  ${p.path}${p.symbol ? `#${p.symbol}` : ''}  [${p.constraints.join(', ')}]`);
+    const proposedOnly = pending.every((p) => p.constraints.every((id) => this.graph.constraints.get(id)?.mode === 'G?'));
     const reason = [
       `Context Graph: ${pending.length} edited ${pending.length === 1 ? 'file has' : 'files have'} constraints and no recorded decision.`,
       ...lines,
+      ...(proposedOnly ? ['These rules are proposed, not yet ratified. A decision that serves one is the evidence that ratifies it; one that overrides it is the evidence that retires it. Record what you actually did and why.'] : []),
       'Record one decision per file with the ctx MCP tool `record` (node, serves = the constraint or concept it honours, text = why; add overrides when you deliberately broke a guided constraint), or from the shell: ctx record --node <path> --serves <id> --text "<why>".',
       'To decline, point serves at the most specific constraint and set text to "no-decision: <reason>".',
     ].join('\n');

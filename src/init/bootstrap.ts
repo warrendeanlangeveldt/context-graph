@@ -35,6 +35,29 @@ const CODE_EXT = /\.(ts|tsx|js|jsx|mts|cts|mjs|cjs|py|go|rs|java|kt|cs|rb|php|sw
 const NOISE_DIRS = new Set(['node_modules', 'dist', 'build', 'out', '.git', 'coverage', '__pycache__', '.next', 'vendor', 'target', 'bin', 'obj', 'test', 'tests', '__tests__', 'spec', 'fixtures', 'generated']);
 const INSTRUCTION_FILES = ['AGENTS.md', 'CLAUDE.md', '.cursorrules', 'CONTRIBUTING.md', 'GEMINI.md', '.github/copilot-instructions.md'];
 const IMPERATIVE = /\b(never|do not|don't|must|always|only|no\s+\w+|required|forbidden|not allowed)\b/i;
+const GENERIC_DIRS = new Set(['src', 'source', 'sources']);
+const TEST_FILE = /\.(test|spec)\.[cm]?[jt]sx?$/i;
+/** File names that announce a rule: architecture and boundary suites, and the negative-test convention (`no-`, `never-`, `only-`). */
+const ARCH_FILE = /(boundary|architecture|layering|dependenc|arch-|-arch|\.arch\.|invariant|contract|policy|conventions|(^|\/)(no|never|must|only|rules?|guards?)-[^/]*)[^/]*\.(test|spec)\.[cm]?[jt]sx?$/i;
+/** A sentence that states a rule rather than describes a fixture. */
+const RULE_TEXT = /\b(never|must|may not|cannot|can't|only|does not|do not|no longer|is not allowed|forbidden|no)\b/i;
+/** Strong names: the file exists to state rules, so a describe block is a rule even without a keyword. */
+const STRONG_ARCH_FILE = /(boundary|architecture|layering|\.arch\.|(^|\/)(no|never)-[^/]*)[^/]*\.(test|spec)\.[cm]?[jt]sx?$/i;
+/** A sentence short and declarative enough to stand as a rule; explanations and narratives fail this. */
+const ruleShaped = (t: string): boolean => t.length <= 140 && t.split(/\s+/).length <= 22 && !/->|=>|\bbelow\b|\bhere\b|^(So|Two|Three|Both|Neither|Every case|What is|Runs|This|These|Those|It|There)\b/.test(t);
+/** A sentence that explains rather than describes. */
+const RATIONALE = /\b(because|so that|so a|so the|so they|there were|there was|used to|instead of|rather than|otherwise|deliberately|on purpose|never|must|one of each|the reason)\b/i;
+
+/** Sentences of the block comment that opens a file, comment markers stripped; empty when the file has none. */
+export function headerSentences(src: string): string[] {
+  const m = /^\s*(?:#![^\n]*\n)?\s*\/\*\*?([\s\S]*?)\*\//.exec(src);
+  if (!m) return [];
+  const body = m[1]!.split(/\r?\n/).map((l) => l.replace(/^\s*\*\s?/, '')).join('\n');
+  const paragraphs = body.split(/\n\s*\n/).map((p) => p.replace(/\s+/g, ' ').trim()).filter((p) => p && !/^@/.test(p) && !/^\s*[-|`]/.test(p));
+  const out: string[] = [];
+  for (const p of paragraphs.slice(0, 3)) for (const sentence of p.split(/(?<=[.!?])\s+(?=[A-Z"'(])/)) { const t = sentence.trim(); if (t.length >= 16 && t.length <= 240 && !/->|=>/.test(t) && (t.split('"').length - 1) % 2 === 0) out.push(t); }
+  return out.slice(0, 8);
+}
 
 export function bootstrap(ctx: RepoContext, opts: BootstrapOptions = {}): BootstrapResult {
   const root = ctx.root;
@@ -63,32 +86,49 @@ export function bootstrap(ctx: RepoContext, opts: BootstrapOptions = {}): Bootst
     .filter(([dir, n]) => n >= minFiles && dir.split('/').length <= maxDepth)
     .map(([dir, n]) => ({ dir, n }));
   // Collapse single-child chains: a directory whose only content is one child directory is not a module.
-  candidates = candidates.filter((c) => {
+  // When that child is a `src`, the parent is the module and the child is the convention, so keep the parent.
+  const dropped = new Set<string>();
+  for (const c of candidates) {
     const children = candidates.filter((o) => dirname(o.dir) === c.dir);
-    return !(children.length === 1 && (direct.get(c.dir) ?? 0) === 0 && children[0]!.n === c.n);
-  });
+    if (!(children.length === 1 && (direct.get(c.dir) ?? 0) === 0 && children[0]!.n === c.n)) continue;
+    dropped.add(GENERIC_DIRS.has(basename(children[0]!.dir)) ? children[0]!.dir : c.dir);
+  }
+  candidates = candidates.filter((c) => !dropped.has(c.dir));
   if (candidates.length > maxModules) {
     const keep = new Set(candidates.sort((a, b) => b.n - a.n).slice(0, maxModules).map((c) => c.dir));
     for (const c of [...keep]) { let d = dirname(c); while (d && d !== '.') { if (candidates.some((x) => x.dir === d)) keep.add(d); d = dirname(d); } }
     candidates = candidates.filter((c) => keep.has(c.dir));
     notes.push(`kept the ${keep.size} largest modules of ${counts.size} candidate directories; raise --max-modules to see more`);
   }
+  // A `src` directory is a convention, not a module: its files roll up to the enclosing module.
+  candidates = candidates.filter((c) => !(GENERIC_DIRS.has(basename(c.dir)) && candidates.some((o) => o.dir !== c.dir && c.dir.startsWith(o.dir + '/'))));
   candidates.sort((a, b) => b.dir.split('/').length - a.dir.split('/').length || a.dir.localeCompare(b.dir));
 
   const ids = new Map<string, string>();
   const used = new Set<string>();
   const mappings: MRecord[] = [];
   const logicals: LRecord[] = [];
+  // Names come from the leaf. A leaf shared by several modules (app, components, lib) is prefixed with the
+  // enclosing module's name, so `L:web-app` and `L:mobile-app` rather than `L:app` and `L:src-app`.
+  const leafCount = new Map<string, number>();
+  for (const c of candidates) { const l = slug(basename(c.dir)); leafCount.set(l, (leafCount.get(l) ?? 0) + 1); }
   const idFor = (dir: string): string => {
     const parts = dir.split('/');
-    let id = `L:${slug(parts[parts.length - 1]!)}`;
-    for (let i = parts.length - 2; used.has(id) && i >= 0; i--) id = `L:${slug(parts[i]!)}-${id.slice(2)}`;
+    const leaf = slug(parts[parts.length - 1]!);
+    let id = `L:${leaf}`;
+    // Prefix with the nearest meaningful segment above (never `src`), then keep climbing until unique.
+    let i = parts.length - 2;
+    if ((leafCount.get(leaf) ?? 0) > 1 || used.has(id)) {
+      while (i >= 0 && GENERIC_DIRS.has(parts[i]!)) i--;
+      if (i >= 0) { id = `L:${slug(parts[i]!)}-${leaf}`; i--; }
+    }
+    for (; used.has(id) && i >= 0; i--) { if (GENERIC_DIRS.has(parts[i]!)) continue; id = `L:${slug(parts[i]!)}-${id.slice(2)}`; }
     used.add(id);
     return id;
   };
+  for (const c of [...candidates].sort((a, b) => a.dir.split('/').length - b.dir.split('/').length || a.dir.localeCompare(b.dir))) ids.set(c.dir, idFor(c.dir));
   for (const c of candidates) {
-    const id = idFor(c.dir);
-    ids.set(c.dir, id);
+    const id = ids.get(c.dir)!;
     mappings.push({ kind: 'M', glob: `${c.dir}/**`, logical: id, line: 0 });
     logicals.push({ kind: 'L', id, name: `${basename(c.dir)} (${c.n} source files)`, line: 0 });
   }
@@ -127,19 +167,52 @@ export function bootstrap(ctx: RepoContext, opts: BootstrapOptions = {}): Bootst
     edges.push({ kind: 'E', from: a, rel: 'dep', to: b, proposed: true, since: today, line: 0 });
   }
 
-  // 3. Architecture tests -> proposed constraints with test: set.
+  // 3. Architecture and negative tests -> proposed constraints with test: set. A repository's own
+  // `no-*.test.ts` is the clearest rule it has; the header sentence is the rule, the describe blocks the detail.
   const constraints: KRecord[] = [];
+  const seenRule = new Set<string>();
   for (const f of files) {
-    if (!/(boundary|architecture|layering|dependenc|arch-|-arch)[^/]*\.(test|spec)\.[cm]?[jt]sx?$/i.test(f)) continue;
+    if (!TEST_FILE.test(f)) continue;
     const src = safeRead(join(root, f));
     if (!src) continue;
+    const head = headerSentences(src);
+    const headRule = head.find((x) => RULE_TEXT.test(x) && ruleShaped(x));
+    const strong = STRONG_ARCH_FILE.test(f);
+    if (!ARCH_FILE.test(f) && !headRule) continue;
     const node = moduleOf(f) ?? rootId;
-    const names = [...src.matchAll(/\b(?:it|test)\(\s*['"`]([^'"`]{8,160})['"`]/g)].map((m) => m[1]!);
-    if (!names.length) names.push(`rules enforced by ${basename(f)}`);
-    for (const n of names.slice(0, 12)) {
-      constraints.push({ kind: 'K', mode: 'G?', id: `arch.${slug(n).slice(0, 48)}`, attachedTo: node, text: n.replace(/\s+/g, ' '), test: f, since: today, line: 0 });
-    }
+    const push = (text: string): void => {
+      const id = `arch.${slug(text).slice(0, 48)}`;
+      if (seenRule.has(id)) return;
+      seenRule.add(id);
+      constraints.push({ kind: 'K', mode: 'G?', id, attachedTo: node, text: text.replace(/\s+/g, ' ').trim(), test: f, since: today, line: 0 });
+    };
+    // Describe blocks written as rules come first: they are terse by convention. The header sentence is the
+    // fallback, then rule-shaped it() names; a strongly named file with none of those still gets one line.
+    // A strongly named file is rules by declaration, so its names need no keyword; a contract or policy suite must earn it.
+    const isRule = (n: string): boolean => ruleShaped(n) && (strong || RULE_TEXT.test(n));
+    const describes = [...src.matchAll(/\bdescribe\(\s*['"`]([^'"`]{8,160})['"`]/g)].map((m) => m[1]!).filter(isRule);
+    const its = [...src.matchAll(/\b(?:it|test)\(\s*['"`]([^'"`]{8,160})['"`]/g)].map((m) => m[1]!).filter(isRule);
+    const names = describes.length ? describes.slice(0, 4) : headRule ? [headRule] : its.slice(0, 4);
+    if (!names.length && strong) names.push(`rules enforced by ${basename(f)}`);
+    for (const n of names) push(n);
   }
+
+  // 3b. File headers that carry a rationale -> recorded notes on the file. Dropped first under budget,
+  // never enforced, but they answer `why` and travel with hydrate to the callers that never read the file.
+  let headerNotes = 0;
+  for (const f of files) {
+    if (headerNotes >= 120 || TEST_FILE.test(f) || !/\.[cm]?[jt]sx?$/.test(f)) continue;
+    const src = safeRead(join(root, f));
+    if (!src) continue;
+    const sentences = headerSentences(src);
+    if (sentences.length < 2) continue;
+    const why = sentences.slice(1).find((x) => RATIONALE.test(x));
+    if (!why) continue;
+    const text = clip(`${sentences[0]} ${why}`.replace(/\s+/g, ' ').trim(), 220);
+    constraints.push({ kind: 'K', mode: 'R', id: `hdr.${slug(f.replace(/\.[^.]+$/, '')).slice(0, 60)}`, attachedTo: f, text, since: today, line: 0 });
+    headerNotes++;
+  }
+  if (headerNotes) notes.push(`${headerNotes} file header(s) carry a rationale; recorded as notes on those files`);
 
   // 4. Instruction files -> proposed guided constraints, each quoting its source line.
   // Several names often point at one file through symlinks; propose from each real file once.
@@ -201,6 +274,13 @@ export function newRecordsOnly(result: BootstrapResult, graph: Graph | undefined
   for (const c of result.concepts) if (!graph.concepts.has(c.id)) out.push(c);
   for (const k of result.constraints) if (!graph.constraints.has(k.id)) out.push(k);
   return out;
+}
+
+/** Cut at a word boundary, marking the cut, so a note never ends mid-word. */
+function clip(t: string, max: number): string {
+  if (t.length <= max) return t;
+  const cut = t.lastIndexOf(' ', max - 1);
+  return `${t.slice(0, cut > max / 2 ? cut : max - 1)}…`;
 }
 
 export function slug(s: string): string {
