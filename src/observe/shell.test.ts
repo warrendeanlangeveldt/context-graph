@@ -70,6 +70,17 @@ describe('parseShellCommand', () => {
     expect(modes('cat "src/with space.ts"')).toEqual(['full src/with space.ts']);
   });
 
+  it('never mistakes a regex or an inline script for a path', () => {
+    expect(modes("perl -pe 's/^\\s*\\*\\s*//' src/a.ts")).toEqual(['name src/a.ts']);
+    expect(modes("python3 -c 'import os; print(os.path.join(\"a\",\"b\"))'")).toEqual([]);
+    expect(modes("grep -E '^(foo|bar)/baz$' src/")).toEqual(['grep src/']);
+    expect(modes("sed -n 's/^import .*from \\(.*\\)/\\1/p' src/a.ts")).toEqual(['grep src/a.ts']);
+    expect(modes('awk -F/ \'{print $2}\' data.csv')).toEqual(['full data.csv']);
+    expect(modes("awk '/async resumeAfterHumanInput/{p=1} p{print NR\": \"$0} p&&/^  }$/{exit}' src/orchestrator.ts")).toEqual(['full src/orchestrator.ts']);
+    expect(modes('LOG=/tmp/run.log; npm test > $LOG 2>&1; tail -20 $LOG')).toEqual([]);
+    expect(modes('echo hi > "$DIR/out.txt"')).toEqual([]);
+  });
+
   it('ignores /dev/null and noops', () => {
     expect(modes('cmd > /dev/null 2>&1')).toEqual([]);
     expect(modes('export X=1; pwd; echo done')).toEqual([]);

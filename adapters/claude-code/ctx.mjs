@@ -57,6 +57,7 @@ function parseShellCommand(command, cwd) {
     const norm = (p) => dir && !isAbsolute(p) && !/[*?[\]{}]/.test(p) ? resolve(dir, p) : p;
     for (const r of redirects) {
       if (r.target === "/dev/null" || r.target === "/dev/stdout" || r.target === "/dev/stderr") continue;
+      if (!isPathLike(r.target) && !/^[A-Za-z0-9_][\w.-]*$/.test(r.target)) continue;
       if (r.kind === "in") push({ path: norm(r.target), mode: "full" });
       else push({ path: norm(r.target), mode: "write" });
     }
@@ -77,6 +78,29 @@ function parseShellCommand(command, cwd) {
   return out;
 }
 function classify(cmd, args) {
+  if (cmd === "awk" || cmd === "gawk" || cmd === "mawk") {
+    const rest = [];
+    let program = false;
+    for (let i = 0; i < args.length; i++) {
+      const a = args[i];
+      if (a === "-F" || a === "-v") {
+        i++;
+        continue;
+      }
+      if (a === "-f") {
+        i++;
+        program = true;
+        continue;
+      }
+      if (a.startsWith("-")) continue;
+      if (!program) {
+        program = true;
+        continue;
+      }
+      rest.push(a);
+    }
+    return pathArgs(rest).map((p) => ({ path: p, mode: "full" }));
+  }
   if (READ_FULL.has(cmd)) return pathArgs(args).map((p) => ({ path: p, mode: "full" }));
   if (cmd === "head") return headTail(args, "head");
   if (cmd === "tail") return headTail(args, "tail");
@@ -100,8 +124,17 @@ function classify(cmd, args) {
   if (cmd === "diff" || cmd === "cmp" || cmd === "comm") return pathArgs(args).map((p) => ({ path: p, mode: "full" }));
   if (cmd === "sort" || cmd === "uniq" || cmd === "cut" || cmd === "tr" || cmd === "column" || cmd === "paste") return pathArgs(args).map((p) => ({ path: p, mode: "full" }));
   if (RUNNERS.has(cmd)) {
-    const oIdx = args.findIndex((a) => a === "-o" || a === "--output");
-    return pathArgs(args).map((p, _i) => ({ path: p, mode: oIdx >= 0 && args[oIdx + 1] === p ? "write" : "name" }));
+    const cleaned = [];
+    for (let i = 0; i < args.length; i++) {
+      const a = args[i];
+      if (/^-(e|c|pe|ne|pi|E|C)$/.test(a)) {
+        i++;
+        continue;
+      }
+      cleaned.push(a);
+    }
+    const oIdx = cleaned.findIndex((a) => a === "-o" || a === "--output");
+    return pathArgs(cleaned).map((p) => ({ path: p, mode: oIdx >= 0 && cleaned[oIdx + 1] === p ? "write" : "name" }));
   }
   return pathArgs(args).map((p) => ({ path: p, mode: "name", unparsed: true }));
 }
@@ -293,6 +326,7 @@ function isPathLike(tok) {
   if (!tok || tok.startsWith("-")) return false;
   if (/^(https?|ftp|ssh|git|file):\/\//.test(tok)) return false;
   if (/^\d+(\.\d+)?$/.test(tok)) return false;
+  if (/[\\^$|]/.test(tok) || /^[sy]\/.*\/.*\/[a-z]*$/.test(tok) || /\(|\)/.test(tok)) return false;
   if (tok === "." || tok === ".." || tok === "~") return true;
   if (tok.includes("/")) return true;
   if (/^[\w@.+-]+\.[A-Za-z0-9]{1,8}$/.test(tok) && !/^\d/.test(tok)) return true;
