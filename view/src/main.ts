@@ -96,6 +96,9 @@ async function loadRepo(): Promise<void> {
   replayTo(state.cursor);
   refreshTime();
   renderMeaning();
+  // Deep link: ?select=<node id> opens the focus drawer on load.
+  const want = new URLSearchParams(location.search).get('select');
+  if (want && nodeIndex.has(want)) setTimeout(() => select(want), 400);
 }
 
 function connect(): void {
@@ -126,6 +129,7 @@ async function loadEvolution(): Promise<void> {
 
 const nodeIndex = new Map<string, SnapNode>();
 const callersOf = new Map<string, string[]>();
+const calleesOf = new Map<string, string[]>();
 const conceptsOf = new Map<string, string[]>();          // module -> concepts it implements (direct)
 const governedBy = new Map<string, SnapNode[]>();         // module or file -> constraint nodes attached
 const decisionLinks = new Map<string, SnapLink[]>();      // constraint or concept id -> serves/overrides links
@@ -133,10 +137,10 @@ const conceptHue = new Map<string, string>();
 const packHue = new Map<string, string>();
 
 function indexSnapshot(): void {
-  nodeIndex.clear(); callersOf.clear(); conceptsOf.clear(); governedBy.clear(); decisionLinks.clear(); conceptHue.clear(); packHue.clear();
+  nodeIndex.clear(); callersOf.clear(); calleesOf.clear(); conceptsOf.clear(); governedBy.clear(); decisionLinks.clear(); conceptHue.clear(); packHue.clear();
   for (const n of state.snapshot.nodes) nodeIndex.set(n.id, n);
   for (const l of state.snapshot.links) {
-    if (l.rel === 'import') callersOf.set(l.target, [...(callersOf.get(l.target) ?? []), l.source]);
+    if (l.rel === 'import') { callersOf.set(l.target, [...(callersOf.get(l.target) ?? []), l.source]); calleesOf.set(l.source, [...(calleesOf.get(l.source) ?? []), l.target]); }
     else if (l.rel === 'impl') conceptsOf.set(l.source, [...(conceptsOf.get(l.source) ?? []), l.target]);
     else if (l.rel === 'governs') { const k = nodeIndex.get(l.source); if (k) governedBy.set(l.target, [...(governedBy.get(l.target) ?? []), k]); }
     else if (l.rel === 'serves' || l.rel === 'overrides') decisionLinks.set(l.target, [...(decisionLinks.get(l.target) ?? []), l]);
@@ -572,8 +576,195 @@ function select(id: string): void {
   }
   $('detail').textContent = lines.join('\n');
   renderCoverage();
+  renderFocus(id);
   focusNode(id);
 }
+
+// ---- focus drawer: a subtree and prose for the selected node ---------------------------------
+
+interface TreeItem { id: string; label: string; color: string; shape: 'circle' | 'diamond' | 'pill'; note?: string }
+
+function stateOf(id: string): { text: string; color: string; cat?: Category } {
+  const n = nodeIndex.get(id);
+  const ns = nodeState.get(id);
+  const p = pal();
+  if (!n) return { text: 'unknown', color: p.none };
+  const cat = category(n, ns);
+  if (n.kind === 'file') {
+    if (!ns) return { text: 'not touched', color: p.idle, ...(cat ? { cat } : {}) };
+    if (cat === 'dark') return { text: 'never loaded', color: p.dark, cat };
+    if (cat === 'edit') return { text: `edited ×${ns.edits}`, color: p.edit, cat };
+    if (ns.mode === 'summarized') return { text: 'compacted to a summary', color: p.low, cat: cat ?? 'low' };
+    if (cat === 'full') return { text: 'read in full', color: p.full, cat };
+    if (cat === 'range') return { text: 'read a range', color: p.range, cat };
+    return { text: ns.mode === 'delegated' ? 'read by a subagent' : 'grep or name only', color: p.low, cat: cat ?? 'low' };
+  }
+  return { text: n.kind, color: cat ? CATEGORIES.find((c) => c.key === cat)?.color(p) ?? p.none : p.none, ...(cat ? { cat } : {}) };
+}
+
+function trunc(s: string, n: number): string { return s.length > n ? s.slice(0, n - 1) + '…' : s; }
+const nameOf = (id: string): string => (id.startsWith('L:') || id.startsWith('C:') || id.startsWith('K:') ? id.slice(2) : id.split('/').pop() ?? id);
+
+function renderFocus(id: string): void {
+  const n = nodeIndex.get(id);
+  const sec = $('focus');
+  if (!n) { sec.hidden = true; return; }
+  const wasHidden = sec.hidden;
+  sec.hidden = false;
+  const p = pal();
+  const ns = nodeState.get(id);
+  const chain = n.kind === 'module' ? chainOf(n.id).slice(1) : n.kind === 'file' ? chainOf(n.module) : n.kind === 'constraint' ? chainOf(n.attached?.startsWith('L:') ? n.attached : nodeIndex.get(n.attached ?? '')?.module) : [];
+  const concepts = [...new Set(chain.concat(n.kind === 'module' ? [n.id] : []).flatMap((m) => conceptsOf.get(m) ?? []))];
+  const rules = n.kind === 'constraint' ? [] : n.kind === 'concept' ? [...conceptsOf].filter(([, cs]) => cs.includes(id)).flatMap(([m]) => governedBy.get(m) ?? []) : constraintsFor(n);
+  const item = (nid: string): TreeItem => { const s = stateOf(nid); const nn = nodeIndex.get(nid); return { id: nid, label: nameOf(nid), color: s.color, shape: nn?.kind === 'constraint' ? 'diamond' : nn?.kind === 'concept' ? 'pill' : 'circle', note: s.text }; };
+
+  // Rows of the tree, top to bottom. Each row is a heading plus items; the centre row holds the node itself.
+  let above: { head: string; items: TreeItem[] }[] = [];
+  let below: { head: string; items: TreeItem[]; right?: boolean }[] = [];
+  let side: TreeItem[] = [];
+  if (n.kind === 'file') {
+    const callers = (callersOf.get(id) ?? []).map(item).sort((a, b) => (a.note === 'never loaded' ? -1 : 1) - (b.note === 'never loaded' ? -1 : 1));
+    const callees = (calleesOf.get(id) ?? []).map(item);
+    above = [{ head: 'concepts', items: concepts.map(item) }, { head: 'module chain', items: [...chain].reverse().map(item) }];
+    side = rules.map((k) => item(k.id));
+    below = [{ head: `callers ${callers.length}`, items: callers.slice(0, 14) }, { head: `imports ${callees.length}`, items: callees.slice(0, 10), right: true }];
+  } else if (n.kind === 'module') {
+    const files = state.snapshot.nodes.filter((f) => f.kind === 'file' && f.module === id && nodeState.has(f.id)).sort((a, b) => (nodeState.get(b.id)?.edits ?? 0) - (nodeState.get(a.id)?.edits ?? 0)).map((f) => item(f.id));
+    const children = state.snapshot.nodes.filter((m) => m.kind === 'module' && m.parent === id).map((m) => item(m.id));
+    above = [{ head: 'concepts', items: concepts.map(item) }, { head: 'parents', items: [...chain].reverse().map(item) }];
+    side = rules.map((k) => item(k.id));
+    below = [{ head: `touched files ${files.length}`, items: files.slice(0, 14) }, { head: `submodules ${children.length}`, items: children.slice(0, 10), right: true }];
+  } else if (n.kind === 'constraint') {
+    const ls = decisionLinks.get(id) ?? [];
+    above = [{ head: n.pack ? `pack ${n.pack}` : 'rule', items: [] }, { head: 'governs', items: n.attached ? [item(n.attached.split('#')[0]!)] : [] }];
+    below = [{ head: `served by ${ls.filter((l) => l.rel === 'serves').length}`, items: ls.filter((l) => l.rel === 'serves').map((l) => ({ ...item(l.source), color: p.full, note: l.text ?? '' })) }, { head: `overridden by ${ls.filter((l) => l.rel === 'overrides').length}`, items: ls.filter((l) => l.rel === 'overrides').map((l) => ({ ...item(l.source), color: p.dark, note: l.text ?? '' })), right: true }];
+  } else {
+    const ms = [...conceptsOf].filter(([, cs]) => cs.includes(id)).map(([m]) => item(m));
+    const ls = decisionLinks.get(id) ?? [];
+    above = [{ head: n.adr ? `ADR ${n.adr}` : 'concept', items: [] }];
+    side = rules.map((k) => item(k.id));
+    below = [{ head: `implemented by ${ms.length}`, items: ms }, { head: `cited by ${ls.length} decisions`, items: ls.map((l) => ({ ...item(l.source), color: p.full, note: l.text ?? '' })), right: true }];
+  }
+  const centre: TreeItem = { ...item(id), label: n.kind === 'file' ? id.split('/').slice(-2).join('/') : nameOf(id) };
+  $('focusTree').innerHTML = treeSvg(centre, above, side, below, p);
+  $('focusProse').innerHTML = proseFor(n, ns, chain, concepts, rules);
+  for (const el2 of $('focusTree').querySelectorAll<SVGElement>('[data-id]')) el2.addEventListener('click', () => select(el2.dataset.id!));
+  $('focusClose')?.addEventListener('click', () => { sec.hidden = true; state.selected = undefined; setLens(undefined); const g = g3 ?? g2; if (g) g.width(el.clientWidth).height(el.clientHeight); });
+  if (wasHidden) { const g = g3 ?? g2; if (g) g.width(el.clientWidth).height(el.clientHeight); }
+}
+
+function treeSvg(centre: TreeItem, above: { head: string; items: TreeItem[] }[], side: TreeItem[], below: { head: string; items: TreeItem[]; right?: boolean }[], p: Palette): string {
+  const box = $('focusTree');
+  const W = Math.max(420, box.clientWidth || 560), H = 300;
+  const cx = side.length ? W * 0.36 : W * 0.5, cy = 150;
+  const parts: string[] = [];
+  const esc2 = (s: string): string => esc(s);
+  const shape = (t: TreeItem, x: number, y: number, r: number): string => {
+    const core = t.shape === 'diamond' ? `<path d="M${x} ${y - r} L${x + r} ${y} L${x} ${y + r} L${x - r} ${y} Z" fill="${t.color}" stroke="${p.bg}"/>`
+      : t.shape === 'pill' ? `<rect x="${x - r * 1.6}" y="${y - r * 0.8}" width="${r * 3.2}" height="${r * 1.6}" rx="${r * 0.8}" fill="${t.color}" stroke="${p.bg}"/>`
+      : `<circle cx="${x}" cy="${y}" r="${r}" fill="${t.color}" stroke="${p.bg}"/>`;
+    return `<g class="node" data-id="${esc2(t.id)}"><title>${esc2(t.id)}${t.note ? ` — ${esc2(t.note)}` : ''}</title>${core}</g>`;
+  };
+  const line = (x1: number, y1: number, x2: number, y2: number, color: string, dash = false): string => `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${color}" stroke-width="1"${dash ? ' stroke-dasharray="3 3"' : ''}/>`;
+  // Above: rows at y = 26 and 70, items spread across the left area.
+  const rowsAbove = above.filter((r) => r.items.length || r.head);
+  rowsAbove.forEach((row, i) => {
+    const y = 28 + i * 42;
+    parts.push(`<text class="head" x="8" y="${y - 12}">${esc2(row.head)}</text>`);
+    const usable = (side.length ? W * 0.66 : W) - 16;
+    const step = Math.min(120, usable / Math.max(1, row.items.length));
+    row.items.forEach((t, j) => {
+      const x = 16 + step * j + step / 2;
+      parts.push(line(x, y + 6, cx, cy - 12, p.contain));
+      parts.push(shape(t, x, y, 5), `<text x="${x}" y="${y + 16}" text-anchor="middle" class="muted">${esc2(trunc(t.label, Math.max(6, Math.floor(step / 6.5))))}</text>`);
+    });
+  });
+  // Side: rules stacked on the right.
+  if (side.length) {
+    const x = W * 0.72;
+    parts.push(`<text class="head" x="${x - 8}" y="14">rules in force ${side.length}</text>`);
+    side.slice(0, 9).forEach((t, i) => {
+      const y = 28 + i * 24;
+      parts.push(line(cx + 14, cy, x - 8, y, p.govern, true));
+      parts.push(shape(t, x, y, 5), `<text x="${x + 10}" y="${y + 4}">${esc2(trunc(t.label, Math.floor((W - x - 16) / 6.2)))}</text>`);
+    });
+    if (side.length > 9) parts.push(`<text class="muted" x="${x + 10}" y="${28 + 9 * 24}">and ${side.length - 9} more</text>`);
+  }
+  // Centre.
+  parts.push(shape(centre, cx, cy, 11), `<text x="${cx}" y="${cy + 26}" text-anchor="middle" style="font-weight:600">${esc2(trunc(centre.label, 42))}</text>`, `<text x="${cx}" y="${cy + 40}" text-anchor="middle" class="muted">${esc2(centre.note ?? '')}</text>`);
+  // Below: two groups, left and right halves.
+  below.forEach((row) => {
+    const half = row.right ? [W * 0.5 + 8, W - 8] : [8, (below.length > 1 ? W * 0.5 : W) - 8];
+    const y = 232;
+    parts.push(`<text class="head" x="${half[0]}" y="${y - 12}">${esc2(row.head)}</text>`);
+    const usable = half[1]! - half[0]!;
+    const step = Math.min(96, usable / Math.max(1, row.items.length));
+    row.items.forEach((t, j) => {
+      const x = half[0]! + step * j + step / 2;
+      parts.push(line(x, y - 6, cx, cy + 12, t.color === p.dark ? p.override : t.color === p.full ? p.serve : p.link));
+      parts.push(shape(t, x, y, 5), `<text x="${x}" y="${y + 16}" text-anchor="middle" class="muted">${esc2(trunc(t.label, Math.max(6, Math.floor(step / 6.5))))}</text>`);
+    });
+    if (!row.items.length) parts.push(`<text class="muted" x="${half[0]}" y="${y + 4}">none</text>`);
+  });
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${parts.join('')}</svg>`;
+}
+
+function proseFor(n: SnapNode, ns: NodeState | undefined, chain: string[], concepts: string[], rules: SnapNode[]): string {
+  const out: string[] = [];
+  const title = n.kind === 'file' ? n.id : `${nameOf(n.id)} <small style="color:var(--muted)">${n.kind}</small>`;
+  out.push(`<h3>${esc(title)}<button id="focusClose">close</button></h3>`);
+  const chainText = chain.length ? chain.map(nameOf).join(', inside ') : 'no mapped module';
+  const conceptText = concepts.length ? concepts.map((c) => `<b>${esc(nodeIndex.get(c)?.label ?? c)}</b>`).join(' and ') : '';
+  const enforced = rules.filter((k) => k.mode === 'E'), guided = rules.filter((k) => k.mode === 'G'), proposed = rules.filter((k) => k.mode === 'G?');
+  const ruleText = rules.length ? `${countOf(enforced.length, 'enforced rule')} and ${countOf(guided.length, 'guided rule')}${proposed.length ? ` plus ${countOf(proposed.length, 'proposed one')}` : ''} ${rules.length === 1 ? 'is' : 'are'} in force: ${rules.slice(0, 4).map((k) => `<code>${esc(k.id.slice(2))}</code>`).join(', ')}${rules.length > 4 ? ` and ${rules.length - 4} more` : ''}.` : 'No rule is in force here.';
+
+  if (n.kind === 'file') {
+    out.push(`<p>Sits in ${esc(chainText)}${conceptText ? `, which implements ${conceptText}` : ''}. ${ruleText}</p>`);
+    const callers = callersOf.get(n.id) ?? [], callees = calleesOf.get(n.id) ?? [];
+    const rows = coverageRows.filter((c) => c.path === n.id);
+    const last = rows[rows.length - 1];
+    const readText = !ns ? 'was <b>not touched</b> in this session' : ns.mode === 'summarized' ? 'was read, then <b>compacted to a summary</b>' : ns.level >= 1 ? 'was <b>read in full</b>' : ns.level >= 0.7 ? 'was <b>read in part</b>' : ns.dark && ns.level <= 0.3 ? 'was <b class="bad">never loaded</b>, though something that imports it was edited' : 'was seen only through <b>grep hits or its name</b>';
+    let session = `In this session it ${readText}`;
+    if (ns?.edited) {
+      session += ` and edited ${ns.edits === 1 ? 'once' : `${ns.edits} times`}`;
+      if (last && last.callers_total) {
+        const dark = last.callers.filter((c) => !['full', 'range', 'edit', 'write'].includes(last.loaded[c] ?? ''));
+        session += `; at the last edit <b class="${last.callers_loaded === 0 ? 'bad' : last.callers_loaded < last.callers_total ? 'warn' : 'good'}">${last.callers_loaded} of ${last.callers_total} callers</b> were in context`;
+        if (dark.length) session += `, and the ${dark.length === 1 ? 'one' : dark.length} never loaded ${dark.length === 1 ? 'was' : 'were'} ${dark.slice(0, 4).map((d) => `<code>${esc(nameOf(d))}</code>`).join(', ')}${dark.length > 4 ? ` and ${dark.length - 4} more` : ''}`;
+      } else if (last) session += '; it has no callers in the import graph, so the rules above are the only context that applies';
+      if (last?.summarized_since) session += '. <b class="warn">Its own content had been compacted away before that edit.</b>';
+    }
+    out.push(`<p>${session}.</p>`);
+    out.push(`<p>It has ${countOf(callers.length, 'caller')} and imports ${countOf(callees.length, 'file')}.</p>`);
+    const sl = slices.get(n.id);
+    const ds = decisionsSeen.filter((d) => d.node.split('#')[0] === n.id);
+    if (ns?.edited) out.push(`<p>${sl?.length ? `A slice was injected before ${sl.length === 1 ? 'the' : 'each'} edit${sl.length > 1 ? ` (${sl.length})` : ''}` : '<b class="warn">No slice was injected</b> before its edits'}. ${ds.length ? `${countOf(ds.length, 'decision')} recorded: ${ds.map((d) => `${d.overrides ? `<b class="warn">overrides ${esc(d.overrides)}</b>` : `serves <code>${esc(d.serves)}</code>`}, "${esc(d.text)}"`).join('; ')}.` : ns.edited && sl?.length ? '<b class="warn">No decision was recorded.</b>' : ''}</p>`);
+    if (n.decisions) out.push(`<p>${countOf(n.decisions, 'earlier decision')} on this file ${n.decisions === 1 ? 'is' : 'are'} in the graph.</p>`);
+  } else if (n.kind === 'module') {
+    const s = moduleStats(n.id);
+    out.push(`<p><b>${esc(n.label)}</b>. It holds ${countOf(s.total, 'file')}${chain.length ? ` and sits inside ${esc(chain.map(nameOf).join(', inside '))}` : ''}${conceptText ? `. It implements ${conceptText}` : ''}. ${ruleText}</p>`);
+    out.push(`<p>In this session <b>${s.touched} of ${s.total}</b> files were touched with ${countOf(s.edits, 'edit')}${s.dark ? `, and <b class="bad">${countOf(s.dark, 'caller')}</b> of edited files ${s.dark === 1 ? 'was' : 'were'} never loaded` : s.edits ? ', and every caller of an edited file was in context' : ''}.</p>`);
+    const own = governedBy.get(n.id) ?? [];
+    if (own.length) out.push(`<p>Rules attached here: ${own.map((k) => `<code>${esc(k.id.slice(2))}</code> (${k.mode === 'E' ? 'enforced' : k.mode === 'G' ? 'guided' : 'proposed'}${k.pack ? `, from ${esc(k.pack)}` : ''}) ${esc(k.label)}`).join('; ')}.</p>`);
+    if (n.decisions) out.push(`<p>${countOf(n.decisions, 'decision')} ${n.decisions === 1 ? 'is' : 'are'} recorded on the module itself.</p>`);
+  } else if (n.kind === 'constraint') {
+    const ls = decisionLinks.get(n.id) ?? [];
+    const serves = ls.filter((l) => l.rel === 'serves'), over = ls.filter((l) => l.rel === 'overrides');
+    out.push(`<p><code>${esc(n.id.slice(2))}</code> is ${n.mode === 'E' ? '<b>enforced</b> by a test' : n.mode === 'G' ? '<b>guided</b>: injected before edits, not machine-checked' : n.mode === 'R' ? 'recorded history, never injected' : '<b>proposed</b> and not yet ratified'}${n.pack ? `, and came from the <b>${esc(n.pack)}</b> pack` : ''}. It governs <b>${esc(nameOf(n.attached ?? ''))}</b>${chain.length ? ` inside ${esc(chain.map(nameOf).join(', inside '))}` : ''}.</p>`);
+    out.push(`<p>It says: <i>${esc(n.label)}</i></p>`);
+    out.push(`<p>${serves.length || over.length ? `${countOf(serves.length, 'decision')} <b class="good">serve</b> it and ${countOf(over.length, 'decision')} <b class="${over.length ? 'bad' : 'good'}">override</b> it.` : 'No decision has referenced it yet.'}${over.length ? ` The overrides: ${over.map((l) => `<code>${esc(nameOf(l.source))}</code> (${esc(l.who ?? '')}, ${esc(l.date ?? '')}) "${esc(l.text ?? '')}"`).join('; ')}.` : ''}</p>`);
+    const legacy = over.filter((l) => /^legacy:/.test(l.text ?? '')).length;
+    if (legacy) out.push(`<p>${countOf(legacy, 'override')} ${legacy === 1 ? 'is' : 'are'} recorded legacy exceptions that predate the rule; they are the debt list for it.</p>`);
+  } else {
+    const ms = [...conceptsOf].filter(([, cs]) => cs.includes(n.id)).map(([m]) => m);
+    const ls = decisionLinks.get(n.id) ?? [];
+    out.push(`<p><b>${esc(n.label)}</b>${n.adr ? ` (ADR ${esc(n.adr)})` : ''}. ${ms.length ? `Implemented by ${ms.map((m) => `<b>${esc(nameOf(m))}</b>`).join(', ')}` : '<b class="warn">No module implements it yet</b>'}. ${ruleText}</p>`);
+    out.push(`<p>${ls.length ? `${countOf(ls.length, 'decision')} cite it directly: ${ls.map((l) => `<code>${esc(nameOf(l.source))}</code> "${esc(l.text ?? '')}"`).join('; ')}.` : 'No decision cites it directly; decisions usually point at the rules beneath it.'}</p>`);
+  }
+  return out.join('');
+}
+
+function countOf(n: number, noun: string): string { return `${n} ${noun}${n === 1 ? '' : noun.endsWith('one') ? 's' : 's'}`; }
 
 function setLens(id: string | undefined, text?: string): void {
   state.lens = id;

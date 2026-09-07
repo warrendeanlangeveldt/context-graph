@@ -29,8 +29,27 @@
     #timeline { padding: 4px 12px; gap: 8px; }
     #timeline canvas { flex: 1; height: 34px; min-width: 0; cursor: crosshair; border-radius: 3px; }
     #timeline .tl-label { color: var(--muted); font-size: 11px; white-space: nowrap; }
-    #canvas { position: relative; min-width: 0; overflow: hidden; }
+    #canvas { position: relative; min-width: 0; overflow: hidden; display: grid; grid-template-rows: minmax(0, 1fr) auto; }
+    #graphWrap { position: relative; min-height: 0; }
     #graph { position: absolute; inset: 0; }
+    #focus { border-top: 1px solid var(--line); background: var(--panel); display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); height: 300px; }
+    #focus[hidden] { display: none; }
+    #focusTree { position: relative; min-width: 0; border-right: 1px solid var(--line); }
+    #focusTree svg { width: 100%; height: 100%; display: block; }
+    #focusTree text { font: 11px "IBM Plex Sans", system-ui, sans-serif; fill: var(--ink); pointer-events: none; }
+    #focusTree text.muted { fill: var(--muted); }
+    #focusTree text.head { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; fill: var(--muted); }
+    #focusTree .node { cursor: pointer; }
+    #focusTree .node:hover circle, #focusTree .node:hover rect, #focusTree .node:hover path { stroke: var(--ink); stroke-width: 2; }
+    #focusProse { padding: 12px 14px; overflow: auto; font-size: 13px; line-height: 1.5; min-width: 0; }
+    #focusProse h3 { margin: 0 0 6px; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+    #focusProse h3 button { margin-left: auto; }
+    #focusProse p { margin: 0 0 8px; max-width: 66ch; text-wrap: pretty; }
+    #focusProse p b { font-weight: 600; }
+    #focusProse .bad { color: var(--hot); }
+    #focusProse .good { color: var(--good); }
+    #focusProse .warn { color: var(--warm); }
+    #focusProse code { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 11.5px; background: var(--field); padding: 0 4px; border-radius: 3px; }
     #legend { position: absolute; left: 12px; bottom: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; font-size: 12px; color: var(--muted); display: flex; gap: 6px; flex-wrap: wrap; max-width: calc(100% - 24px); }
     #legend button { display: inline-flex; align-items: center; gap: 6px; border: 1px solid transparent; background: transparent; color: var(--muted); padding: 3px 8px; border-radius: 12px; }
     #legend button:hover { border-color: var(--line); }
@@ -124,9 +143,15 @@
       <canvas id="tl" height="34"></canvas>
       <span class="tl-label" id="tl-end"></span>
     </div>
-    <main id="canvas"><div id="graph"></div><div id="empty" hidden>no graph for this repository yet: start a session in it, or POST /v1/&lt;hash&gt;/register</div>
-      <div id="lens" hidden><b id="lens-title"></b><span id="lens-text"></span><br><button id="lens-off">clear lens</button></div>
-      <div id="legend"></div>
+    <main id="canvas">
+      <div id="graphWrap"><div id="graph"></div><div id="empty" hidden>no graph for this repository yet: start a session in it, or POST /v1/&lt;hash&gt;/register</div>
+        <div id="lens" hidden><b id="lens-title"></b><span id="lens-text"></span><br><button id="lens-off">clear lens</button></div>
+        <div id="legend"></div>
+      </div>
+      <section id="focus" hidden aria-label="focus">
+        <div id="focusTree"></div>
+        <div id="focusProse"></div>
+      </section>
     </main>
     <aside>
       <h2>What happened <label><input id="findingsAll" type="checkbox"> all findings</label></h2>
