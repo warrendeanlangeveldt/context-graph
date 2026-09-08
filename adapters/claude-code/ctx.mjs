@@ -39,6 +39,98 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
+// src/observe/script.ts
+function scriptTouches(body, lang, opts = {}) {
+  const vars = /* @__PURE__ */ new Map();
+  const literals = [];
+  for (const m of body.matchAll(LITERAL)) {
+    const text = m[2];
+    const before = body.slice(Math.max(0, m.index - 12), m.index);
+    if (/(?:from\s*|require\(\s*|import\(\s*|import\s+)$/.test(before)) continue;
+    if (!isPathLike(text) || /\s|[*?{}%]|^https?:/.test(text) || text.startsWith("./") && !/\.[a-z]+$/i.test(text) && !text.includes("/", 2)) continue;
+    literals.push({ text, index: m.index });
+  }
+  const assign = lang === "python" ? /(?:^|[;\n])\s*([A-Za-z_]\w*)\s*=\s*(?:Path\(\s*)?(['"])([^'"\n]+)\2/g : /(?:^|[;\n])\s*(?:const|let|var)?\s*([A-Za-z_$][\w$]*)\s*=\s*(['"`])([^'"`\n]+)\2/g;
+  for (const m of body.matchAll(assign)) if (isPathLike(m[3])) vars.set(m[1], m[3]);
+  const resolve13 = (arg) => {
+    const t = arg.trim();
+    const lit = /^(['"`])(.*)\1$/.exec(t);
+    if (lit) return isPathLike(lit[2]) ? lit[2] : void 0;
+    const inner = /^Path\(\s*(.+?)\s*\)$/.exec(t);
+    if (inner) return resolve13(inner[1]);
+    return vars.get(t);
+  };
+  const ARG = String.raw`(Path\(\s*(?:['"\`][^'"\`\n]+['"\`]|[A-Za-z_$][\w$.]*)\s*\)|['"\`][^'"\`\n]+['"\`]|[A-Za-z_$][\w$.]*)`;
+  const patterns = lang === "python" ? [
+    { re: new RegExp(String.raw`\bopen\(\s*${ARG}\s*,\s*(?:mode\s*=\s*)?['"][wax]`, "g"), mode: "write" },
+    { re: new RegExp(String.raw`\bopen\(\s*${ARG}\s*(?:\)|,\s*(?:mode\s*=\s*)?['"]r)`, "g"), mode: "read" },
+    { re: new RegExp(String.raw`${ARG}\.write_(?:text|bytes)\(`, "g"), mode: "write" },
+    { re: new RegExp(String.raw`${ARG}\.read_(?:text|bytes)\(`, "g"), mode: "read" },
+    { re: new RegExp(String.raw`\bos\.(?:remove|unlink)\(\s*${ARG}`, "g"), mode: "delete" },
+    { re: new RegExp(String.raw`${ARG}\.unlink\(`, "g"), mode: "delete" },
+    { re: new RegExp(String.raw`\bshutil\.copy\w*\([^,]+,\s*${ARG}`, "g"), mode: "write" }
+  ] : lang === "js" ? [
+    { re: new RegExp(String.raw`\b(?:writeFileSync|writeFile|appendFileSync|appendFile|mkdirSync)\(\s*${ARG}`, "g"), mode: "write" },
+    { re: new RegExp(String.raw`\b(?:readFileSync|readFile)\(\s*${ARG}`, "g"), mode: "read" },
+    { re: new RegExp(String.raw`\b(?:unlinkSync|unlink|rmSync|rm)\(\s*${ARG}`, "g"), mode: "delete" },
+    { re: new RegExp(String.raw`\bcopyFileSync\([^,]+,\s*${ARG}`, "g"), mode: "write" }
+  ] : [
+    { re: new RegExp(String.raw`\b(?:File\.(?:write|open)|open|fopen)\(\s*${ARG}\s*,\s*['"][wa]`, "g"), mode: "write" },
+    { re: new RegExp(String.raw`\b(?:File\.read|open|fopen)\(\s*${ARG}`, "g"), mode: "read" }
+  ];
+  const reads = /* @__PURE__ */ new Set();
+  const writes = /* @__PURE__ */ new Set();
+  const deletes = /* @__PURE__ */ new Set();
+  for (const { re, mode } of patterns) {
+    for (const m of body.matchAll(re)) {
+      const p = resolve13(m[1]);
+      if (!p) continue;
+      (mode === "read" ? reads : mode === "write" ? writes : deletes).add(p);
+    }
+  }
+  const out = [];
+  const done = /* @__PURE__ */ new Set();
+  for (const p of deletes) {
+    out.push({ path: p, mode: "delete" });
+    done.add(p);
+  }
+  for (const p of writes) {
+    if (done.has(p)) continue;
+    out.push({ path: p, mode: reads.has(p) ? "edit" : "write" });
+    done.add(p);
+  }
+  for (const p of reads) {
+    if (done.has(p)) continue;
+    out.push({ path: p, mode: "full" });
+    done.add(p);
+  }
+  for (const l of literals) {
+    if (done.has(l.text)) continue;
+    out.push({ path: l.text, mode: "name", unparsed: true });
+    done.add(l.text);
+  }
+  if (!out.length) {
+    const writes2 = /\bopen\([^)]*['"][wax]|writeFile|appendFile|write_(?:text|bytes)|\.write\(|shutil\.copy|fopen\([^)]*['"][wa]/.test(body);
+    if (writes2 || opts.heredoc || body.includes("\n")) out.push({ path: ".", mode: writes2 ? "edit" : "name", unparsed: true });
+  }
+  return out;
+}
+function interpreterLang(cmd) {
+  if (/^(python|python3|python2|pypy|pypy3)$/.test(cmd)) return "python";
+  if (/^(node|nodejs|deno|bun|tsx|ts-node)$/.test(cmd)) return "js";
+  if (/^(sh|bash|zsh|dash|ksh)$/.test(cmd)) return "shell";
+  if (/^(ruby|perl|php)$/.test(cmd)) return "other";
+  return void 0;
+}
+var LITERAL;
+var init_script = __esm({
+  "src/observe/script.ts"() {
+    "use strict";
+    init_shell();
+    LITERAL = /(['"`])((?:\\.|(?!\1)[^\\\n])*)\1/g;
+  }
+});
+
 // src/observe/shell.ts
 import { isAbsolute, resolve } from "node:path";
 function parseShellCommand(command, cwd) {
@@ -51,10 +143,15 @@ function parseShellCommand(command, cwd) {
     out.push(t);
   };
   let dir = cwd;
-  for (const simple of splitSimpleCommands(stripHeredocBodies(command))) {
+  const { stripped, bodies } = extractHeredocs(command);
+  let pendingBody;
+  for (const simple of splitSimpleCommands(stripped)) {
     const { words, redirects } = tokenize(simple);
     if (!words.length && !redirects.length) continue;
     const norm = (p) => dir && !isAbsolute(p) && !/[*?[\]{}]/.test(p) ? resolve(dir, p) : p;
+    const markIdx = words.findIndex((w) => w.startsWith(HEREDOC_MARK));
+    const body = markIdx >= 0 ? bodies[Number(words[markIdx].slice(HEREDOC_MARK.length).replace(/__$/, ""))] : void 0;
+    if (markIdx >= 0) words.splice(markIdx, 1);
     for (const r of redirects) {
       if (r.target === "/dev/null" || r.target === "/dev/stdout" || r.target === "/dev/stderr") continue;
       if (!isPathLike(r.target) && !/^[A-Za-z0-9_][\w.-]*$/.test(r.target)) continue;
@@ -63,7 +160,10 @@ function parseShellCommand(command, cwd) {
     }
     if (!words.length) continue;
     let argv = unwrap(words);
-    if (!argv.length) continue;
+    if (!argv.length) {
+      if (body !== void 0 && !redirects.length) pendingBody = body;
+      continue;
+    }
     const cmd = argv[0].replace(/^.*\//, "");
     const args = argv.slice(1);
     if (cmd === "cd") {
@@ -73,9 +173,31 @@ function parseShellCommand(command, cwd) {
       continue;
     }
     if (NOOPS.has(cmd)) continue;
+    const lang = interpreterLang(cmd);
+    if (lang) {
+      const inline = inlineScript(args);
+      const script = body ?? pendingBody ?? inline?.text;
+      pendingBody = void 0;
+      if (script !== void 0) {
+        const touches = lang === "shell" ? parseShellCommand(script, dir) : scriptTouches(script, lang, { heredoc: script !== inline?.text }).map((t) => ({ ...t, path: norm(t.path) }));
+        for (const t of touches) push(t);
+        const rest = inline ? args.filter((_, i) => i !== inline.index && i !== inline.index + 1) : args;
+        for (const t of classify(cmd, rest)) push({ ...t, path: norm(t.path) });
+        continue;
+      }
+    }
+    if (cmd === "cat" && body !== void 0 && !redirects.length && !args.filter((a) => !a.startsWith("-")).length) {
+      pendingBody = body;
+      continue;
+    }
+    pendingBody = void 0;
     for (const t of classify(cmd, args)) push({ ...t, path: norm(t.path) });
   }
   return out;
+}
+function inlineScript(args) {
+  for (let i = 0; i < args.length - 1; i++) if (/^(-c|-e|--eval|-pe|-ne|-E)$/.test(args[i])) return { index: i, text: args[i + 1] };
+  return void 0;
 }
 function classify(cmd, args) {
   if (cmd === "awk" || cmd === "gawk" || cmd === "mawk") {
@@ -468,24 +590,31 @@ function splitSimpleCommands(command) {
   out.push(cur);
   return out.map((s) => s.trim()).filter(Boolean);
 }
-function stripHeredocBodies(command) {
+function extractHeredocs(command) {
   const lines = command.split("\n");
   const out = [];
+  const bodies = [];
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    out.push(line);
     const m = /<<-?\s*['"]?([A-Za-z_][A-Za-z0-9_]*)['"]?/.exec(line);
-    if (!m) continue;
+    if (!m) {
+      out.push(line);
+      continue;
+    }
     const term = m[1];
+    const body = [];
     i++;
-    while (i < lines.length && lines[i].trim() !== term) i++;
+    while (i < lines.length && lines[i].trim() !== term) body.push(lines[i]), i++;
+    out.push(`${line} ${HEREDOC_MARK}${bodies.length}__`);
+    bodies.push(body.join("\n"));
   }
-  return out.join("\n");
+  return { stripped: out.join("\n"), bodies };
 }
-var READ_FULL, LISTERS, GREPPERS, RUNNERS, NOOPS, WRAPPERS, GREP_VALUE_FLAGS;
+var READ_FULL, LISTERS, GREPPERS, RUNNERS, NOOPS, WRAPPERS, GREP_VALUE_FLAGS, HEREDOC_MARK;
 var init_shell = __esm({
   "src/observe/shell.ts"() {
     "use strict";
+    init_script();
     READ_FULL = /* @__PURE__ */ new Set(["cat", "bat", "less", "more", "view", "awk", "nl", "strings", "jq", "yq", "xxd", "hexdump", "od"]);
     LISTERS = /* @__PURE__ */ new Set(["ls", "tree", "du", "stat", "file", "wc", "md5", "md5sum", "shasum", "sha256sum", "realpath", "readlink", "basename", "dirname", "test", "["]);
     GREPPERS = /* @__PURE__ */ new Set(["grep", "egrep", "fgrep", "rg", "ag", "ack", "ugrep"]);
@@ -541,6 +670,7 @@ var init_shell = __esm({
     NOOPS = /* @__PURE__ */ new Set(["cd", "export", "source", ".", "env", "which", "echo", "printf", "true", "false", "pwd", "set", "unset", "alias", "exit", "return", "sleep", "wait", "kill", "ps", "lsof", "date", "whoami", "id", "hostname", "uname", "clear", "history", "type", "command", "hash", "read", "trap", "ulimit"]);
     WRAPPERS = /* @__PURE__ */ new Set(["sudo", "env", "time", "nohup", "xargs", "command", "builtin", "exec", "nice", "timeout", "caffeinate"]);
     GREP_VALUE_FLAGS = /* @__PURE__ */ new Set(["-e", "-f", "-A", "-B", "-C", "-m", "-d", "-D", "--include", "--exclude", "--exclude-dir", "-t", "--type", "-T", "--type-not", "-g", "--glob", "--max-count", "--context", "-M", "--max-columns", "--color", "--colour", "-j", "--threads", "--regexp", "--file", "--iglob"]);
+    HEREDOC_MARK = "__CTX_HEREDOC_";
   }
 });
 

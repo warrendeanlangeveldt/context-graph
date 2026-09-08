@@ -213,10 +213,10 @@ const coverageRows: Coverage[] = [];
 const findings: Finding[] = [];
 const slices = new Map<string, { ts: string; rendered: string; applicable: string[] }[]>();
 const decisionsSeen: { ts: string; node: string; serves: string; overrides?: string; text: string }[] = [];
-let reaches = 0, compactions = 0, reads = 0;
+let reaches = 0, compactions = 0, reads = 0, opaque = 0;
 let lastTouched: string | undefined;
 
-function resetDerived(): void { nodeState.clear(); coverageRows.length = 0; findings.length = 0; slices.clear(); decisionsSeen.length = 0; reaches = 0; compactions = 0; reads = 0; lastTouched = undefined; }
+function resetDerived(): void { nodeState.clear(); coverageRows.length = 0; findings.length = 0; slices.clear(); decisionsSeen.length = 0; reaches = 0; compactions = 0; reads = 0; opaque = 0; lastTouched = undefined; }
 
 function touch(path: string, level: number, mode: string, session: string, ts: string, edited: boolean): NodeState {
   const ns = nodeState.get(path) ?? { level: 0, mode, edited: false, dark: false, sessions: new Set(), lastTs: ts, edits: 0 };
@@ -232,7 +232,8 @@ function touch(path: string, level: number, mode: string, session: string, ts: s
 function applyEvent(e: Env, animate: boolean): void {
   if (state.session && e.session !== state.session && e.t !== 'finding') return;
   if (e.t === 'touch' || e.t === 'edit') {
-    const p = e.p as { path: string; mode: string; origin?: string };
+    const p = e.p as { path: string; mode: string; origin?: string; unparsed?: boolean };
+    if (p.unparsed && p.path === '.') { if (e.t === 'edit') opaque++; return; }
     const mode = p.origin === 'subagent' ? 'delegated' : p.mode;
     if (e.t === 'touch') reads++;
     touch(p.path, MODE_LEVEL[mode] ?? 0.2, mode, e.session, e.ts, e.t === 'edit');
@@ -843,6 +844,9 @@ function renderHeadline(): void {
   $('h-callers-wrap').className = `stat ${ct ? (cl / ct < 0.34 ? 'bad' : cl / ct < 0.67 ? 'warn' : 'good') : ''}`;
   $('h-dark').textContent = String(darkEdits);
   $('h-dark-wrap').className = `stat ${darkEdits ? 'bad' : edits ? 'good' : ''}`;
+  $('h-opaque').textContent = String(opaque);
+  $('h-opaque-wrap').className = `stat ${opaque ? 'warn' : ''}`;
+  $('h-opaque-wrap').title = opaque ? 'edits made by a script the observer could not attribute to a file: coverage for these is unknown, not clean' : 'edits made by a script the observer could not attribute to a file';
   $('h-decisions').textContent = String(decisionsSeen.length);
   $('h-decisions-wrap').className = `stat ${edits && !decisionsSeen.length && withSlice ? 'warn' : decisionsSeen.length ? 'good' : ''}`;
   $('h-reach').textContent = String(reaches);

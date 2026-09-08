@@ -130,6 +130,8 @@ It returns, in this order: the slice for each file (one per distinct chain, so a
 
 The same tool is `hydrate` on the MCP server. Every call is observed: a `reach` event, and a `range` touch for each caller whose lines were returned, because that content did enter context. To hydrate automatically for the files and module ids a prompt names outright, set `hydrate_on_prompt = true` under `[slice]` in `config.toml` (`hydrate_budget` bounds it). It is off by default because it spends tokens on every prompt.
 
+Shell observation sees through interpreter scripts as well: a heredoc fed to `python3 -`, `node -`, or `bash`, a `cat <<EOF |` handed on, or an inline `-c` / `-e`. The body is scanned for path literals and the calls that read, write, or delete them, with one level of variable resolution, so `p='src/a.ts'; open(p,'w').write(...)` is an edit of that file. A script that names no file the scanner can attribute is still recorded as an unparsed edit on `.`, and the view counts those as "edits, file unknown", because a silent zero looks like a clean session.
+
 ## Is it working?
 
 ```sh

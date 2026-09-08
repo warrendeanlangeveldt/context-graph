@@ -70,6 +70,24 @@ describe('parseShellCommand', () => {
     expect(modes('cat "src/with space.ts"')).toEqual(['full src/with space.ts']);
   });
 
+  it('sees through an interpreter script: heredoc or inline, read, edit, write, delete, and the opaque case', () => {
+    expect(modes("python3 - <<'PY'\np='src/a.ts'\ns=open(p).read()\nopen(p,'w').write(s.replace('x','y'))\nPY")).toEqual(['edit src/a.ts']);
+    expect(modes("python3 - <<'PY'\nimport json\nprint(json.load(open('cfg/x.json')))\nPY")).toEqual(['full cfg/x.json']);
+    expect(modes("python3 - <<'PY'\nfrom pathlib import Path\nPath('docs/out.md').write_text('hi')\nPY")).toEqual(['write docs/out.md']);
+    expect(modes("python3 - <<'PY'\nimport os\nos.remove('tmp/old.log')\nPY")).toEqual(['delete tmp/old.log']);
+    expect(modes("node - <<'JS'\nconst fs = require('fs');\nconst p = 'src/b.ts';\nfs.writeFileSync(p, fs.readFileSync(p, 'utf8').replace(/a/g, 'b'));\nJS")).toEqual(['edit src/b.ts']);
+    expect(modes("node -e \"require('fs').writeFileSync('out/x.json', '{}')\"")).toEqual(['write out/x.json']);
+    expect(modes("cat <<'EOF' | python3 -\np='src/c.ts'\nopen(p,'w').write('x')\nEOF")).toEqual(['write src/c.ts']);
+    expect(modes("bash <<'EOF'\ncat src/d.ts\nsed -i '' 's/a/b/' src/e.ts\nEOF")).toEqual(['full src/d.ts', 'edit src/e.ts']);
+    expect(modes("sh -c 'cat src/f.ts'")).toEqual(['full src/f.ts']);
+    expect(modes("python3 - <<'PY'\nprint(1)\nPY")).toEqual(['name . ?']);
+    expect(modes("python3 - <<'PY'\nfor f in files:\n    open(f, 'w').write(x)\nPY")).toEqual(['edit . ?']);
+    expect(modes("python3 - <<'PY'\nimport subprocess\nsubprocess.run(['ls', 'src/g.ts'])\nPY")).toEqual(['name src/g.ts ?']);
+    expect(modes("node -e \"import('./src/h.js')\"")).toEqual([]);
+    expect(modes("python3 scripts/gen.py")).toEqual(['name scripts/gen.py']);
+    expect(parseShellCommand("cd api && python3 - <<'PY'\nopen('src/i.ts','w').write('')\nPY", '/repo')).toEqual([{ path: '/repo/api/src/i.ts', mode: 'write' }]);
+  });
+
   it('never mistakes a regex or an inline script for a path', () => {
     expect(modes("perl -pe 's/^\\s*\\*\\s*//' src/a.ts")).toEqual(['name src/a.ts']);
     expect(modes("python3 -c 'import os; print(os.path.join(\"a\",\"b\"))'")).toEqual([]);
