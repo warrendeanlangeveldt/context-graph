@@ -8,7 +8,7 @@
       "name": "context-graph",
       "source": "./adapters/claude-code",
       "description": "Per-edit context slices, decision recording, and context observation for any repository",
-      "version": "0.1.12",
+      "version": "0.1.13",
       "category": "development",
       "tags": ["context", "architecture", "decisions", "observability"]
     }

@@ -52,12 +52,12 @@ function scriptTouches(body, lang, opts = {}) {
   }
   const assign = lang === "python" ? /(?:^|[;\n])\s*([A-Za-z_]\w*)\s*=\s*(?:Path\(\s*)?(['"])([^'"\n]+)\2/g : /(?:^|[;\n])\s*(?:const|let|var)?\s*([A-Za-z_$][\w$]*)\s*=\s*(['"`])([^'"`\n]+)\2/g;
   for (const m of body.matchAll(assign)) if (isPathLike(m[3])) vars.set(m[1], m[3]);
-  const resolve13 = (arg) => {
+  const resolve14 = (arg) => {
     const t = arg.trim();
     const lit = /^(['"`])(.*)\1$/.exec(t);
     if (lit) return isPathLike(lit[2]) ? lit[2] : void 0;
     const inner = /^Path\(\s*(.+?)\s*\)$/.exec(t);
-    if (inner) return resolve13(inner[1]);
+    if (inner) return resolve14(inner[1]);
     return vars.get(t);
   };
   const ARG = String.raw`(Path\(\s*(?:['"\`][^'"\`\n]+['"\`]|[A-Za-z_$][\w$.]*)\s*\)|['"\`][^'"\`\n]+['"\`]|[A-Za-z_$][\w$.]*)`;
@@ -83,7 +83,7 @@ function scriptTouches(body, lang, opts = {}) {
   const deletes = /* @__PURE__ */ new Set();
   for (const { re, mode } of patterns) {
     for (const m of body.matchAll(re)) {
-      const p = resolve13(m[1]);
+      const p = resolve14(m[1]);
       if (!p) continue;
       (mode === "read" ? reads : mode === "write" ? writes : deletes).add(p);
     }
@@ -4518,11 +4518,11 @@ function snippet(text) {
   return one.length > 90 ? one.slice(0, 87) + "..." : one;
 }
 function withTimeout(p, ms) {
-  return new Promise((resolve13, reject) => {
+  return new Promise((resolve14, reject) => {
     const t = setTimeout(() => reject(new Error("timeout")), ms);
     p.then((v) => {
       clearTimeout(t);
-      resolve13(v);
+      resolve14(v);
     }, (e) => {
       clearTimeout(t);
       reject(e);
@@ -18355,7 +18355,7 @@ var init_protocol = __esm({
               return;
             }
             const pollInterval = task2.pollInterval ?? this._options?.defaultTaskPollInterval ?? 1e3;
-            await new Promise((resolve13) => setTimeout(resolve13, pollInterval));
+            await new Promise((resolve14) => setTimeout(resolve14, pollInterval));
             options?.signal?.throwIfAborted();
           }
         } catch (error2) {
@@ -18372,7 +18372,7 @@ var init_protocol = __esm({
        */
       request(request2, resultSchema, options) {
         const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
-        return new Promise((resolve13, reject) => {
+        return new Promise((resolve14, reject) => {
           const earlyReject = (error2) => {
             reject(error2);
           };
@@ -18450,7 +18450,7 @@ var init_protocol = __esm({
               if (!parseResult.success) {
                 reject(parseResult.error);
               } else {
-                resolve13(parseResult.data);
+                resolve14(parseResult.data);
               }
             } catch (error2) {
               reject(error2);
@@ -18711,12 +18711,12 @@ var init_protocol = __esm({
           }
         } catch {
         }
-        return new Promise((resolve13, reject) => {
+        return new Promise((resolve14, reject) => {
           if (signal.aborted) {
             reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
             return;
           }
-          const timeoutId = setTimeout(resolve13, interval);
+          const timeoutId = setTimeout(resolve14, interval);
           signal.addEventListener("abort", () => {
             clearTimeout(timeoutId);
             reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
@@ -21743,7 +21743,7 @@ var require_compile = __commonJS({
       const schOrFunc = root.refs[ref];
       if (schOrFunc)
         return schOrFunc;
-      let _sch = resolve13.call(this, root, ref);
+      let _sch = resolve14.call(this, root, ref);
       if (_sch === void 0) {
         const schema = (_a = root.localRefs) === null || _a === void 0 ? void 0 : _a[ref];
         const { schemaId } = this.opts;
@@ -21770,7 +21770,7 @@ var require_compile = __commonJS({
     function sameSchemaEnv(s1, s2) {
       return s1.schema === s2.schema && s1.root === s2.root && s1.baseId === s2.baseId;
     }
-    function resolve13(root, ref) {
+    function resolve14(root, ref) {
       let sch;
       while (typeof (sch = this.refs[ref]) == "string")
         ref = sch;
@@ -22600,7 +22600,7 @@ var require_fast_uri = __commonJS({
       }
       return uri;
     }
-    function resolve13(baseURI, relativeURI, options) {
+    function resolve14(baseURI, relativeURI, options) {
       const schemelessOptions = options ? Object.assign({ scheme: "null" }, options) : { scheme: "null" };
       const {
         parsed: baseParsed,
@@ -22968,7 +22968,7 @@ var require_fast_uri = __commonJS({
     var fastUri = {
       SCHEMES,
       normalize,
-      resolve: resolve13,
+      resolve: resolve14,
       resolveComponent,
       equal,
       serialize,
@@ -27086,7 +27086,7 @@ var init_mcp = __esm({
         let task = createTaskResult.task;
         const pollInterval = task.pollInterval ?? 5e3;
         while (task.status !== "completed" && task.status !== "failed" && task.status !== "cancelled") {
-          await new Promise((resolve13) => setTimeout(resolve13, pollInterval));
+          await new Promise((resolve14) => setTimeout(resolve14, pollInterval));
           const updatedTask = await extra.taskStore.getTask(taskId);
           if (!updatedTask) {
             throw new McpError(ErrorCode.InternalError, `Task ${taskId} not found during polling`);
@@ -27695,12 +27695,12 @@ var init_stdio2 = __esm({
         this.onclose?.();
       }
       send(message) {
-        return new Promise((resolve13) => {
+        return new Promise((resolve14) => {
           const json = serializeMessage(message);
           if (this._stdout.write(json)) {
-            resolve13();
+            resolve14();
           } else {
-            this._stdout.once("drain", resolve13);
+            this._stdout.once("drain", resolve14);
           }
         });
       }
@@ -34396,7 +34396,7 @@ var init_commands = __esm({
 import { execFileSync as execFileSync5 } from "node:child_process";
 import { existsSync as existsSync26, readFileSync as readFileSync23, readdirSync as readdirSync8, statSync as statSync6 } from "node:fs";
 import { homedir as homedir3 } from "node:os";
-import { join as join25 } from "node:path";
+import { join as join25, resolve as resolve12 } from "node:path";
 function runDoctor(ctx, opts = {}) {
   const out = [];
   const now = opts.now ?? Date.now();
@@ -34408,6 +34408,7 @@ function runDoctor(ctx, opts = {}) {
     const ks = [...g.constraints.values()];
     const proposed = ks.filter((k) => k.mode === "G?").length;
     out.push({ level: "ok", text: `graph at ${ctx.graphDir}: ${g.logicals.size} modules, ${ks.length} rules (${proposed} proposed), ${g.decisions.size} decisions` });
+    if (ctx.graphDir && !resolve12(ctx.graphDir).startsWith(resolve12(ctx.root) + "/")) out.push({ level: "warn", text: `the graph is linked from outside this repository; its decisions accumulate there, not in this repository's history, and no other checkout or teammate sees them: ctx adopt moves it into .ctx` });
     if (!ctx.config.ratifiers.length) out.push({ level: "warn", text: "ratifiers is empty in config.toml, so nothing proposed can ever be ratified; add your git identity" });
     if (ks.length && proposed === ks.length && !g.decisions.size) out.push({ level: "warn", text: "every rule is still proposed and no decision has been recorded: the graph has not started earning its content yet" });
   }
@@ -34523,8 +34524,8 @@ var init_doctor = __esm({
 });
 
 // src/cli/main.ts
-import { existsSync as existsSync27, lstatSync as lstatSync2, mkdirSync as mkdirSync10, readFileSync as readFileSync24, symlinkSync, unlinkSync as unlinkSync2 } from "node:fs";
-import { join as join26, resolve as resolve12 } from "node:path";
+import { copyFileSync as copyFileSync2, existsSync as existsSync27, lstatSync as lstatSync2, mkdirSync as mkdirSync10, readdirSync as readdirSync9, readFileSync as readFileSync24, symlinkSync, unlinkSync as unlinkSync2 } from "node:fs";
+import { join as join26, resolve as resolve13 } from "node:path";
 function parseArgs(argv) {
   const positional = [];
   const flags = {};
@@ -34754,7 +34755,7 @@ async function main() {
     case "replay": {
       const file = args.positional[0];
       if (!file) throw new Error("ctx replay <transcript.jsonl> [--harness auto|claude-code|codex]");
-      const r = await replayTranscript(resolve12(file), { ...str(args.flags.repo) ? { repo: str(args.flags.repo) } : {}, ...str(args.flags.graph) ? { graph: str(args.flags.graph) } : {}, ...str(args.flags.harness) ? { harness: str(args.flags.harness) } : {} });
+      const r = await replayTranscript(resolve13(file), { ...str(args.flags.repo) ? { repo: str(args.flags.repo) } : {}, ...str(args.flags.graph) ? { graph: str(args.flags.graph) } : {}, ...str(args.flags.harness) ? { harness: str(args.flags.harness) } : {} });
       if (json) console.log(JSON.stringify(r, null, 2));
       else {
         console.log(`${r.harness} session ${r.session}: ${r.events} events, ${r.edits} edits, ${r.coverage} coverage records${r.cliVersion ? `, cli ${r.cliVersion}` : ""}
@@ -34774,11 +34775,35 @@ async function main() {
       console.log(json ? JSON.stringify(files, null, 2) : files.map((f) => `${f.kind.padEnd(7)} ${f.path}${f.movedTo ? ` -> ${f.movedTo}` : ""}${f.ranges?.length ? `  ${f.ranges.map((r) => r.join(":")).join(" ")}` : ""}`).join("\n"));
       return 0;
     }
+    case "adopt": {
+      const ctx = openFromArgs(args);
+      const g = needGraph(ctx);
+      const from = ctx.graphDir;
+      const dest = join26(ctx.root, ".ctx");
+      if (resolve13(from) === resolve13(dest)) {
+        console.log(`the graph already lives in ${dest}`);
+        return 0;
+      }
+      if (existsSync27(dest) && readdirSync9(dest).length && args.flags.force !== true) throw new Error(`${dest} already exists; pass --force to overwrite it with the linked graph`);
+      mkdirSync10(dest, { recursive: true });
+      const copied = [];
+      for (const f of readdirSync9(from)) {
+        if (!lstatSync2(join26(from, f)).isFile()) continue;
+        copyFileSync2(join26(from, f), join26(dest, f));
+        copied.push(f);
+      }
+      const link = join26(ctxHome(), "graphs", repoHash(ctx.root));
+      if (isSymlink(link)) unlinkSync2(link);
+      console.log(`moved the graph into ${dest} (${copied.join(", ")}): ${g.logicals.size} modules, ${g.constraints.size} rules, ${g.decisions.size} decisions`);
+      console.log(`${from} is no longer read for this repository. Commit .ctx so every checkout and teammate carries it:
+  git add .ctx && git commit -m "chore: adopt the context graph"`);
+      return 0;
+    }
     case "link": {
       const graph = str(args.flags.graph);
       if (!graph) throw new Error("ctx link --graph <dir> [--repo <dir>]");
       const ctx = openRepo({ ...str(args.flags.repo) ? { repo: str(args.flags.repo) } : {} });
-      const target = resolve12(graph);
+      const target = resolve13(graph);
       if (!existsSync27(join26(target, "graph.ctx"))) throw new Error(`${target} has no graph.ctx`);
       const linkDir = join26(ctxHome(), "graphs");
       mkdirSync10(linkDir, { recursive: true });
@@ -34943,6 +34968,7 @@ Runtime
   ctx serve [--hosted] [--port <n>] [--token <t>]  event server, stream, and the synapse view
   ctx overlay tail                                 one line per live finding, for harness monitors
   ctx install codex|claude-code|git-hooks|instructions   write harness or repository hooks, or the agent-instruction block
+  ctx adopt [--force]                              move a linked graph into the repository's .ctx, where git carries it
   ctx link --graph <dir> [--repo <dir>]            use a graph kept outside the repository
   ctx info
   ctx hook --harness claude-code|codex [--agent <name>]

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync, lstatSync, mkdirSync, readFileSync, symlinkSync, unlinkSync } from 'node:fs';
+import { copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, symlinkSync, unlinkSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { runClaudeHook } from '../adapters/claude-code/hook.js';
 import { runCodexHook } from '../adapters/codex/hook.js';
@@ -65,6 +65,7 @@ Runtime
   ctx serve [--hosted] [--port <n>] [--token <t>]  event server, stream, and the synapse view
   ctx overlay tail                                 one line per live finding, for harness monitors
   ctx install codex|claude-code|git-hooks|instructions   write harness or repository hooks, or the agent-instruction block
+  ctx adopt [--force]                              move a linked graph into the repository's .ctx, where git carries it
   ctx link --graph <dir> [--repo <dir>]            use a graph kept outside the repository
   ctx info
   ctx hook --harness claude-code|codex [--agent <name>]
@@ -308,6 +309,25 @@ async function main(): Promise<number> {
       const files = parsePatchText(readInput(args.positional[0]));
       if (!files) throw new Error('input is not an apply_patch or unified diff');
       console.log(json ? JSON.stringify(files, null, 2) : files.map((f) => `${f.kind.padEnd(7)} ${f.path}${f.movedTo ? ` -> ${f.movedTo}` : ''}${f.ranges?.length ? `  ${f.ranges.map((r) => r.join(':')).join(' ')}` : ''}`).join('\n'));
+      return 0;
+    }
+
+    case 'adopt': {
+      // The link was the trial door: a graph kept elsewhere, the repository untouched. Once decisions accumulate,
+      // the graph belongs in the repository, where git carries it to every checkout and every teammate.
+      const ctx = openFromArgs(args);
+      const g = needGraph(ctx);
+      const from = ctx.graphDir!;
+      const dest = join(ctx.root, '.ctx');
+      if (resolve(from) === resolve(dest)) { console.log(`the graph already lives in ${dest}`); return 0; }
+      if (existsSync(dest) && readdirSync(dest).length && args.flags.force !== true) throw new Error(`${dest} already exists; pass --force to overwrite it with the linked graph`);
+      mkdirSync(dest, { recursive: true });
+      const copied: string[] = [];
+      for (const f of readdirSync(from)) { if (!lstatSync(join(from, f)).isFile()) continue; copyFileSync(join(from, f), join(dest, f)); copied.push(f); }
+      const link = join(ctxHome(), 'graphs', repoHash(ctx.root));
+      if (isSymlink(link)) unlinkSync(link);
+      console.log(`moved the graph into ${dest} (${copied.join(', ')}): ${g.logicals.size} modules, ${g.constraints.size} rules, ${g.decisions.size} decisions`);
+      console.log(`${from} is no longer read for this repository. Commit .ctx so every checkout and teammate carries it:\n  git add .ctx && git commit -m "chore: adopt the context graph"`);
       return 0;
     }
 

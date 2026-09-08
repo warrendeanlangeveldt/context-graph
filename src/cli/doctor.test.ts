@@ -34,6 +34,7 @@ describe('ctx doctor', () => {
     ] });
     const text = lines.map((l) => `${l.level} ${l.text}`).join('\n');
     expect(text).toContain('ok graph at');
+    expect(text).not.toContain('linked from outside');
     expect(text).toContain('warn ratifiers is empty');
     expect(text).toContain('warn every rule is still proposed');
     expect(text).toContain('warn AGENTS.md lacks the Context Graph block');
@@ -44,5 +45,25 @@ describe('ctx doctor', () => {
     expect(text).toContain('fail no hook has fired here in the last 24 hours, though ctx was used');
     expect(text).toContain('info ctx used from the shell or MCP without hooks: cli (1 events)');
     expect(text).toContain('info 1 session reconstructed with ctx replay, not observed live');
+  });
+});
+
+describe('adopting a linked graph', () => {
+  it('doctor warns while the graph is linked from outside the repository', async () => {
+    const { mkdtempSync, mkdirSync: mk, writeFileSync: wf, symlinkSync } = await import('node:fs');
+    const { tmpdir: td } = await import('node:os');
+    const { join: j } = await import('node:path');
+    const { repoHash } = await import('../util/paths.js');
+    const repo = mkdtempSync(j(td(), 'ctx-adopt-repo-'));
+    const elsewhere = mkdtempSync(j(td(), 'ctx-adopt-graph-'));
+    const home = mkdtempSync(j(td(), 'ctx-home-'));
+    process.env.CTX_HOME = home;
+    wf(j(elsewhere, 'graph.ctx'), 'M ** L:root\nL L:root Root\n');
+    mk(j(home, 'graphs'), { recursive: true });
+    symlinkSync(elsewhere, j(home, 'graphs', repoHash(repo)));
+    const { openRepo } = await import('../core/context.js');
+    const { runDoctor } = await import('./doctor.js');
+    const lines = runDoctor(openRepo({ repo }), { claudeDir: mkdtempSync(j(td(), 'ctx-claude-')), processes: [] });
+    expect(lines.some((l) => l.level === 'warn' && l.text.includes('linked from outside this repository'))).toBe(true);
   });
 });

@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import type { RepoContext } from '../core/context.js';
 import { INSTRUCTION_HEADING } from '../init/instructions.js';
 import { localServer } from '../overlay/client.js';
@@ -29,6 +29,7 @@ export function runDoctor(ctx: RepoContext, opts: { now?: number; claudeDir?: st
     const ks = [...g.constraints.values()];
     const proposed = ks.filter((k) => k.mode === 'G?').length;
     out.push({ level: 'ok', text: `graph at ${ctx.graphDir}: ${g.logicals.size} modules, ${ks.length} rules (${proposed} proposed), ${g.decisions.size} decisions` });
+    if (ctx.graphDir && !resolve(ctx.graphDir).startsWith(resolve(ctx.root) + '/')) out.push({ level: 'warn', text: `the graph is linked from outside this repository; its decisions accumulate there, not in this repository's history, and no other checkout or teammate sees them: ctx adopt moves it into .ctx` });
     if (!ctx.config.ratifiers.length) out.push({ level: 'warn', text: 'ratifiers is empty in config.toml, so nothing proposed can ever be ratified; add your git identity' });
     if (ks.length && proposed === ks.length && !g.decisions.size) out.push({ level: 'warn', text: 'every rule is still proposed and no decision has been recorded: the graph has not started earning its content yet' });
   }
