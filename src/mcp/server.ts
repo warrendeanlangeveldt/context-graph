@@ -5,6 +5,7 @@ import { isAbsolute, join, resolve } from 'node:path';
 import { z } from 'zod';
 import { openRepo, type RepoContext } from '../core/context.js';
 import { toRepoRelative } from '../util/paths.js';
+import { resolveSession } from '../observe/session.js';
 import { hydrate } from '../hydrate/hydrate.js';
 import type { Graph } from '../graph/graph.js';
 import type { CoverageRecord } from '../observe/coverage.js';
@@ -23,7 +24,14 @@ import { walk } from '../walker/walk.js';
  */
 export async function startMcpServer(opts: { agent: string; repo?: string; graph?: string }): Promise<void> {
   const server = new McpServer({ name: 'ctx', version: '0.1.0' });
-  const session = process.env.CLAUDE_SESSION_ID ?? process.env.CTX_SESSION ?? 'mcp';
+  // The harness does not tell an MCP server which session it serves; the hooks' recorded ancestry does.
+  let resolved: string | undefined;
+  const sessionFor = (ctx: RepoContext): string => {
+    if (resolved) return resolved;
+    const s = resolveSession(ctx.root, 'mcp');
+    if (s !== 'mcp') resolved = s;
+    return s;
+  };
 
   const open = (): RepoContext => openRepo({ ...(opts.repo ? { repo: opts.repo } : {}), ...(opts.graph ? { graph: opts.graph } : {}) });
   const need = (ctx: RepoContext): Graph => {
@@ -47,6 +55,7 @@ export async function startMcpServer(opts: { agent: string; repo?: string; graph
     return p;
   };
   const reach = (ctx: RepoContext, tool: string, nodes: string[]): void => {
+    const session = sessionFor(ctx);
     const store = new ObservationStore(ctx.root, session);
     const p: ReachPayload = { tool, nodes };
     store.append(envelope('reach', { session, who: `${gitPerson(ctx.root)}/${opts.agent}`, branch: currentBranch(ctx.root), harness: 'mcp' }, p));
@@ -61,7 +70,7 @@ export async function startMcpServer(opts: { agent: string; repo?: string; graph
     async ({ scope, budget }) => {
       const ctx = open();
       need(ctx);
-      const h = await hydrate(ctx, /\s/.test(scope.trim()) ? scope : norm(ctx, scope), { ...(budget ? { budget } : {}), session, who: `${gitPerson(ctx.root)}/${opts.agent}`, branch: currentBranch(ctx.root), harness: 'mcp', cwd: process.cwd() });
+      const h = await hydrate(ctx, /\s/.test(scope.trim()) ? scope : norm(ctx, scope), { ...(budget ? { budget } : {}), session: sessionFor(ctx), who: `${gitPerson(ctx.root)}/${opts.agent}`, branch: currentBranch(ctx.root), harness: 'mcp', cwd: process.cwd() });
       return text(h.dropped.length ? `${h.text}\n(dropped under budget: ${h.dropped.join(', ')})` : h.text);
     },
   );
@@ -145,6 +154,7 @@ export async function startMcpServer(opts: { agent: string; repo?: string; graph
     async ({ node, serves, text: why, overrides }) => {
       const ctx = open();
       const g = need(ctx);
+      const session = sessionFor(ctx);
       const state = new SessionState(ctx.root, session);
       const recorder = new Recorder(g, state);
       const who = `${gitPerson(ctx.root)}/${opts.agent}`;

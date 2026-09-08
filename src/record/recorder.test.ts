@@ -64,6 +64,18 @@ describe('Recorder', () => {
     expect(verdict.reason).toContain('These rules are proposed, not yet ratified.');
   });
 
+  it('a decision recorded by another process on the same path settles the debt before the turn-end demand', () => {
+    const { g, r, state } = setup();
+    r.notePending(walk(g, 'api/src/core/orch/bb.ts'));
+    expect(r.pending().map((p) => p.path)).toEqual(['api/src/core/orch/bb.ts']);
+    // Another process (the MCP server, a shell command) appends to the same decisions file and this hook's graph reloads it.
+    const other = new Recorder(Graph.load(g.dir), new SessionState(state.root, 'other-session'));
+    other.record({ node: 'api/src/core/orch/bb.ts', serves: 'orch.events', text: 'recorded elsewhere', who: 'w/claude', branch: 'main' });
+    const fresh = new Recorder(Graph.load(g.dir), state);
+    expect(fresh.pending()).toEqual([]);
+    expect(fresh.stopDecision({ maxBlocks: 2, who: 'w/claude', branch: 'main' })).toMatchObject({ block: false, gaveUp: [] });
+  });
+
   it('records a decision, appends it, and clears pending', () => {
     const { g, r } = setup();
     r.notePending(walk(g, 'api/src/core/orch/bb.ts'));

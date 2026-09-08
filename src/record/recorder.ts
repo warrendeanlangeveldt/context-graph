@@ -41,6 +41,7 @@ export class Recorder {
       path: w.path,
       constraints: w.constraints.filter((k) => isActiveMode(k) || k.mode === 'G?').map((k) => k.id),
       since: existing?.since ?? new Date().toISOString(),
+      sinceId: existing?.sinceId ?? this.graph.nextDecisionId(),
     };
     if (w.symbol) entry.symbol = w.symbol;
     this.state.data.pending[key] = entry;
@@ -48,7 +49,19 @@ export class Recorder {
     return true;
   }
 
+  /**
+   * What still owes a decision. A decision recorded on the path since the edit was noted settles it,
+   * whichever process recorded it: the MCP server, a shell command, or this hook. Without this, a
+   * decision recorded elsewhere left the entry here and the turn-end give-up wrote a decline beside it.
+   */
   pending(): PendingEntry[] {
+    let changed = false;
+    for (const [key, p] of Object.entries(this.state.data.pending)) {
+      if (!p.sinceId) continue;
+      const settled = [...this.graph.decisions.values()].some((d) => d.node.split('#')[0] === p.path && idNumber(d.id) >= idNumber(p.sinceId!));
+      if (settled) { delete this.state.data.pending[key]; changed = true; }
+    }
+    if (changed) this.state.save();
     return Object.values(this.state.data.pending);
   }
 
@@ -174,6 +187,8 @@ export class Recorder {
     return { block: true, reason, gaveUp: [] };
   }
 }
+
+function idNumber(id: string): number { return Number(/(\d+)$/.exec(id)?.[1] ?? 0); }
 
 function today(): string {
   const d = new Date();

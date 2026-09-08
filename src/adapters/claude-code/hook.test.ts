@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { CoverageRecord } from '../../observe/coverage.js';
 import type { Envelope } from '../../observe/event.js';
 import { ObservationStore } from '../../observe/store.js';
+import { repoHash } from '../../util/paths.js';
 import { runClaudeHook, type HookInput } from './hook.js';
 
 const GRAPH = `
@@ -58,6 +59,12 @@ describe('Claude Code hook adapter, end to end on a temporary repository', () =>
 
   const base = (): Pick<HookInput, 'session_id' | 'cwd'> => ({ session_id: 'sess-1', cwd: repo });
   const events = (): Envelope[] => new ObservationStore(repo, 'sess-1').readAll();
+
+  it('notes the hook process ancestry once, so the MCP server and shell commands can find the session', async () => {
+    await runClaudeHook({ ...base(), hook_event_name: 'SessionStart', start_reason: 'startup' });
+    const state = JSON.parse(readFileSync(join(home, 'state', repoHash(repo), 'sess-1.json'), 'utf8')) as { pids?: number[] };
+    expect(state.pids?.[0]).toBe(process.ppid);
+  });
 
   it('keeps paths outside the repository as sightings, never edits, and ignores /dev/null', async () => {
     await runClaudeHook({ ...base(), hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { command: `cat ${repo}/api/src/core/helper.ts > /dev/null; cat /etc/hosts > /private/tmp/scratch/notes.txt` } });

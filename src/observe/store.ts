@@ -46,6 +46,8 @@ export interface PendingEntry {
   symbol?: string;
   constraints: string[];
   since: string;
+  /** The decision id that was next when the edit was noted: any decision on this path from here on settles it, whoever records it. */
+  sinceId?: string;
 }
 
 export interface SessionStateData {
@@ -59,6 +61,8 @@ export interface SessionStateData {
   graphAnnounced?: boolean;
   /** Modules whose card this session has already seen, by id. */
   modulesAnnounced?: string[];
+  /** Ancestor pids of the hook process, so the MCP server and shell commands under the same harness can find this session. */
+  pids?: number[];
   delegations: Record<string, { agentType?: string; since: string }>;
 }
 

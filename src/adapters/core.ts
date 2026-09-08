@@ -5,6 +5,7 @@ import { callersOf, loadOrBuildImportIndex } from '../index/imports.js';
 import { enclosingSymbol, lineRangeOf } from '../index/symbols.js';
 import { computeCoverage } from '../observe/coverage.js';
 import { envelope, isEditMode, type AccessMode, type CardPayload, type CompactPayload, type SessionPayload, type SlicePayload, type Touch } from '../observe/event.js';
+import { ancestorPids } from '../observe/session.js';
 import { ObservationStore, SessionState } from '../observe/store.js';
 import { Recorder } from '../record/recorder.js';
 import { currentBranch, gitPerson } from '../util/git.js';
@@ -82,6 +83,7 @@ export async function runHook(input: HookInput, profile: HarnessProfile): Promis
   const store = new ObservationStore(root, session);
   const state = new SessionState(root, session);
   decideArm(ctx, state);
+  if (!state.data.pids) { state.data.pids = ancestorPids(); state.save(); }
   const injecting = Boolean(ctx.graph) && state.data.arm === 'on';
   const origin: Touch['origin'] = input.agent_id ? 'subagent' : 'main';
   const tc: ToolContext = {

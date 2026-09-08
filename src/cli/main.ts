@@ -16,6 +16,7 @@ import { envelope } from '../observe/event.js';
 import { parsePatchText } from '../observe/patch.js';
 import { replayTranscript } from '../observe/replay.js';
 import { parseShellCommand } from '../observe/shell.js';
+import { resolveSession } from '../observe/session.js';
 import { ObservationStore, SessionState } from '../observe/store.js';
 import { publishDecision } from '../overlay/client.js';
 import { linkProvenance } from '../record/provenance.js';
@@ -159,7 +160,7 @@ async function main(): Promise<number> {
       const scope = args.positional.join(' ').trim();
       if (!scope) throw new Error('ctx hydrate <file | L:module | C:concept | task description>');
       const budget = args.flags.budget !== undefined ? Number(args.flags.budget) : undefined;
-      const h = await hydrate(ctx, scope, { ...(budget ? { budget } : {}), record: args.flags['no-record'] !== true, cwd: process.cwd(), session: process.env.CLAUDE_SESSION_ID ?? process.env.CTX_SESSION ?? 'cli', harness: 'cli' });
+      const h = await hydrate(ctx, scope, { ...(budget ? { budget } : {}), record: args.flags['no-record'] !== true, cwd: process.cwd(), session: resolveSession(ctx.root, 'cli'), harness: 'cli' });
       if (json) console.log(JSON.stringify(h, null, 2));
       else { console.log(h.text); if (h.dropped.length) console.error(`dropped under budget: ${h.dropped.join(', ')}`); }
       return 0;
@@ -218,7 +219,7 @@ async function main(): Promise<number> {
       const serves = str(args.flags.serves);
       const text = str(args.flags.text);
       if (!node || !serves || !text) throw new Error('ctx record --node <n> --serves <id> --text "<why>" [--overrides <k-id>]');
-      const session = str(args.flags.session) ?? process.env.CLAUDE_SESSION_ID ?? 'cli';
+      const session = str(args.flags.session) ?? resolveSession(ctx.root, 'cli');
       const recorder = new Recorder(g, new SessionState(ctx.root, session));
       const who = `${gitPerson(ctx.root)}/${str(args.flags.agent) ?? 'human'}`;
       try {

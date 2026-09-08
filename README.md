@@ -132,6 +132,8 @@ The same tool is `hydrate` on the MCP server. Every call is observed: a `reach` 
 
 Shell observation sees through interpreter scripts as well: a heredoc fed to `python3 -`, `node -`, or `bash`, a `cat <<EOF |` handed on, or an inline `-c` / `-e`. The body is scanned for path literals and the calls that read, write, or delete them, with one level of variable resolution, so `p='src/a.ts'; open(p,'w').write(...)` is an edit of that file. A script that names no file the scanner can attribute is still recorded as an unparsed edit on `.`, and the view counts those as "edits, file unknown", because a silent zero looks like a clean session.
 
+The MCP server and a `ctx` command run from the agent's shell are not told which session they serve. The hooks note their process ancestry once per session, and both match against it, so a decision recorded through either clears that session's pending list and hydrate sees what that session has read. A decision recorded on a path by any route settles the turn-end demand for it.
+
 ## Is it working?
 
 ```sh
