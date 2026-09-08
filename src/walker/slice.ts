@@ -8,6 +8,12 @@ export interface SliceOptions {
   /** Optional live and hint lines already rendered by an overlay or retriever. Dropped first under budget. */
   live?: string[];
   hints?: string[];
+  /**
+   * How proposed rules render. `own` (the default for injection): a proposal on the file's own module in
+   * full, the ones inherited from ancestors as one line of ids. `full`: every proposal with its text, for
+   * an explicit pull. Proposals are skimmed when they crowd the ratified rules; ids keep them reachable.
+   */
+  proposed?: 'own' | 'full';
 }
 
 export interface Slice {
@@ -36,13 +42,19 @@ export function renderSlice(graph: Graph, w: WalkResult, opts: SliceOptions = {}
   const chainLine = w.mapped ? `  chain  ${chainParts.join('  ')}` : '  chain  (no mapping covers this path)';
 
   const sorted = [...w.constraints].sort((a, b) => MODE_ORDER[a.mode] - MODE_ORDER[b.mode]);
+  const own = new Set([w.chain[0], w.path.split('#')[0]]);
   const mustLines: string[] = [];
   const noteLines: string[] = [];
+  const ownProposed: KRecord[] = [];
+  const inherited: KRecord[] = [];
   for (const k of sorted) {
     if (k.mode === 'R') noteLines.push(`  note   ${k.text}  [R ${k.id}]`);
-    else if (k.mode === 'G?') mustLines.push(`  must?  ${k.text}  [G? ${k.id} proposed]`);
+    else if (k.mode === 'G?') { if (opts.proposed === 'full' || own.has(k.attachedTo)) ownProposed.push(k); else inherited.push(k); }
     else mustLines.push(`  must   ${k.text}  [${k.mode} ${k.id}]`);
   }
+  let proposedLines = ownProposed.map((k) => `  must?  ${k.text}  [G? ${k.id} proposed]`);
+  const inheritedFrom = [...new Set(inherited.map((k) => k.attachedTo))].join(', ');
+  let inheritedLines = inherited.length ? [`  also   ${inherited.length} proposed on ${inheritedFrom}: ${inherited.slice(0, 6).map((k) => k.id).join(', ')}${inherited.length > 6 ? ` +${inherited.length - 6}` : ''}  (ctx why <id> for the text)`] : [];
 
   const lastLines = w.decisions.map((d) => {
     const when = d.date.slice(5);
@@ -57,7 +69,7 @@ export function renderSlice(graph: Graph, w: WalkResult, opts: SliceOptions = {}
   const dropped: string[] = [];
   const warnings: string[] = [];
   const assemble = (): string =>
-    [header, chainLine, ...mustLines, ...noteLines, ...lastLines, ...liveLines, ...hintLines].join('\n');
+    [header, chainLine, ...mustLines, ...proposedLines, ...inheritedLines, ...noteLines, ...lastLines, ...liveLines, ...hintLines].join('\n');
 
   let text = assemble();
   let tokens = estimateTokens(text);
@@ -68,6 +80,9 @@ export function renderSlice(graph: Graph, w: WalkResult, opts: SliceOptions = {}
   while (over() && liveLines.length) { dropped.push(`live:${liveLines.pop()!.trim()}`); recount(); }
   while (over() && lastLines.length) { dropped.push(`decision:${w.decisions[lastLines.length - 1]!.id}`); lastLines.pop(); recount(); }
   while (over() && noteLines.length) { noteLines.pop(); dropped.push('note'); recount(); }
+  if (over() && inheritedLines.length) { inheritedLines = [`  also   ${inherited.length} proposed on ${inheritedFrom}  (ctx why)`]; dropped.push('inherited ids'); recount(); }
+  if (over() && inheritedLines.length) { inheritedLines = []; dropped.push('inherited'); recount(); }
+  if (over() && ownProposed.length && proposedLines.length > 1) { proposedLines = [`  must?  ${ownProposed.length} proposed: ${ownProposed.map((k) => k.id).join(', ')}  (ctx why <id> for the text)`]; dropped.push('proposed text'); recount(); }
   if (over()) warnings.push(`enforced and guided constraints alone exceed the ${maxTokens}-token budget at ${w.path}; the graph is too fine-grained at this node`);
 
   return { text, tokens, dropped, warnings, applicable: w.applicable };

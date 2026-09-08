@@ -74,7 +74,7 @@ describe('Claude Code hook adapter, end to end on a temporary repository', () =>
     const card = (JSON.parse(grep.stdout!) as { hookSpecificOutput: { additionalContext: string } }).hookSpecificOutput.additionalContext;
     expect(card.split('\n')[0]).toBe('module L:orch  Orchestration  in L:core  impl C:pure');
     expect(card).toContain('[G orch.events]');
-    expect(card).toContain('[E boundary.core]');
+    expect(card).toContain('  inherits 1 rule from L:core: boundary.core');
     expect(card).toContain('hydrate L:orch for callers, history, and what this session already holds');
     // Same module again: nothing. A sibling module: its own card.
     const again = await runClaudeHook({ ...base(), hook_event_name: 'PreToolUse', tool_name: 'Read', tool_input: { file_path: join(repo, 'api/src/core/orch/bb.ts') } });

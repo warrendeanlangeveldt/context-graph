@@ -1,6 +1,6 @@
 {
   "name": "context-graph",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Per-edit context slices, decision recording, and context observation for any repository and any AI coding harness",
   "type": "module",
   "license": "UNLICENSED",

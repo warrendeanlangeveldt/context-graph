@@ -3613,41 +3613,50 @@ function renderCard(graph, w, opts = {}) {
   const rest = w.chain.slice(1);
   const head = `module ${module}${l ? `  ${l.name}` : ""}${rest.length ? `  in ${rest.join(" > ")}` : ""}${w.concepts.length ? `  impl ${w.concepts.join(" ")}` : ""}`;
   const rules = [...w.constraints].filter((k) => k.mode !== "R").sort((a, b) => MODE_ORDER[a.mode] - MODE_ORDER[b.mode]);
-  const decisions = graph.decisionsOn(w.nodes);
+  const ownRules = rules.filter((k) => k.attachedTo === module);
+  const inheritedActive = rules.filter((k) => k.attachedTo !== module && k.mode !== "G?");
+  const inheritedProposed = rules.filter((k) => k.attachedTo !== module && k.mode === "G?").length;
+  const decisions = [...graph.decisions.values()].filter((d) => graph.isActiveDecision(d) && (d.node === module || graph.mapPath(d.node.split("#")[0])?.logical === module)).sort((a, b) => b.date.localeCompare(a.date));
   const latest = decisions[0];
+  const specific = ownRules.length > 0 || decisions.length > 0;
   const tail = [
-    decisions.length ? `  decisions ${decisions.length}, latest ${latest.id} ${latest.date.slice(5)} ${latest.overrides ? `!${latest.overrides} ` : ""}${latest.text.slice(0, 90)}` : void 0,
-    `  hydrate ${module} for callers, history, and what this session already holds`
+    decisions.length ? `  decisions ${decisions.length} in this module, latest ${latest.id} ${latest.date.slice(5)} ${latest.overrides ? `!${latest.overrides} ` : ""}${latest.text.slice(0, 90)}` : void 0,
+    specific ? `  hydrate ${module} for callers, history, and what this session already holds` : void 0
   ].filter((x) => Boolean(x));
   const line = (k, withText) => k.mode === "G?" ? `  must?  ${withText ? `${k.text}  ` : ""}[G? ${k.id} proposed]` : `  must   ${withText ? `${k.text}  ` : ""}[${k.mode} ${k.id}]`;
   const dropped = [];
-  let proposedCap = rules.filter((k) => k.mode === "G?").length;
+  let inheritedIds = true;
+  let proposedText = true;
   let guidedText = true;
   const assemble = () => {
-    let seenProposed = 0;
-    const lines = rules.flatMap((k) => {
-      if (k.mode === "G?") {
-        seenProposed++;
-        return seenProposed <= proposedCap ? [line(k, true)] : [];
-      }
-      return [line(k, k.mode === "E" || guidedText)];
-    });
-    return [head, ...lines, ...tail].join("\n");
+    const ownProposed = ownRules.filter((k) => k.mode === "G?");
+    const lines = ownRules.filter((k) => k.mode !== "G?").map((k) => k.mode === "E" ? line(k, true) : line(k, guidedText));
+    if (ownProposed.length) lines.push(...proposedText ? ownProposed.map((k) => line(k, true)) : [`  must?  ${ownProposed.length} proposed: ${ownProposed.map((k) => k.id).join(", ")}  (ctx why <id> for the text)`]);
+    const inh = [];
+    if (inheritedActive.length || inheritedProposed) {
+      const from = [...new Set(inheritedActive.map((k) => k.attachedTo))].join(", ");
+      inh.push(`  inherits ${inheritedActive.length} rule${inheritedActive.length === 1 ? "" : "s"}${from ? ` from ${from}` : ""}${inheritedIds && inheritedActive.length ? `: ${inheritedActive.map((k) => k.id).join(", ")}` : ""}${inheritedProposed ? `; ${inheritedProposed} proposed` : ""}`);
+    }
+    return [head, ...lines, ...inh, ...tail].join("\n");
   };
   let text = assemble();
   let tokens = estimateTokens(text);
-  while (tokens > maxTokens && proposedCap > 0) {
-    proposedCap--;
-    dropped.push("proposed");
+  const step = (label, apply) => {
+    if (tokens <= maxTokens) return;
+    apply();
+    dropped.push(label);
     text = assemble();
     tokens = estimateTokens(text);
-  }
-  if (tokens > maxTokens && guidedText) {
+  };
+  step("inherited ids", () => {
+    inheritedIds = false;
+  });
+  step("proposed text", () => {
+    proposedText = false;
+  });
+  step("guided text", () => {
     guidedText = false;
-    dropped.push("guided text");
-    text = assemble();
-    tokens = estimateTokens(text);
-  }
+  });
   return { module, text, tokens, dropped };
 }
 var MODE_ORDER;
@@ -3669,13 +3678,21 @@ function renderSlice(graph, w, opts = {}) {
   if (w.concepts.length) chainParts.push(`impl ${w.concepts.join(" ")}`);
   const chainLine = w.mapped ? `  chain  ${chainParts.join("  ")}` : "  chain  (no mapping covers this path)";
   const sorted = [...w.constraints].sort((a, b) => MODE_ORDER2[a.mode] - MODE_ORDER2[b.mode]);
+  const own = /* @__PURE__ */ new Set([w.chain[0], w.path.split("#")[0]]);
   const mustLines = [];
   const noteLines = [];
+  const ownProposed = [];
+  const inherited = [];
   for (const k of sorted) {
     if (k.mode === "R") noteLines.push(`  note   ${k.text}  [R ${k.id}]`);
-    else if (k.mode === "G?") mustLines.push(`  must?  ${k.text}  [G? ${k.id} proposed]`);
-    else mustLines.push(`  must   ${k.text}  [${k.mode} ${k.id}]`);
+    else if (k.mode === "G?") {
+      if (opts.proposed === "full" || own.has(k.attachedTo)) ownProposed.push(k);
+      else inherited.push(k);
+    } else mustLines.push(`  must   ${k.text}  [${k.mode} ${k.id}]`);
   }
+  let proposedLines = ownProposed.map((k) => `  must?  ${k.text}  [G? ${k.id} proposed]`);
+  const inheritedFrom = [...new Set(inherited.map((k) => k.attachedTo))].join(", ");
+  let inheritedLines = inherited.length ? [`  also   ${inherited.length} proposed on ${inheritedFrom}: ${inherited.slice(0, 6).map((k) => k.id).join(", ")}${inherited.length > 6 ? ` +${inherited.length - 6}` : ""}  (ctx why <id> for the text)`] : [];
   const lastLines = w.decisions.map((d) => {
     const when = d.date.slice(5);
     const bang = d.overrides ? `!${d.overrides}  ` : "";
@@ -3686,7 +3703,7 @@ function renderSlice(graph, w, opts = {}) {
   const hintLines = (opts.hints ?? []).map((h) => `  hint   ${h}`);
   const dropped = [];
   const warnings = [];
-  const assemble = () => [header, chainLine, ...mustLines, ...noteLines, ...lastLines, ...liveLines, ...hintLines].join("\n");
+  const assemble = () => [header, chainLine, ...mustLines, ...proposedLines, ...inheritedLines, ...noteLines, ...lastLines, ...liveLines, ...hintLines].join("\n");
   let text = assemble();
   let tokens = estimateTokens(text);
   const over = () => tokens > maxTokens;
@@ -3710,6 +3727,21 @@ function renderSlice(graph, w, opts = {}) {
   while (over() && noteLines.length) {
     noteLines.pop();
     dropped.push("note");
+    recount();
+  }
+  if (over() && inheritedLines.length) {
+    inheritedLines = [`  also   ${inherited.length} proposed on ${inheritedFrom}  (ctx why)`];
+    dropped.push("inherited ids");
+    recount();
+  }
+  if (over() && inheritedLines.length) {
+    inheritedLines = [];
+    dropped.push("inherited");
+    recount();
+  }
+  if (over() && ownProposed.length && proposedLines.length > 1) {
+    proposedLines = [`  must?  ${ownProposed.length} proposed: ${ownProposed.map((k) => k.id).join(", ")}  (ctx why <id> for the text)`];
+    dropped.push("proposed text");
     recount();
   }
   if (over()) warnings.push(`enforced and guided constraints alone exceed the ${maxTokens}-token budget at ${w.path}; the graph is too fine-grained at this node`);
@@ -4302,9 +4334,9 @@ async function hydrate(ctx, scopeIn, opts = {}) {
       groups.set(sig, [...groups.get(sig) ?? [], w]);
     }
     return [...groups.values()].map((ws) => {
-      if (ws.length === 1) return renderSlice(g, ws[0], { maxTokens: ctx.config.maxTokens }).text;
+      if (ws.length === 1) return renderSlice(g, ws[0], { maxTokens: ctx.config.maxTokens, proposed: "full" }).text;
       const rep = { ...ws[0], decisions: [] };
-      const [, ...rest] = renderSlice(g, rep, { maxTokens: ctx.config.maxTokens }).text.split("\n");
+      const [, ...rest] = renderSlice(g, rep, { maxTokens: ctx.config.maxTokens, proposed: "full" }).text.split("\n");
       const last = ws.flatMap((w) => w.decisions.map((d) => `  last   ${basename(w.path)}  ${d.id} ${d.date.slice(5)} ${d.who}  ${d.overrides ? `!${d.overrides}  ` : ""}${d.text}  (${d.sha === "-" ? `${d.branch} provisional` : d.sha})`));
       return [`edit ${ws.map((w) => short(w.path)).join(", ")}  (same chain and rules)`, ...rest, ...last.slice(0, ctx.config.maxDecisions)].join("\n");
     });

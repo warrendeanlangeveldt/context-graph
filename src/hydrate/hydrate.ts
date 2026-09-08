@@ -69,10 +69,10 @@ export async function hydrate(ctx: RepoContext, scopeIn: string, opts: HydrateOp
       groups.set(sig, [...(groups.get(sig) ?? []), w]);
     }
     return [...groups.values()].map((ws) => {
-      if (ws.length === 1) return renderSlice(g, ws[0]!, { maxTokens: ctx.config.maxTokens }).text;
+      if (ws.length === 1) return renderSlice(g, ws[0]!, { maxTokens: ctx.config.maxTokens, proposed: 'full' }).text;
       // One slice for the group, then each file's own latest decisions, named by file.
       const rep: WalkResult = { ...ws[0]!, decisions: [] };
-      const [, ...rest] = renderSlice(g, rep, { maxTokens: ctx.config.maxTokens }).text.split('\n');
+      const [, ...rest] = renderSlice(g, rep, { maxTokens: ctx.config.maxTokens, proposed: 'full' }).text.split('\n');
       const last = ws.flatMap((w) => w.decisions.map((d) => `  last   ${basename(w.path)}  ${d.id} ${d.date.slice(5)} ${d.who}  ${d.overrides ? `!${d.overrides}  ` : ''}${d.text}  (${d.sha === '-' ? `${d.branch} provisional` : d.sha})`));
       return [`edit ${ws.map((w) => short(w.path)).join(', ')}  (same chain and rules)`, ...rest, ...last.slice(0, ctx.config.maxDecisions)].join('\n');
     });
