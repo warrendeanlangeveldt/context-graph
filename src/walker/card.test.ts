@@ -18,7 +18,7 @@ K R core.note L:core a note that never appears on a card
 M ** L:repo
 L L:repo Repo
 E L:core in L:repo
-K E repo.wide L:repo a repository-wide enforced rule that every file inherits
+K E repo.wide L:repo a repository-wide enforced rule that every file inherits test:test/repo.test.ts
 K G? repo.guess L:repo a repository-wide guess
 `;
 
