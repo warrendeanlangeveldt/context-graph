@@ -25,6 +25,7 @@ import { ctxHome, repoHash } from '../util/paths.js';
 import { renderSlice } from '../walker/slice.js';
 import { walk } from '../walker/walk.js';
 import { extraCommands } from './commands.js';
+import { formatDoctor, runDoctor } from './doctor.js';
 
 const USAGE = `ctx — Context Graph
 
@@ -44,6 +45,7 @@ Graph
 Observation
   ctx pending [--session <id>]                     nodes owing a decision
   ctx coverage [--session <id>]                    coverage records for a session
+  ctx doctor                                       is Context Graph working here; names the missing link if not
   ctx sessions                                     observed sessions for this repository
   ctx replay <transcript> [--harness auto|claude-code|codex]
   ctx parse-shell "<command>" [--cwd <dir>]
@@ -157,7 +159,7 @@ async function main(): Promise<number> {
       const scope = args.positional.join(' ').trim();
       if (!scope) throw new Error('ctx hydrate <file | L:module | C:concept | task description>');
       const budget = args.flags.budget !== undefined ? Number(args.flags.budget) : undefined;
-      const h = await hydrate(ctx, scope, { ...(budget ? { budget } : {}), record: args.flags['no-record'] !== true, cwd: process.cwd() });
+      const h = await hydrate(ctx, scope, { ...(budget ? { budget } : {}), record: args.flags['no-record'] !== true, cwd: process.cwd(), session: process.env.CLAUDE_SESSION_ID ?? process.env.CTX_SESSION ?? 'cli', harness: 'cli' });
       if (json) console.log(JSON.stringify(h, null, 2));
       else { console.log(h.text); if (h.dropped.length) console.error(`dropped under budget: ${h.dropped.join(', ')}`); }
       return 0;
@@ -264,6 +266,14 @@ async function main(): Promise<number> {
         console.log(`${c.path}\n  slice ${c.slice_injected ? 'injected' : 'absent'}  callers ${c.callers_loaded}/${c.callers_total}  dark ${c.dark.length}${c.summarized_since ? '  summarized-since' : ''}\n  ${loadedModes || '(nothing loaded)'}`);
       }
       return 0;
+    }
+
+    case 'doctor': {
+      const ctx = openFromArgs(args);
+      const lines = runDoctor(ctx);
+      if (json) console.log(JSON.stringify(lines, null, 2));
+      else console.log(formatDoctor(lines));
+      return lines.some((l) => l.level === 'fail') ? 1 : 0;
     }
 
     case 'sessions': {

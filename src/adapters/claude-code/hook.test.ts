@@ -105,7 +105,7 @@ describe('Claude Code hook adapter, end to end on a temporary repository', () =>
 
   it('injects a slice before an edit, observes the edit with coverage, then demands a decision at Stop', async () => {
     const start = await runClaudeHook({ ...base(), hook_event_name: 'SessionStart', start_reason: 'startup' });
-    expect(start.stdout).toContain('Context Graph is active');
+    expect(start.stdout).toMatch(/Context Graph \S+ is active/);
     expect(start.stdout).toContain('bb = api/src/core/orch/bb.ts');
 
     await runClaudeHook({ ...base(), hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { command: 'grep -rn applyEvent api/src' } });

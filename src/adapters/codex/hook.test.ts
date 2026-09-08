@@ -43,7 +43,7 @@ describe('Codex hook adapter', () => {
     const start = await runCodexHook({ ...base, hook_event_name: 'SessionStart', source: 'startup' });
     const startOut = JSON.parse(start.stdout!) as { hookSpecificOutput: { hookEventName: string; additionalContext: string } };
     expect(startOut.hookSpecificOutput.hookEventName).toBe('SessionStart');
-    expect(startOut.hookSpecificOutput.additionalContext).toContain('Context Graph is active');
+    expect(startOut.hookSpecificOutput.additionalContext).toMatch(/Context Graph \S+ is active/);
 
     await runCodexHook({ ...base, hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { command: 'cat api/src/core/a.ts' } });
 

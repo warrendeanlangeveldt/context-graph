@@ -130,6 +130,14 @@ It returns, in this order: the slice for each file (one per distinct chain, so a
 
 The same tool is `hydrate` on the MCP server. Every call is observed: a `reach` event, and a `range` touch for each caller whose lines were returned, because that content did enter context. To hydrate automatically for the files and module ids a prompt names outright, set `hydrate_on_prompt = true` under `[slice]` in `config.toml` (`hydrate_budget` bounds it). It is off by default because it spends tokens on every prompt.
 
+## Is it working?
+
+```sh
+ctx doctor
+```
+
+One line per link in the chain: the graph and its ratifiers, the instruction block, the installed plugin version against the source, running Claude Code processes that started before the plugin was installed or updated (they never loaded its hooks and look exactly like a plugin that is not wired; exit them and start again with `claude --resume`), which sessions the hooks fired in during the last 24 hours with their edit, slice, and card counts, whether ctx was only reached from the shell, and whether `ctx serve` is up. The session-start text also carries the plugin version, so asking a session what Context Graph said at start answers the same question from inside.
+
 ## Record and inspect decisions
 
 ```sh

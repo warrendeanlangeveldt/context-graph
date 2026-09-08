@@ -9,6 +9,7 @@ import { ObservationStore, SessionState } from '../observe/store.js';
 import { Recorder } from '../record/recorder.js';
 import { currentBranch, gitPerson } from '../util/git.js';
 import { toAbsolute, toRepoRelative } from '../util/paths.js';
+import { packageRoot } from '../util/root.js';
 import { renderCard } from '../walker/card.js';
 import { renderSlice } from '../walker/slice.js';
 import { walk, type WalkResult } from '../walker/walk.js';
@@ -337,6 +338,13 @@ function intentOf(ti: Record<string, unknown>): string | undefined {
   return undefined;
 }
 
+let versionCache: string | undefined;
+function ctxVersion(): string {
+  if (versionCache) return versionCache;
+  try { versionCache = (JSON.parse(readFileSync(join(packageRoot(), 'package.json'), 'utf8')) as { version?: string }).version ?? ''; } catch { versionCache = ''; }
+  return versionCache;
+}
+
 /** Files and module ids a prompt names outright. Only those: guessing from prose belongs to an explicit hydrate call. */
 export function promptScopes(ctx: RepoContext, prompt: string, cwd: string): string[] {
   const g = ctx.graph;
@@ -364,7 +372,7 @@ export function sessionContext(ctx: RepoContext, injecting: boolean, afterCompac
   const lines: string[] = [];
   lines.push(
     injecting
-      ? `Context Graph is active for this repository${afterCompact ? ' (context was compacted; slices will re-arrive at each edit)' : ''}. A context slice is injected before each file edit made with the edit tools. Before editing a file through the shell, run: ctx slice <path>. Before working on a file, module, or task you have not read this session, call the MCP tool hydrate (shell: ctx hydrate <scope>): it returns the slice, the callers with the lines that use the file, the rules with their decision history, and what this session already holds, in one bounded briefing. When a turn ends with edited files that carry constraints, you will be asked to record one decision per file (MCP tool: record; shell: ctx record).`
+      ? `Context Graph ${ctxVersion()} is active for this repository${afterCompact ? ' (context was compacted; slices will re-arrive at each edit)' : ''}. A context slice is injected before each file edit made with the edit tools. Before editing a file through the shell, run: ctx slice <path>. Before working on a file, module, or task you have not read this session, call the MCP tool hydrate (shell: ctx hydrate <scope>): it returns the slice, the callers with the lines that use the file, the rules with their decision history, and what this session already holds, in one bounded briefing. When a turn ends with edited files that carry constraints, you will be asked to record one decision per file (MCP tool: record; shell: ctx record).`
       : 'Context Graph: observe-only for this session. Reads and edits are recorded; nothing is injected and no decisions are demanded.',
   );
   const aliases = [...g.aliases.values()];

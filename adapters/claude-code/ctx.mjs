@@ -3551,6 +3551,39 @@ var init_recorder = __esm({
   }
 });
 
+// src/util/root.ts
+import { existsSync as existsSync7, readFileSync as readFileSync6 } from "node:fs";
+import { dirname as dirname3, join as join6, resolve as resolve5 } from "node:path";
+import { fileURLToPath } from "node:url";
+function packageRoot(from = fileURLToPath(import.meta.url)) {
+  if (cached) return cached;
+  let dir = dirname3(from);
+  for (; ; ) {
+    const pkg = join6(dir, "package.json");
+    if (existsSync7(pkg)) {
+      try {
+        const j = JSON.parse(readFileSync6(pkg, "utf8"));
+        if (j.contextGraph) {
+          cached = dir;
+          return dir;
+        }
+      } catch {
+      }
+    }
+    const parent = dirname3(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  cached = resolve5(dirname3(from));
+  return cached;
+}
+var cached;
+var init_root = __esm({
+  "src/util/root.ts"() {
+    "use strict";
+  }
+});
+
 // src/util/tokens.ts
 function estimateTokens(text) {
   return Math.ceil(text.length / 3.8);
@@ -3682,13 +3715,13 @@ var init_slice = __esm({
 });
 
 // src/overlay/client.ts
-import { existsSync as existsSync7, readFileSync as readFileSync6 } from "node:fs";
-import { join as join6 } from "node:path";
+import { existsSync as existsSync8, readFileSync as readFileSync7 } from "node:fs";
+import { join as join7 } from "node:path";
 function localServer() {
-  const f = join6(ctxHome(), "serve.json");
-  if (!existsSync7(f)) return void 0;
+  const f = join7(ctxHome(), "serve.json");
+  if (!existsSync8(f)) return void 0;
   try {
-    const j = JSON.parse(readFileSync6(f, "utf8"));
+    const j = JSON.parse(readFileSync7(f, "utf8"));
     if (j.port && j.pid && alive(j.pid)) return j;
   } catch {
   }
@@ -3852,7 +3885,7 @@ var init_chunker = __esm({
 });
 
 // src/embed/provider.ts
-import { join as join7 } from "node:path";
+import { join as join8 } from "node:path";
 function makeProvider(cfg) {
   const spec = cfg.provider;
   if (spec === "minilm") return onnx(MINILM, spec);
@@ -3874,7 +3907,7 @@ function onnx(model, id) {
         } catch {
           throw new Error("in-process embeddings need the @huggingface/transformers package; install the context-graph npm package (it is a dependency there), or choose local:<model> or openai:<model> in [embed] provider");
         }
-        mod.env.cacheDir = join7(ctxHome(), "models");
+        mod.env.cacheDir = join8(ctxHome(), "models");
         mod.env.allowLocalModels = true;
         const pipe2 = await mod.pipeline("feature-extraction", model, { dtype: "q8" });
         return pipe2;
@@ -3952,7 +3985,7 @@ var init_provider = __esm({
 
 // src/embed/store.ts
 import { mkdirSync as mkdirSync3 } from "node:fs";
-import { dirname as dirname3 } from "node:path";
+import { dirname as dirname4 } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 var SqliteVectorStore;
 var init_store2 = __esm({
@@ -3962,7 +3995,7 @@ var init_store2 = __esm({
     SqliteVectorStore = class {
       constructor(file) {
         this.file = file;
-        if (file !== ":memory:") mkdirSync3(dirname3(file), { recursive: true });
+        if (file !== ":memory:") mkdirSync3(dirname4(file), { recursive: true });
         this.db = new DatabaseSync(file);
         this.db.exec(`CREATE TABLE IF NOT EXISTS chunks (
       id TEXT PRIMARY KEY, kind TEXT NOT NULL, ref TEXT NOT NULL, path TEXT, start INTEGER, end INTEGER,
@@ -4043,15 +4076,15 @@ var init_store2 = __esm({
 
 // src/embed/index.ts
 import { createHash as createHash2 } from "node:crypto";
-import { existsSync as existsSync8, readFileSync as readFileSync7 } from "node:fs";
-import { join as join8 } from "node:path";
+import { existsSync as existsSync9, readFileSync as readFileSync8 } from "node:fs";
+import { join as join9 } from "node:path";
 function storeFile(root, providerId) {
   const safe = providerId.replace(/[^A-Za-z0-9_.-]/g, "_");
-  return join8(ctxHome(), "embed", `${repoHash(root)}.${safe}.sqlite`);
+  return join9(ctxHome(), "embed", `${repoHash(root)}.${safe}.sqlite`);
 }
 function openStore(ctx) {
   const f = storeFile(ctx.root, ctx.config.embed.provider);
-  return existsSync8(f) ? new SqliteVectorStore(f) : void 0;
+  return existsSync9(f) ? new SqliteVectorStore(f) : void 0;
 }
 async function buildEmbedIndex(ctx, opts = {}) {
   const log = opts.log ?? (() => void 0);
@@ -4130,7 +4163,7 @@ ${chunk.text}` : chunk.text });
     if (!isCode && !isDoc) continue;
     let content;
     try {
-      content = readFileSync7(toAbsolute(ctx.root, f), "utf8");
+      content = readFileSync8(toAbsolute(ctx.root, f), "utf8");
     } catch {
       continue;
     }
@@ -4238,8 +4271,8 @@ var init_hints = __esm({
 });
 
 // src/hydrate/hydrate.ts
-import { existsSync as existsSync9, readFileSync as readFileSync8 } from "node:fs";
-import { basename, dirname as dirname4, isAbsolute as isAbsolute3, join as join9, resolve as resolve5 } from "node:path";
+import { existsSync as existsSync10, readFileSync as readFileSync9 } from "node:fs";
+import { basename, dirname as dirname5, isAbsolute as isAbsolute3, join as join10, resolve as resolve6 } from "node:path";
 async function hydrate(ctx, scopeIn, opts = {}) {
   const g = ctx.graph;
   if (!g) throw new Error(`no graph for ${ctx.root}; hydrate needs one`);
@@ -4400,7 +4433,7 @@ async function resolveScope(ctx, scope, index, events, opts) {
   const maxFiles = opts.maxFiles ?? 6;
   const trimmed = scope.trim();
   const asPath = normalisePath(ctx, trimmed, opts.cwd);
-  if (asPath && (existsSync9(toAbsolute(ctx.root, asPath)) || index.imports[asPath])) return { files: [asPath], reason: "a file" };
+  if (asPath && (existsSync10(toAbsolute(ctx.root, asPath)) || index.imports[asPath])) return { files: [asPath], reason: "a file" };
   const loaded = loadedByPath(events);
   const rank = (fs) => fs.map((f) => ({ f, touched: loaded[f] ? 1 : 0, callers: callersOf(index, f).length, test: isTestFile(f) ? 1 : 0 })).sort((a, b) => a.test - b.test || b.touched - a.touched || b.callers - a.callers).map((x) => x.f);
   if (trimmed.startsWith("L:") && g.logicals.has(trimmed)) {
@@ -4419,13 +4452,13 @@ async function resolveScope(ctx, scope, index, events, opts) {
   for (const raw of trimmed.split(/[\s,;()"'`]+/)) {
     const tok = raw.replace(/[:.]+$/, "");
     const p = normalisePath(ctx, tok, opts.cwd);
-    if (p && (existsSync9(toAbsolute(ctx.root, p)) || index.imports[p]) && !named.includes(p)) named.push(p);
+    if (p && (existsSync10(toAbsolute(ctx.root, p)) || index.imports[p]) && !named.includes(p)) named.push(p);
   }
   if (named.length) return { files: named.slice(0, maxFiles), reason: "the files the task names" };
   if (ctx.config.embed.enabled) {
     try {
       const hits = await retrieveHits(ctx, trimmed, 12, 3e3);
-      const fs = [...new Set(hits.map((h) => h.path).filter((p) => Boolean(p) && (index.imports[p] !== void 0 || existsSync9(toAbsolute(ctx.root, p)))))];
+      const fs = [...new Set(hits.map((h) => h.path).filter((p) => Boolean(p) && (index.imports[p] !== void 0 || existsSync10(toAbsolute(ctx.root, p)))))];
       if (fs.length) return { files: fs.slice(0, maxFiles), reason: "the files nearest the task in the index" };
     } catch {
     }
@@ -4444,14 +4477,14 @@ function normalisePath(ctx, p, cwd) {
   if (!p || p.startsWith("L:") || p.startsWith("C:") || /^https?:/.test(p)) return void 0;
   if (!/[/.]/.test(p)) return void 0;
   if (isAbsolute3(p)) return toRepoRelative(ctx.root, p);
-  if (existsSync9(join9(ctx.root, p))) return p;
-  if (cwd && existsSync9(resolve5(cwd, p))) return toRepoRelative(ctx.root, resolve5(cwd, p));
+  if (existsSync10(join10(ctx.root, p))) return p;
+  if (cwd && existsSync10(resolve6(cwd, p))) return toRepoRelative(ctx.root, resolve6(cwd, p));
   return p;
 }
 function referenceLines(root, caller, target, cap = 6) {
   let src;
   try {
-    src = readFileSync8(toAbsolute(root, caller), "utf8");
+    src = readFileSync9(toAbsolute(root, caller), "utf8");
   } catch {
     return [];
   }
@@ -4465,7 +4498,7 @@ function referenceLines(root, caller, target, cap = 6) {
     if (!m) continue;
     const spec = m[1] ?? m[2] ?? m[3] ?? "";
     if (!spec.startsWith(".")) continue;
-    const resolved = resolve5("/", dirname4(caller), spec).slice(1).replace(/\.(js|jsx|mjs|cjs|ts|tsx|mts|cts)$/, "");
+    const resolved = resolve6("/", dirname5(caller), spec).slice(1).replace(/\.(js|jsx|mjs|cjs|ts|tsx|mts|cts)$/, "");
     const hit = resolved === targetBase || EXTS2.some((e) => resolved + e === target) || resolved + "/index" === targetBase;
     if (!hit) continue;
     out.push({ n: i + 1, text: l.trim() });
@@ -4562,8 +4595,8 @@ var init_hydrate = __esm({
 });
 
 // src/adapters/core.ts
-import { existsSync as existsSync10, readFileSync as readFileSync9, statSync as statSync3 } from "node:fs";
-import { join as join10, resolve as resolve6 } from "node:path";
+import { existsSync as existsSync11, readFileSync as readFileSync10, statSync as statSync3 } from "node:fs";
+import { join as join11, resolve as resolve7 } from "node:path";
 async function runHook(input, profile) {
   const ctx = openRepo({ cwd: input.cwd });
   const root = ctx.root;
@@ -4763,7 +4796,7 @@ ${sessionContext(ctx, injecting, false)}` : void 0;
 function walkablePath(root, p) {
   if (p === "." || p === "") return "_";
   try {
-    if (statSync3(join10(root, p)).isDirectory()) return `${p}/_`;
+    if (statSync3(join11(root, p)).isDirectory()) return `${p}/_`;
   } catch {
   }
   return p;
@@ -4787,9 +4820,9 @@ function decideArm(ctx, state) {
 }
 function readRepoFile(root, path) {
   const abs = toAbsolute(root, path);
-  if (!existsSync10(abs)) return void 0;
+  if (!existsSync11(abs)) return void 0;
   try {
-    return readFileSync9(abs, "utf8");
+    return readFileSync10(abs, "utf8");
   } catch {
     return void 0;
   }
@@ -4818,6 +4851,15 @@ function intentOf(ti) {
   for (const c of candidates) if (typeof c === "string" && c.trim()) return c.slice(0, 500);
   return void 0;
 }
+function ctxVersion() {
+  if (versionCache) return versionCache;
+  try {
+    versionCache = JSON.parse(readFileSync10(join11(packageRoot(), "package.json"), "utf8")).version ?? "";
+  } catch {
+    versionCache = "";
+  }
+  return versionCache;
+}
 function promptScopes(ctx, prompt, cwd) {
   const g = ctx.graph;
   if (!g) return [];
@@ -4830,8 +4872,8 @@ function promptScopes(ctx, prompt, cwd) {
       continue;
     }
     if (!/[\/.]/.test(tok) || /^https?:/.test(tok)) continue;
-    const abs = tok.startsWith("/") ? tok : resolve6(cwd, tok);
-    if (!existsSync10(abs) || !statSync3(abs).isFile()) continue;
+    const abs = tok.startsWith("/") ? tok : resolve7(cwd, tok);
+    if (!existsSync11(abs) || !statSync3(abs).isFile()) continue;
     const rel = toRepoRelative(ctx.root, abs, cwd);
     if (!out.includes(rel)) out.push(rel);
   }
@@ -4844,7 +4886,7 @@ function sessionContext(ctx, injecting, afterCompact) {
   }
   const lines = [];
   lines.push(
-    injecting ? `Context Graph is active for this repository${afterCompact ? " (context was compacted; slices will re-arrive at each edit)" : ""}. A context slice is injected before each file edit made with the edit tools. Before editing a file through the shell, run: ctx slice <path>. Before working on a file, module, or task you have not read this session, call the MCP tool hydrate (shell: ctx hydrate <scope>): it returns the slice, the callers with the lines that use the file, the rules with their decision history, and what this session already holds, in one bounded briefing. When a turn ends with edited files that carry constraints, you will be asked to record one decision per file (MCP tool: record; shell: ctx record).` : "Context Graph: observe-only for this session. Reads and edits are recorded; nothing is injected and no decisions are demanded."
+    injecting ? `Context Graph ${ctxVersion()} is active for this repository${afterCompact ? " (context was compacted; slices will re-arrive at each edit)" : ""}. A context slice is injected before each file edit made with the edit tools. Before editing a file through the shell, run: ctx slice <path>. Before working on a file, module, or task you have not read this session, call the MCP tool hydrate (shell: ctx hydrate <scope>): it returns the slice, the callers with the lines that use the file, the rules with their decision history, and what this session already holds, in one bounded briefing. When a turn ends with edited files that carry constraints, you will be asked to record one decision per file (MCP tool: record; shell: ctx record).` : "Context Graph: observe-only for this session. Reads and edits are recorded; nothing is injected and no decisions are demanded."
   );
   const aliases = [...g.aliases.values()];
   if (aliases.length) lines.push("Aliases: " + aliases.map((a) => `${a.alias} = ${a.node}`).join("; "));
@@ -4854,7 +4896,7 @@ function sessionContext(ctx, injecting, afterCompact) {
   if (concepts.length) lines.push("Concepts: " + concepts.join("; "));
   return lines.join("\n");
 }
-var TEST_RUN;
+var TEST_RUN, versionCache;
 var init_core = __esm({
   "src/adapters/core.ts"() {
     "use strict";
@@ -4867,6 +4909,7 @@ var init_core = __esm({
     init_recorder();
     init_git();
     init_paths();
+    init_root();
     init_card();
     init_slice();
     init_walk();
@@ -5108,39 +5151,6 @@ var init_hook2 = __esm({
     init_patch();
     init_shell();
     init_core();
-  }
-});
-
-// src/util/root.ts
-import { existsSync as existsSync11, readFileSync as readFileSync10 } from "node:fs";
-import { dirname as dirname5, join as join11, resolve as resolve7 } from "node:path";
-import { fileURLToPath } from "node:url";
-function packageRoot(from = fileURLToPath(import.meta.url)) {
-  if (cached) return cached;
-  let dir = dirname5(from);
-  for (; ; ) {
-    const pkg = join11(dir, "package.json");
-    if (existsSync11(pkg)) {
-      try {
-        const j = JSON.parse(readFileSync10(pkg, "utf8"));
-        if (j.contextGraph) {
-          cached = dir;
-          return dir;
-        }
-      } catch {
-      }
-    }
-    const parent = dirname5(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  cached = resolve7(dirname5(from));
-  return cached;
-}
-var cached;
-var init_root = __esm({
-  "src/util/root.ts"() {
-    "use strict";
   }
 });
 
@@ -34050,9 +34060,137 @@ var init_commands = __esm({
   }
 });
 
+// src/cli/doctor.ts
+import { execFileSync as execFileSync4 } from "node:child_process";
+import { existsSync as existsSync24, readFileSync as readFileSync22, readdirSync as readdirSync7, statSync as statSync5 } from "node:fs";
+import { homedir as homedir3 } from "node:os";
+import { join as join24 } from "node:path";
+function runDoctor(ctx, opts = {}) {
+  const out = [];
+  const now = opts.now ?? Date.now();
+  const claudeDir = opts.claudeDir ?? process.env.CLAUDE_CONFIG_DIR ?? join24(homedir3(), ".claude");
+  const sourceVersion = readVersion(join24(packageRoot(), "package.json"));
+  const g = ctx.graph;
+  if (!g) out.push({ level: "fail", text: `no graph for ${ctx.root}: run ctx init --write (or ctx link a graph kept elsewhere); hooks observe but inject nothing` });
+  else {
+    const ks = [...g.constraints.values()];
+    const proposed = ks.filter((k) => k.mode === "G?").length;
+    out.push({ level: "ok", text: `graph at ${ctx.graphDir}: ${g.logicals.size} modules, ${ks.length} rules (${proposed} proposed), ${g.decisions.size} decisions` });
+    if (!ctx.config.ratifiers.length) out.push({ level: "warn", text: "ratifiers is empty in config.toml, so nothing proposed can ever be ratified; add your git identity" });
+    if (ks.length && proposed === ks.length && !g.decisions.size) out.push({ level: "warn", text: "every rule is still proposed and no decision has been recorded: the graph has not started earning its content yet" });
+  }
+  const ins = ["AGENTS.md", "CLAUDE.md"].find((f) => existsSync24(join24(ctx.root, f)));
+  if (!ins) out.push({ level: "warn", text: "no AGENTS.md or CLAUDE.md: the agent is never told to hydrate before reading; ctx install instructions writes the block once one exists" });
+  else if (!readFileSync22(join24(ctx.root, ins), "utf8").includes(INSTRUCTION_HEADING)) out.push({ level: "warn", text: `${ins} lacks the Context Graph block: run ctx install instructions` });
+  else out.push({ level: "ok", text: `${ins} carries the Context Graph block` });
+  let installedAt;
+  const installed = readJson(join24(claudeDir, "plugins", "installed_plugins.json"));
+  const entry = installed?.plugins?.["context-graph@context-graph"]?.[0];
+  if (!entry) out.push({ level: "warn", text: "Claude Code plugin not installed (no context-graph@context-graph in installed_plugins.json); /plugin marketplace add <path> then /plugin install context-graph@context-graph" });
+  else {
+    installedAt = Date.parse(entry.lastUpdated ?? entry.installedAt ?? "") || void 0;
+    const settings = readJson(join24(claudeDir, "settings.json"));
+    const enabled = settings?.enabledPlugins?.["context-graph@context-graph"];
+    if (enabled === false) out.push({ level: "fail", text: "Claude Code plugin is installed but disabled in settings.json" });
+    const hooksFile = entry.installPath ? join24(entry.installPath, "hooks", "hooks.json") : void 0;
+    const hooks = hooksFile ? readJson(hooksFile) : void 0;
+    const pre = hooks?.hooks?.PreToolUse?.map((h) => h.matcher).join("|") ?? "";
+    const stale = sourceVersion && entry.version && entry.version !== sourceVersion;
+    out.push({ level: stale ? "warn" : "ok", text: `Claude Code plugin ${entry.version ?? "?"} installed${stale ? ` but the source is ${sourceVersion}: /plugin marketplace update context-graph, then /plugin update context-graph@context-graph` : ""}${hooks ? `; hooks: ${Object.keys(hooks.hooks ?? {}).join(", ")}` : "; hooks.json not found in the installed copy"}` });
+    if (hooks && !/Read/.test(pre)) out.push({ level: "info", text: "installed pre-hook covers edits only; module cards on first read arrive with 0.1.6 or later" });
+  }
+  const procs = opts.processes ?? listClaudeProcesses();
+  if (installedAt && procs.length) {
+    const old = procs.filter((p) => p.started < installedAt);
+    if (old.length) out.push({ level: "fail", text: `${old.length} of ${procs.length} running Claude Code session${procs.length === 1 ? "" : "s"} started before the plugin was installed or last updated (${new Date(installedAt).toLocaleString()}) and never loaded its hooks: exit each and start it again with claude --resume (pids ${old.map((p) => p.pid).join(", ")})` });
+    else out.push({ level: "ok", text: `${procs.length} running Claude Code session${procs.length === 1 ? "" : "s"}, all started after the plugin was installed` });
+  }
+  const obsDir = join24(ctxHome(), "observations", repoHash(ctx.root));
+  const dayAgo = now - 24 * 36e5;
+  const recent = [];
+  if (existsSync24(obsDir)) {
+    for (const f of readdirSync7(obsDir).filter((x) => x.endsWith(".jsonl"))) {
+      const file = join24(obsDir, f);
+      if (statSync5(file).mtimeMs < dayAgo) continue;
+      const row = { session: f.replace(/\.jsonl$/, ""), harness: /* @__PURE__ */ new Set(), events: 0, last: 0, edits: 0, slices: 0, cards: 0 };
+      for (const line of readFileSync22(file, "utf8").split("\n")) {
+        if (!line.trim()) continue;
+        try {
+          const e = JSON.parse(line);
+          row.events++;
+          row.harness.add(e.harness);
+          row.last = Math.max(row.last, Date.parse(e.ts) || 0);
+          if (e.t === "edit") row.edits++;
+          if (e.t === "slice") row.slices++;
+          if (e.t === "card") row.cards++;
+        } catch {
+        }
+      }
+      recent.push(row);
+    }
+  }
+  const hooked = recent.filter((r) => [...r.harness].some((h) => h === "claude-code" || h === "codex"));
+  const shellOnly = recent.filter((r) => !hooked.includes(r) && r.events);
+  if (!recent.length) out.push({ level: "warn", text: "no observations for this repository in the last 24 hours: no hook has fired here" });
+  else {
+    if (hooked.length) out.push({ level: "ok", text: `hooks fired in ${hooked.length} session${hooked.length === 1 ? "" : "s"} in the last 24 hours: ${hooked.sort((a, b) => b.last - a.last).slice(0, 3).map((r) => `${r.session.slice(0, 8)} (${r.events} events, ${r.edits} edits, ${r.slices} slices, ${r.cards} cards, last ${ago(now - r.last)} ago)`).join("; ")}` });
+    else out.push({ level: "fail", text: "no hook has fired here in the last 24 hours, though ctx was used" });
+    if (shellOnly.length) out.push({ level: "info", text: `ctx used from the shell or MCP without hooks: ${shellOnly.map((r) => `${r.session} (${r.events} events)`).join(", ")}; that is the instruction block working while the hooks are not` });
+  }
+  const srv = localServer();
+  if (!srv) out.push({ level: "info", text: "no ctx serve running: hooks still record to files; start it for the live view and warm hints" });
+  else out.push({ level: "ok", text: `ctx serve on http://127.0.0.1:${srv.port} (pid ${srv.pid}); the view lists sessions as they fire` });
+  return out;
+}
+function formatDoctor(lines) {
+  const mark = { ok: "ok  ", warn: "warn", fail: "FAIL", info: "info" };
+  return lines.map((l) => `${mark[l.level]}  ${l.text}`).join("\n");
+}
+function readJson(file) {
+  try {
+    return JSON.parse(readFileSync22(file, "utf8"));
+  } catch {
+    return void 0;
+  }
+}
+function readVersion(file) {
+  return readJson(file)?.version;
+}
+function ago(ms) {
+  const m = Math.round(ms / 6e4);
+  return m < 60 ? `${m}m` : m < 1440 ? `${Math.floor(m / 60)}h` : `${Math.floor(m / 1440)}d`;
+}
+function listClaudeProcesses() {
+  try {
+    const text = execFileSync4("ps", ["-eo", "pid=,lstart=,command="], { encoding: "utf8" });
+    const out = [];
+    for (const line of text.split("\n")) {
+      const m = /^\s*(\d+)\s+(\w{3}\s+\w{3}\s+\d+\s+[\d:]+\s+\d{4})\s+(.*)$/.exec(line);
+      if (!m) continue;
+      const command = m[3];
+      if (!/(^|\/)claude(\s|$)/.test(command) || /claude-in-chrome|Claude\.app|Helper/.test(command)) continue;
+      const started = Date.parse(m[2]);
+      if (!Number.isFinite(started)) continue;
+      out.push({ pid: Number(m[1]), started, command });
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+var init_doctor = __esm({
+  "src/cli/doctor.ts"() {
+    "use strict";
+    init_instructions();
+    init_client();
+    init_paths();
+    init_root();
+  }
+});
+
 // src/cli/main.ts
-import { existsSync as existsSync24, lstatSync as lstatSync2, mkdirSync as mkdirSync10, readFileSync as readFileSync22, symlinkSync, unlinkSync as unlinkSync2 } from "node:fs";
-import { join as join24, resolve as resolve12 } from "node:path";
+import { existsSync as existsSync25, lstatSync as lstatSync2, mkdirSync as mkdirSync10, readFileSync as readFileSync23, symlinkSync, unlinkSync as unlinkSync2 } from "node:fs";
+import { join as join25, resolve as resolve12 } from "node:path";
 function parseArgs(argv) {
   const positional = [];
   const flags = {};
@@ -34077,8 +34215,8 @@ function str(v) {
   return typeof v === "string" ? v : void 0;
 }
 function readInput(arg) {
-  if (!arg || arg === "-") return readFileSync22(0, "utf8");
-  return readFileSync22(arg, "utf8");
+  if (!arg || arg === "-") return readFileSync23(0, "utf8");
+  return readFileSync23(arg, "utf8");
 }
 function latestSession(root) {
   return ObservationStore.sessions(root)[0]?.session;
@@ -34139,7 +34277,7 @@ async function main() {
       const scope = args.positional.join(" ").trim();
       if (!scope) throw new Error("ctx hydrate <file | L:module | C:concept | task description>");
       const budget = args.flags.budget !== void 0 ? Number(args.flags.budget) : void 0;
-      const h = await hydrate(ctx, scope, { ...budget ? { budget } : {}, record: args.flags["no-record"] !== true, cwd: process.cwd() });
+      const h = await hydrate(ctx, scope, { ...budget ? { budget } : {}, record: args.flags["no-record"] !== true, cwd: process.cwd(), session: process.env.CLAUDE_SESSION_ID ?? process.env.CTX_SESSION ?? "cli", harness: "cli" });
       if (json) console.log(JSON.stringify(h, null, 2));
       else {
         console.log(h.text);
@@ -34264,6 +34402,13 @@ async function main() {
       }
       return 0;
     }
+    case "doctor": {
+      const ctx = openFromArgs(args);
+      const lines = runDoctor(ctx);
+      if (json) console.log(JSON.stringify(lines, null, 2));
+      else console.log(formatDoctor(lines));
+      return lines.some((l) => l.level === "fail") ? 1 : 0;
+    }
     case "sessions": {
       const ctx = openFromArgs(args);
       const list = ObservationStore.sessions(ctx.root);
@@ -34300,11 +34445,11 @@ async function main() {
       if (!graph) throw new Error("ctx link --graph <dir> [--repo <dir>]");
       const ctx = openRepo({ ...str(args.flags.repo) ? { repo: str(args.flags.repo) } : {} });
       const target = resolve12(graph);
-      if (!existsSync24(join24(target, "graph.ctx"))) throw new Error(`${target} has no graph.ctx`);
-      const linkDir = join24(ctxHome(), "graphs");
+      if (!existsSync25(join25(target, "graph.ctx"))) throw new Error(`${target} has no graph.ctx`);
+      const linkDir = join25(ctxHome(), "graphs");
       mkdirSync10(linkDir, { recursive: true });
-      const link = join24(linkDir, repoHash(ctx.root));
-      if (existsSync24(link) || isSymlink(link)) unlinkSync2(link);
+      const link = join25(linkDir, repoHash(ctx.root));
+      if (existsSync25(link) || isSymlink(link)) unlinkSync2(link);
       symlinkSync(target, link);
       console.log(`${ctx.root}
   -> ${target}
@@ -34425,6 +34570,7 @@ var init_main = __esm({
     init_slice();
     init_walk();
     init_commands();
+    init_doctor();
     USAGE2 = `ctx \u2014 Context Graph
 
 Graph
@@ -34443,6 +34589,7 @@ Graph
 Observation
   ctx pending [--session <id>]                     nodes owing a decision
   ctx coverage [--session <id>]                    coverage records for a session
+  ctx doctor                                       is Context Graph working here; names the missing link if not
   ctx sessions                                     observed sessions for this repository
   ctx replay <transcript> [--harness auto|claude-code|codex]
   ctx parse-shell "<command>" [--cwd <dir>]
