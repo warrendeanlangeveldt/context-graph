@@ -33,7 +33,8 @@ describe('bootstrap, packs, conformance, ratify', () => {
     w('src/infrastructure/repo.ts', "import { db } from './db.js';\nimport { Order } from '../domain/order.js';\nexport const repo = { db, Order };\n");
     w('src/application/cancel-order.ts', "import { Order } from '../domain/order.js';\nexport const cancel = (o: Order): Order => o;\n");
     w('test/architecture.test.ts', "it('domain never imports infrastructure', () => {});\nit('application stays thin', () => {});\n");
-    w('AGENTS.md', '# Rules\n\n- Never commit secrets to the repository, use the resolver.\n- Domain code must not import infrastructure.\n- Prefer small pull requests.\n');
+    w('AGENTS.md', '# Rules\n\n- Never commit secrets to the repository, use the resolver.\n- Code under src/domain/ must not import infrastructure.\n- Prefer small pull requests.\n');
+    w('CONTRIBUTING.md', '# Contributing\n\n- Always run the linter before pushing.\n');
     w('docs/adr/0001-record-decisions.md', '# ADR-0001: Record architecture decisions\n\nStatus: Accepted\n');
     w('docs/adr/0002-old-layering.md', '# ADR-0002: Old layering\n\n**Status:** Superseded by ADR-0003\n');
     w('docs/adr/0003-new-layering.md', '# ADR-0003: New layering\n\nStatus: Accepted\n');
@@ -56,7 +57,8 @@ describe('bootstrap, packs, conformance, ratify', () => {
     expect(arch.map((k) => k.text)).toEqual(['domain never imports infrastructure', 'application stays thin']);
     expect(arch[0]).toMatchObject({ mode: 'G?', test: 'test/architecture.test.ts', since: '2026-09-07' });
     const agent = r.constraints.filter((k) => k.id.startsWith('agent.'));
-    expect(agent.map((k) => k.text)).toEqual(['[AGENTS.md:3] Never commit secrets to the repository, use the resolver.', '[AGENTS.md:4] Domain code must not import infrastructure.']);
+    expect(agent.map((k) => [k.text, k.attachedTo])).toEqual([['[AGENTS.md:4] Code under src/domain/ must not import infrastructure.', 'L:domain'], ['[CONTRIBUTING.md:3] Always run the linter before pushing.', 'L:repo']]);
+    expect(r.notes).toContain('AGENTS.md: 1 imperative line(s) proposed as guided constraints; 1 global line(s) left where the harness already injects them');
     expect(r.concepts.map((c) => c.id).sort()).toEqual(['C:adr-0001', 'C:adr-0002', 'C:adr-0003']);
     expect(r.concepts.find((c) => c.id === 'C:adr-0002')).toMatchObject({ adr: '0002', proposed: true, name: 'Old layering' });
     expect(r.notes.some((n) => n.includes('Superseded'))).toBe(true);
@@ -89,6 +91,22 @@ describe('bootstrap, packs, conformance, ratify', () => {
     expect(notes[0]).toMatchObject({ id: 'hdr.app-api-src-services-scan', attachedTo: 'app/api/src/services/scan.ts' });
     expect(notes[0]!.text).toBe('The canonical scan writer. One writer, because two of them drifted for a year and nobody could say which row was right.');
     expect(Graph.fromRecords(newRecordsOnly(r, undefined)).validate().filter((f) => f.level === 'error')).toEqual([]);
+  });
+
+  it('leaves a curated graph its modules and attaches new rules to them', () => {
+    w('.ctx/graph.ctx', 'M src/domain/** L:dom\nM ** L:root\nL L:dom Domain, curated\nL L:root Root\nE L:dom in L:root\n');
+    w('src/domain/__tests__/no-infra.test.ts', 'describe("domain never reaches infrastructure", () => { it("x", () => {}); });\n');
+    g(['add', '-A']);
+    const ctx = openRepo({ repo });
+    const r = bootstrap(ctx, { minFiles: 1, today: '2026-09-07' });
+    expect(r.mappings).toEqual([]);
+    expect(r.logicals).toEqual([]);
+    expect(r.edges).toEqual([]);
+    expect(r.notes.some((n) => n.includes('already defines 2 modules'))).toBe(true);
+    const arch = r.constraints.filter((k) => k.id.startsWith('arch.'));
+    expect(arch.map((k) => [k.text, k.attachedTo])).toContainEqual(['domain never reaches infrastructure', 'L:dom']);
+    expect(arch.find((k) => k.test === 'test/architecture.test.ts')?.attachedTo).toBe('L:root');
+    expect(r.constraints.find((k) => k.id.startsWith('agent.'))?.attachedTo).toBe('L:dom');
   });
 
   it('binds the ports-and-adapters pack, counts violations, ratifies with legacy decisions, and exports', () => {

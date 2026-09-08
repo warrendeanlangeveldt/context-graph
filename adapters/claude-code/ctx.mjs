@@ -3388,7 +3388,12 @@ function walk(graph, pathIn, opts = {}) {
   return result;
 }
 function demandsDecision(w) {
-  return w.constraints.some((k) => isActiveMode(k) || k.mode === "G?");
+  if (isTestPath(w.path) && !w.constraints.some((k) => k.test && k.test === w.path.split("#")[0])) return false;
+  const root = w.chain.length > 1 ? w.chain[w.chain.length - 1] : void 0;
+  return w.constraints.some((k) => isActiveMode(k) || k.mode === "G?" && k.attachedTo !== root);
+}
+function isTestPath(p) {
+  return /\.(test|spec)\.[cm]?[jt]sx?$|(^|\/)(__tests__|tests?)\//.test(p.split("#")[0]);
 }
 var init_walk = __esm({
   "src/walker/walk.ts"() {
@@ -3536,7 +3541,12 @@ var init_recorder = __esm({
           this.state.save();
           return { block: false, gaveUp };
         }
-        const lines = pending.map((p) => `  ${p.path}${p.symbol ? `#${p.symbol}` : ""}  [${p.constraints.join(", ")}]`);
+        const lines = pending.map((p) => {
+          const active = p.constraints.filter((id) => this.graph.constraints.get(id)?.mode !== "G?");
+          const proposed = p.constraints.length - active.length;
+          const shown = [...active.slice(0, 6), ...active.length > 6 ? [`+${active.length - 6} more`] : [], ...proposed ? [`+${proposed} proposed`] : []];
+          return `  ${p.path}${p.symbol ? `#${p.symbol}` : ""}  [${shown.join(", ")}]`;
+        });
         const proposedOnly = pending.every((p) => p.constraints.every((id) => this.graph.constraints.get(id)?.mode === "G?"));
         const reason = [
           `Context Graph: ${pending.length} edited ${pending.length === 1 ? "file has" : "files have"} constraints and no recorded decision.`,
@@ -27985,15 +27995,26 @@ function bootstrap(ctx, opts = {}) {
     used.add(id);
     return id;
   };
+  const existing = ctx.graph;
+  const curated = Boolean(existing && existing.mappings.some((m) => m.glob !== "**"));
+  if (curated) {
+    notes.push(`the graph already defines ${existing.logicals.size} modules; proposals attach to them and no new modules are proposed`);
+    candidates = [];
+  }
   for (const c of [...candidates].sort((a, b) => a.dir.split("/").length - b.dir.split("/").length || a.dir.localeCompare(b.dir))) ids.set(c.dir, idFor(c.dir));
   for (const c of candidates) {
     const id = ids.get(c.dir);
     mappings.push({ kind: "M", glob: `${c.dir}/**`, logical: id, line: 0 });
     logicals.push({ kind: "L", id, name: `${basename3(c.dir)} (${c.n} source files)`, line: 0 });
   }
-  const rootId = "L:repo";
-  logicals.push({ kind: "L", id: rootId, name: `${basename3(root)} repository`, line: 0 });
-  mappings.push({ kind: "M", glob: "**", logical: rootId, line: 0 });
+  const rootId = curated ? existing.mappings.find((m) => m.glob === "**")?.logical ?? existing.logicals.keys().next().value ?? "L:repo" : "L:repo";
+  if (!curated) {
+    logicals.push({ kind: "L", id: rootId, name: `${basename3(root)} repository`, line: 0 });
+    mappings.push({ kind: "M", glob: "**", logical: rootId, line: 0 });
+  }
+  if (curated) {
+    for (const m of existing.mappings) if (m.glob !== "**" && m.glob.endsWith("/**")) ids.set(m.glob.slice(0, -3), m.logical);
+  }
   const edges = [];
   const parentOf = (dir) => {
     let d = dirname6(dir);
@@ -28007,6 +28028,10 @@ function bootstrap(ctx, opts = {}) {
   for (const c of candidates) edges.push({ kind: "E", from: ids.get(c.dir), rel: "in", to: parentOf(c.dir), line: 0 });
   const index = buildImportIndex(root);
   const moduleOf = (f) => {
+    if (curated) {
+      const m = existing.mapPath(f);
+      return m && m.logical !== rootId ? m.logical : void 0;
+    }
     let d = dirname6(f);
     while (d && d !== ".") {
       const m = ids.get(d);
@@ -28017,6 +28042,7 @@ function bootstrap(ctx, opts = {}) {
   };
   const depCounts = /* @__PURE__ */ new Map();
   for (const [from, targets] of Object.entries(index.imports)) {
+    if (curated) break;
     const a = moduleOf(from);
     if (!a) continue;
     for (const t of targets) {
@@ -28082,20 +28108,34 @@ function bootstrap(ctx, opts = {}) {
     seenReal.add(real);
     return true;
   });
+  const moduleForText = (raw) => {
+    for (const c of [...ids.keys()].map((dir) => ({ dir })).sort((a, b) => b.dir.length - a.dir.length)) {
+      const id = ids.get(c.dir);
+      if (raw.includes(id) || raw.includes(`${c.dir}/`) || raw.includes(`\`${c.dir}\``) || new RegExp(`(^|[\\s\`'"(])${c.dir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(/\\*\\*)?([\\s\`'")]|$)`).test(raw)) return id;
+    }
+    return void 0;
+  };
   for (const f of instructionFiles) {
     const src = safeRead(join15(root, f));
     if (!src) continue;
-    const node = moduleOf(f) ?? (f.includes("/") ? moduleOfDir(ids, dirname6(f)) ?? rootId : rootId);
-    let n = 0;
+    const injected = HARNESS_INJECTED.has(basename3(f)) || HARNESS_INJECTED.has(f);
+    const fallback = moduleOf(f) ?? (f.includes("/") ? moduleOfDir(ids, dirname6(f)) ?? rootId : rootId);
+    let n = 0, skipped = 0;
     const lines = src.split(/\r?\n/);
-    for (let i = 0; i < lines.length && n < 40; i++) {
+    for (let i = 0; i < lines.length && n < MAX_INSTRUCTION_RULES; i++) {
       const raw = lines[i].replace(/^[\s>*-]+/, "").replace(/\*\*/g, "").trim();
       if (raw.length < 24 || raw.length > 220 || raw.startsWith("#") || raw.startsWith("```") || raw.startsWith("|")) continue;
       if (!IMPERATIVE.test(raw)) continue;
+      const anchored = moduleForText(raw);
+      if (!anchored && injected) {
+        skipped++;
+        continue;
+      }
       n++;
-      constraints.push({ kind: "K", mode: "G?", id: `agent.${slug(raw).slice(0, 40)}-${i + 1}`, attachedTo: node, text: `[${f}:${i + 1}] ${raw}`, since: today2, line: 0 });
+      constraints.push({ kind: "K", mode: "G?", id: `agent.${slug(raw).slice(0, 40)}-${i + 1}`, attachedTo: anchored ?? fallback, text: `[${f}:${i + 1}] ${raw}`, since: today2, line: 0 });
     }
-    if (n) notes.push(`${f}: ${n} imperative line(s) proposed as guided constraints`);
+    if (n) notes.push(`${f}: ${n} imperative line(s) proposed as guided constraints${skipped ? `; ${skipped} global line(s) left where the harness already injects them` : ""}`);
+    else if (skipped) notes.push(`${f}: ${skipped} imperative line(s) name no module; left where the harness already injects them`);
   }
   const concepts = [];
   for (const f of files) {
@@ -28165,7 +28205,7 @@ function moduleOfDir(ids, dir) {
   }
   return void 0;
 }
-var CODE_EXT3, NOISE_DIRS, INSTRUCTION_FILES, IMPERATIVE, GENERIC_DIRS, TEST_FILE, ARCH_FILE, RULE_TEXT, STRONG_ARCH_FILE, ruleShaped, RATIONALE;
+var CODE_EXT3, NOISE_DIRS, INSTRUCTION_FILES, HARNESS_INJECTED, MAX_INSTRUCTION_RULES, IMPERATIVE, GENERIC_DIRS, TEST_FILE, ARCH_FILE, RULE_TEXT, STRONG_ARCH_FILE, ruleShaped, RATIONALE;
 var init_bootstrap = __esm({
   "src/init/bootstrap.ts"() {
     "use strict";
@@ -28174,13 +28214,15 @@ var init_bootstrap = __esm({
     CODE_EXT3 = /\.(ts|tsx|js|jsx|mts|cts|mjs|cjs|py|go|rs|java|kt|cs|rb|php|swift)$/;
     NOISE_DIRS = /* @__PURE__ */ new Set(["node_modules", "dist", "build", "out", ".git", "coverage", "__pycache__", ".next", "vendor", "target", "bin", "obj", "test", "tests", "__tests__", "spec", "fixtures", "generated"]);
     INSTRUCTION_FILES = ["AGENTS.md", "CLAUDE.md", ".cursorrules", "CONTRIBUTING.md", "GEMINI.md", ".github/copilot-instructions.md"];
+    HARNESS_INJECTED = /* @__PURE__ */ new Set(["AGENTS.md", "CLAUDE.md", ".cursorrules", "GEMINI.md", ".github/copilot-instructions.md"]);
+    MAX_INSTRUCTION_RULES = 12;
     IMPERATIVE = /\b(never|do not|don't|must|always|only|no\s+\w+|required|forbidden|not allowed)\b/i;
     GENERIC_DIRS = /* @__PURE__ */ new Set(["src", "source", "sources"]);
     TEST_FILE = /\.(test|spec)\.[cm]?[jt]sx?$/i;
     ARCH_FILE = /(boundary|architecture|layering|dependenc|arch-|-arch|\.arch\.|invariant|contract|policy|conventions|(^|\/)(no|never|must|only|rules?|guards?)-[^/]*)[^/]*\.(test|spec)\.[cm]?[jt]sx?$/i;
-    RULE_TEXT = /\b(never|must|may not|cannot|can't|only|does not|do not|no longer|is not allowed|forbidden|no)\b/i;
+    RULE_TEXT = /(?<![-\w])(never|must|may not|cannot|can't|only|does not|do not|no longer|is not allowed|forbidden|no)\b/i;
     STRONG_ARCH_FILE = /(boundary|architecture|layering|\.arch\.|(^|\/)(no|never)-[^/]*)[^/]*\.(test|spec)\.[cm]?[jt]sx?$/i;
-    ruleShaped = (t) => t.length <= 140 && t.split(/\s+/).length <= 22 && !/->|=>|\bbelow\b|\bhere\b|^(So|Two|Three|Both|Neither|Every case|What is|Runs|This|These|Those|It|There)\b/.test(t);
+    ruleShaped = (t) => t.length <= 140 && t.split(/\s+/).length <= 22 && !/->|=>|\bbelow\b|\bhere\b|\btests?\s+[—-]|^(So|Two|Three|Both|Neither|Every case|What is|Runs|This|These|Those|It|There|Prior|Before|After|Previously|Historically|Originally|Once|When|Because|Since|Now)\b/.test(t);
     RATIONALE = /\b(because|so that|so a|so the|so they|there were|there was|used to|instead of|rather than|otherwise|deliberately|on purpose|never|must|one of each|the reason)\b/i;
   }
 });
@@ -28336,7 +28378,10 @@ function detectBindings(pack2, graph, files, overrides = {}) {
         if (m && !found.some((b) => b.logical === m.logical)) found.push({ role, logical: m.logical, evidence: `file ${f}` });
       }
     } else if (h === "root") {
-      const root = graph.mappings.find((m) => m.glob === "**")?.logical ?? modules[modules.length - 1]?.id;
+      const inCounts = /* @__PURE__ */ new Map();
+      for (const e of graph.edges) if (e.rel === "in") inCounts.set(e.to, (inCounts.get(e.to) ?? 0) + 1);
+      const top = [...inCounts.entries()].filter(([id]) => !graph.edges.some((e) => e.rel === "in" && e.from === id)).sort((a, b) => b[1] - a[1])[0]?.[0];
+      const root = graph.mappings.find((m) => m.glob === "**")?.logical ?? top ?? modules[modules.length - 1]?.id;
       if (root) found = [{ role, logical: root, evidence: "repository root" }];
     }
     if (!found.length) unbound.push(role);

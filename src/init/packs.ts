@@ -87,7 +87,11 @@ export function detectBindings(pack: Pack, graph: Graph, files: string[], overri
         if (m && !found.some((b) => b.logical === m.logical)) found.push({ role, logical: m.logical, evidence: `file ${f}` });
       }
     } else if (h === 'root') {
-      const root = graph.mappings.find((m) => m.glob === '**')?.logical ?? modules[modules.length - 1]?.id;
+      // The catch-all mapping names the root; failing that, the module most other modules sit in.
+      const inCounts = new Map<string, number>();
+      for (const e of graph.edges) if (e.rel === 'in') inCounts.set(e.to, (inCounts.get(e.to) ?? 0) + 1);
+      const top = [...inCounts.entries()].filter(([id]) => !graph.edges.some((e) => e.rel === 'in' && e.from === id)).sort((a, b) => b[1] - a[1])[0]?.[0];
+      const root = graph.mappings.find((m) => m.glob === '**')?.logical ?? top ?? modules[modules.length - 1]?.id;
       if (root) found = [{ role, logical: root, evidence: 'repository root' }];
     }
     if (!found.length) unbound.push(role);

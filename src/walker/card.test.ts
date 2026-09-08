@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { Graph } from '../graph/graph.js';
 import { parseText } from '../graph/parse.js';
 import { renderCard } from './card.js';
-import { walk } from './walk.js';
+import { demandsDecision, walk } from './walk.js';
 
 const GRAPH = `
 M api/src/core/** L:core
@@ -15,6 +15,29 @@ K G? core.guess-one L:core a proposed rule with a fairly long explanatory text s
 K G? core.guess-two L:core another proposed rule with a fairly long explanatory text so that it costs tokens to carry around
 K R core.note L:core a note that never appears on a card
 `;
+
+describe('who owes a decision', () => {
+  const G = `
+M api/src/core/** L:core
+M web/** L:web
+M ** L:repo
+L L:core Engine
+L L:web Web
+L L:repo Repo
+E L:core in L:repo
+E L:web in L:repo
+K G? repo.global L:repo a bootstrap guess pinned to the root
+K G? core.local L:core a proposal about the engine
+K E core.pure L:core enforced test:api/src/core/pure.test.ts
+`;
+  it('a root-pinned proposal taxes nobody; a module proposal asks; a test file owes nothing unless it enforces a rule', () => {
+    const g = Graph.fromRecords(parseText(G, 'd'));
+    expect(demandsDecision(walk(g, 'web/page.tsx'))).toBe(false);
+    expect(demandsDecision(walk(g, 'api/src/core/x.ts')).toBe(true);
+    expect(demandsDecision(walk(g, 'api/src/core/x.test.ts')).toBe(false);
+    expect(demandsDecision(walk(g, 'api/src/core/pure.test.ts')).toBe(true);
+  });
+});
 
 describe('module card', () => {
   it('names the module, lists rules enforced first, and points at hydrate', () => {

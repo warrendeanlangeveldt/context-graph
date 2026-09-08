@@ -60,7 +60,7 @@ describe('Recorder', () => {
     expect(r.notePending(walk(g, 'api/src/fresh/thing.ts'))).toBe(true);
     const verdict = r.stopDecision({ maxBlocks: 2, who: 'w/claude', branch: 'main' });
     expect(verdict.block).toBe(true);
-    expect(verdict.reason).toContain('[fresh.proposed]');
+    expect(verdict.reason).toContain('api/src/fresh/thing.ts  [+1 proposed]');
     expect(verdict.reason).toContain('These rules are proposed, not yet ratified.');
   });
 

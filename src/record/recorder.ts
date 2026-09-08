@@ -157,7 +157,12 @@ export class Recorder {
       return { block: false, gaveUp };
     }
 
-    const lines = pending.map((p) => `  ${p.path}${p.symbol ? `#${p.symbol}` : ''}  [${p.constraints.join(', ')}]`);
+    const lines = pending.map((p) => {
+      const active = p.constraints.filter((id) => this.graph.constraints.get(id)?.mode !== 'G?');
+      const proposed = p.constraints.length - active.length;
+      const shown = [...active.slice(0, 6), ...(active.length > 6 ? [`+${active.length - 6} more`] : []), ...(proposed ? [`+${proposed} proposed`] : [])];
+      return `  ${p.path}${p.symbol ? `#${p.symbol}` : ''}  [${shown.join(', ')}]`;
+    });
     const proposedOnly = pending.every((p) => p.constraints.every((id) => this.graph.constraints.get(id)?.mode === 'G?'));
     const reason = [
       `Context Graph: ${pending.length} edited ${pending.length === 1 ? 'file has' : 'files have'} constraints and no recorded decision.`,

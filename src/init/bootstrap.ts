@@ -34,17 +34,20 @@ export interface BootstrapResult {
 const CODE_EXT = /\.(ts|tsx|js|jsx|mts|cts|mjs|cjs|py|go|rs|java|kt|cs|rb|php|swift)$/;
 const NOISE_DIRS = new Set(['node_modules', 'dist', 'build', 'out', '.git', 'coverage', '__pycache__', '.next', 'vendor', 'target', 'bin', 'obj', 'test', 'tests', '__tests__', 'spec', 'fixtures', 'generated']);
 const INSTRUCTION_FILES = ['AGENTS.md', 'CLAUDE.md', '.cursorrules', 'CONTRIBUTING.md', 'GEMINI.md', '.github/copilot-instructions.md'];
+/** Files a harness already puts in front of the model every turn. A rule cut from one and pinned to the root would only repeat what the model has. */
+const HARNESS_INJECTED = new Set(['AGENTS.md', 'CLAUDE.md', '.cursorrules', 'GEMINI.md', '.github/copilot-instructions.md']);
+const MAX_INSTRUCTION_RULES = 12;
 const IMPERATIVE = /\b(never|do not|don't|must|always|only|no\s+\w+|required|forbidden|not allowed)\b/i;
 const GENERIC_DIRS = new Set(['src', 'source', 'sources']);
 const TEST_FILE = /\.(test|spec)\.[cm]?[jt]sx?$/i;
 /** File names that announce a rule: architecture and boundary suites, and the negative-test convention (`no-`, `never-`, `only-`). */
 const ARCH_FILE = /(boundary|architecture|layering|dependenc|arch-|-arch|\.arch\.|invariant|contract|policy|conventions|(^|\/)(no|never|must|only|rules?|guards?)-[^/]*)[^/]*\.(test|spec)\.[cm]?[jt]sx?$/i;
 /** A sentence that states a rule rather than describes a fixture. */
-const RULE_TEXT = /\b(never|must|may not|cannot|can't|only|does not|do not|no longer|is not allowed|forbidden|no)\b/i;
+const RULE_TEXT = /(?<![-\w])(never|must|may not|cannot|can't|only|does not|do not|no longer|is not allowed|forbidden|no)\b/i;
 /** Strong names: the file exists to state rules, so a describe block is a rule even without a keyword. */
 const STRONG_ARCH_FILE = /(boundary|architecture|layering|\.arch\.|(^|\/)(no|never)-[^/]*)[^/]*\.(test|spec)\.[cm]?[jt]sx?$/i;
 /** A sentence short and declarative enough to stand as a rule; explanations and narratives fail this. */
-const ruleShaped = (t: string): boolean => t.length <= 140 && t.split(/\s+/).length <= 22 && !/->|=>|\bbelow\b|\bhere\b|^(So|Two|Three|Both|Neither|Every case|What is|Runs|This|These|Those|It|There)\b/.test(t);
+const ruleShaped = (t: string): boolean => t.length <= 140 && t.split(/\s+/).length <= 22 && !/->|=>|\bbelow\b|\bhere\b|\btests?\s+[—-]|^(So|Two|Three|Both|Neither|Every case|What is|Runs|This|These|Those|It|There|Prior|Before|After|Previously|Historically|Originally|Once|When|Because|Since|Now)\b/.test(t);
 /** A sentence that explains rather than describes. */
 const RATIONALE = /\b(because|so that|so a|so the|so they|there were|there was|used to|instead of|rather than|otherwise|deliberately|on purpose|never|must|one of each|the reason)\b/i;
 
@@ -126,15 +129,23 @@ export function bootstrap(ctx: RepoContext, opts: BootstrapOptions = {}): Bootst
     used.add(id);
     return id;
   };
+  // A graph that already names its modules was curated: the tree scan must not second-guess it. Nothing new
+  // is proposed as a module, and every rule, note, and binding attaches to the modules the graph has.
+  const existing = ctx.graph;
+  const curated = Boolean(existing && existing.mappings.some((m) => m.glob !== '**'));
+  if (curated) { notes.push(`the graph already defines ${existing!.logicals.size} modules; proposals attach to them and no new modules are proposed`); candidates = []; }
   for (const c of [...candidates].sort((a, b) => a.dir.split('/').length - b.dir.split('/').length || a.dir.localeCompare(b.dir))) ids.set(c.dir, idFor(c.dir));
   for (const c of candidates) {
     const id = ids.get(c.dir)!;
     mappings.push({ kind: 'M', glob: `${c.dir}/**`, logical: id, line: 0 });
     logicals.push({ kind: 'L', id, name: `${basename(c.dir)} (${c.n} source files)`, line: 0 });
   }
-  const rootId = 'L:repo';
-  logicals.push({ kind: 'L', id: rootId, name: `${basename(root)} repository`, line: 0 });
-  mappings.push({ kind: 'M', glob: '**', logical: rootId, line: 0 });
+  const rootId = curated ? (existing!.mappings.find((m) => m.glob === '**')?.logical ?? existing!.logicals.keys().next().value ?? 'L:repo') : 'L:repo';
+  if (!curated) {
+    logicals.push({ kind: 'L', id: rootId, name: `${basename(root)} repository`, line: 0 });
+    mappings.push({ kind: 'M', glob: '**', logical: rootId, line: 0 });
+  }
+  if (curated) for (const m of existing!.mappings) if (m.glob !== '**' && m.glob.endsWith('/**')) ids.set(m.glob.slice(0, -3), m.logical);
 
   const edges: ERecord[] = [];
   const parentOf = (dir: string): string => {
@@ -147,12 +158,14 @@ export function bootstrap(ctx: RepoContext, opts: BootstrapOptions = {}): Bootst
   // 2. Import graph -> dependency edges between modules.
   const index = buildImportIndex(root);
   const moduleOf = (f: string): string | undefined => {
+    if (curated) { const m = existing!.mapPath(f); return m && m.logical !== rootId ? m.logical : undefined; }
     let d = dirname(f);
     while (d && d !== '.') { const m = ids.get(d); if (m) return m; d = dirname(d); }
     return undefined;
   };
   const depCounts = new Map<string, number>();
   for (const [from, targets] of Object.entries(index.imports)) {
+    if (curated) break;
     const a = moduleOf(from);
     if (!a) continue;
     for (const t of targets) {
@@ -224,20 +237,34 @@ export function bootstrap(ctx: RepoContext, opts: BootstrapOptions = {}): Bootst
     seenReal.add(real);
     return true;
   });
+  // A line that names a module's directory or id is pinned to that module, where it arrives at edit time and
+  // the model may not have it in mind. Lines naming nothing are kept only from files the harness does not
+  // already inject, and even then capped: they apply to every file and each one taxes every slice.
+  const moduleForText = (raw: string): string | undefined => {
+    for (const c of [...ids.keys()].map((dir) => ({ dir })).sort((a, b) => b.dir.length - a.dir.length)) {
+      const id = ids.get(c.dir)!;
+      if (raw.includes(id) || raw.includes(`${c.dir}/`) || raw.includes(`\`${c.dir}\``) || new RegExp(`(^|[\\s\`'"(])${c.dir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(/\\*\\*)?([\\s\`'")]|$)`).test(raw)) return id;
+    }
+    return undefined;
+  };
   for (const f of instructionFiles) {
     const src = safeRead(join(root, f));
     if (!src) continue;
-    const node = moduleOf(f) ?? (f.includes('/') ? moduleOfDir(ids, dirname(f)) ?? rootId : rootId);
-    let n = 0;
+    const injected = HARNESS_INJECTED.has(basename(f)) || HARNESS_INJECTED.has(f);
+    const fallback = moduleOf(f) ?? (f.includes('/') ? moduleOfDir(ids, dirname(f)) ?? rootId : rootId);
+    let n = 0, skipped = 0;
     const lines = src.split(/\r?\n/);
-    for (let i = 0; i < lines.length && n < 40; i++) {
+    for (let i = 0; i < lines.length && n < MAX_INSTRUCTION_RULES; i++) {
       const raw = lines[i]!.replace(/^[\s>*-]+/, '').replace(/\*\*/g, '').trim();
       if (raw.length < 24 || raw.length > 220 || raw.startsWith('#') || raw.startsWith('```') || raw.startsWith('|')) continue;
       if (!IMPERATIVE.test(raw)) continue;
+      const anchored = moduleForText(raw);
+      if (!anchored && injected) { skipped++; continue; }
       n++;
-      constraints.push({ kind: 'K', mode: 'G?', id: `agent.${slug(raw).slice(0, 40)}-${i + 1}`, attachedTo: node, text: `[${f}:${i + 1}] ${raw}`, since: today, line: 0 });
+      constraints.push({ kind: 'K', mode: 'G?', id: `agent.${slug(raw).slice(0, 40)}-${i + 1}`, attachedTo: anchored ?? fallback, text: `[${f}:${i + 1}] ${raw}`, since: today, line: 0 });
     }
-    if (n) notes.push(`${f}: ${n} imperative line(s) proposed as guided constraints`);
+    if (n) notes.push(`${f}: ${n} imperative line(s) proposed as guided constraints${skipped ? `; ${skipped} global line(s) left where the harness already injects them` : ''}`);
+    else if (skipped) notes.push(`${f}: ${skipped} imperative line(s) name no module; left where the harness already injects them`);
   }
 
   // 5. ADRs -> proposed concepts.

@@ -71,5 +71,15 @@ export function walk(graph: Graph, pathIn: string, opts: WalkOptions = {}): Walk
  * evidence that retires it. A freshly bootstrapped graph would otherwise never grow.
  */
 export function demandsDecision(w: WalkResult): boolean {
-  return w.constraints.some((k) => isActiveMode(k) || k.mode === 'G?');
+  // A test file owes nothing unless it is itself the test behind a rule; tests rarely embody a design decision.
+  if (isTestPath(w.path) && !w.constraints.some((k) => k.test && k.test === w.path.split('#')[0])) return false;
+  // A proposal pinned to the top of a chain of two or more modules applies to every file below and is usually
+  // a bootstrap's guess at a global convention; it earns evidence through ratification, not by taxing every
+  // edit. A proposal on the file's own module asks.
+  const root = w.chain.length > 1 ? w.chain[w.chain.length - 1] : undefined;
+  return w.constraints.some((k) => isActiveMode(k) || (k.mode === 'G?' && k.attachedTo !== root));
+}
+
+export function isTestPath(p: string): boolean {
+  return /\.(test|spec)\.[cm]?[jt]sx?$|(^|\/)(__tests__|tests?)\//.test(p.split('#')[0]!);
 }
