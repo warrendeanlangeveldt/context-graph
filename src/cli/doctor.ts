@@ -86,12 +86,14 @@ export function runDoctor(ctx: RepoContext, opts: { now?: number; claudeDir?: st
     }
   }
   const hooked = recent.filter((r) => [...r.harness].some((h) => h === 'claude-code' || h === 'codex'));
-  const shellOnly = recent.filter((r) => !hooked.includes(r) && r.events);
+  const replayed = recent.filter((r) => !hooked.includes(r) && [...r.harness].some((h) => h.endsWith('-replay')));
+  const shellOnly = recent.filter((r) => !hooked.includes(r) && !replayed.includes(r) && r.events);
   if (!recent.length) out.push({ level: 'warn', text: 'no observations for this repository in the last 24 hours: no hook has fired here' });
   else {
     if (hooked.length) out.push({ level: 'ok', text: `hooks fired in ${hooked.length} session${hooked.length === 1 ? '' : 's'} in the last 24 hours: ${hooked.sort((a, b) => b.last - a.last).slice(0, 3).map((r) => `${r.session.slice(0, 8)} (${r.events} events, ${r.edits} edits, ${r.slices} slices, ${r.cards} cards, last ${ago(now - r.last)} ago)`).join('; ')}` });
     else out.push({ level: 'fail', text: 'no hook has fired here in the last 24 hours, though ctx was used' });
     if (shellOnly.length) out.push({ level: 'info', text: `ctx used from the shell or MCP without hooks: ${shellOnly.map((r) => `${r.session} (${r.events} events)`).join(', ')}; that is the instruction block working while the hooks are not` });
+    if (replayed.length) out.push({ level: 'info', text: `${replayed.length} session${replayed.length === 1 ? '' : 's'} reconstructed with ctx replay, not observed live` });
   }
 
   // 6. Server and view.

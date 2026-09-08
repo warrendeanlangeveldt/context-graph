@@ -25,6 +25,7 @@ describe('ctx doctor', () => {
     const now = Date.parse('2026-09-08T00:00:00.000Z');
     const store = new ObservationStore(repo, 'cli');
     store.append(envelope('decision', { session: 'cli', who: 'w', branch: 'main', harness: 'cli' }, { id: 'd-0001' }));
+    new ObservationStore(repo, 'old-replay').append(envelope('touch', { session: 'old-replay', who: 'w', branch: 'main', harness: 'claude-code-replay' }, { path: 'src/a.ts', mode: 'full', tool: 'Read', origin: 'main' }));
 
     const ctx = openRepo({ repo });
     const lines = runDoctor(ctx, { now, claudeDir, processes: [
@@ -42,5 +43,6 @@ describe('ctx doctor', () => {
     expect(text).toContain('(pids 11)');
     expect(text).toContain('fail no hook has fired here in the last 24 hours, though ctx was used');
     expect(text).toContain('info ctx used from the shell or MCP without hooks: cli (1 events)');
+    expect(text).toContain('info 1 session reconstructed with ctx replay, not observed live');
   });
 });
