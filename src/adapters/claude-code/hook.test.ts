@@ -66,6 +66,33 @@ describe('Claude Code hook adapter, end to end on a temporary repository', () =>
     expect(state.pids?.[0]).toBe(process.ppid);
   });
 
+  it('follows a shell that keeps its directory between calls, believes the harness when it resets it, and prefers a path that exists', async () => {
+    await runClaudeHook({ ...base(), hook_event_name: 'SessionStart', start_reason: 'startup' });
+    await runClaudeHook({ ...base(), hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { command: 'cd api' }, tool_response: { stdout: '' } });
+    await runClaudeHook({ ...base(), hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { command: 'cat src/core/helper.ts' }, tool_response: { stdout: 'x' } });
+    // Written from the shell's view, but the file only exists against the session root: the one that exists wins.
+    await runClaudeHook({ ...base(), hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { command: 'head -3 api/src/core/caller.ts' }, tool_response: { stdout: 'x' } });
+    await runClaudeHook({ ...base(), hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { command: 'pwd' }, tool_response: { stdout: `${repo}/api\nShell cwd was reset to ${repo}` } });
+    await runClaudeHook({ ...base(), hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { command: 'cat api/src/core/helper.ts' }, tool_response: { stdout: 'x' } });
+    const paths = events().filter((e) => e.t === 'touch').map((e) => (e.p as { path: string }).path);
+    expect(paths).toEqual(['api/src/core/helper.ts', 'api/src/core/caller.ts', 'api/src/core/helper.ts']);
+  });
+
+  it('a shell edit that fails owes nothing, and one the harness reports as non-zero counts as failed too', async () => {
+    await runClaudeHook({ ...base(), hook_event_name: 'SessionStart', start_reason: 'startup' });
+    const script = "python3 - <<'PY'\np='api/src/core/orch/bb.ts'\ns=open(p).read()\nopen(p,'w').write(s)\nPY";
+    await runClaudeHook({ ...base(), hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_use_id: 'tu-1', tool_input: { command: script } });
+    await runClaudeHook({ ...base(), hook_event_name: 'PostToolUseFailure', tool_name: 'Bash', tool_use_id: 'tu-1', tool_input: { command: script }, tool_response: { stderr: 'FileNotFoundError' } });
+    const stop1 = await runClaudeHook({ ...base(), hook_event_name: 'Stop', stop_hook_active: false });
+    expect(stop1.stdout).toBeUndefined();
+    await runClaudeHook({ ...base(), hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_use_id: 'tu-2', tool_input: { command: script } });
+    await runClaudeHook({ ...base(), hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_use_id: 'tu-2', tool_input: { command: script }, tool_response: { exit_code: 1, stderr: 'boom' } });
+    expect(events().filter((e) => e.t === 'edit')).toEqual([]);
+    expect(events().filter((e) => (e.p as { mode?: string }).mode === 'failed').length).toBeGreaterThan(0);
+    const stop2 = await runClaudeHook({ ...base(), hook_event_name: 'Stop', stop_hook_active: false });
+    expect(stop2.stdout).toBeUndefined();
+  });
+
   it('keeps paths outside the repository as sightings, never edits, and ignores /dev/null', async () => {
     await runClaudeHook({ ...base(), hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { command: `cat ${repo}/api/src/core/helper.ts > /dev/null; cat /etc/hosts > /private/tmp/scratch/notes.txt` } });
     const seen = events().filter((e) => e.t === 'touch' || e.t === 'edit').map((e) => ({ t: e.t, ...(e.p as { path: string; mode: string }) }));

@@ -70,13 +70,15 @@ export function walk(graph: Graph, pathIn: string, opts: WalkOptions = {}): Walk
  * decision that serves a proposal is the evidence that ratifies it, and one that overrides it is the
  * evidence that retires it. A freshly bootstrapped graph would otherwise never grow.
  */
-export function demandsDecision(w: WalkResult): boolean {
+export function demandsDecision(w: WalkResult, graph?: Pick<Graph, 'logicals' | 'mappings'>): boolean {
   // A test file owes nothing unless it is itself the test behind a rule; tests rarely embody a design decision.
   if (isTestPath(w.path) && !w.constraints.some((k) => k.test && k.test === w.path.split('#')[0])) return false;
-  // A proposal pinned to the top of a chain of two or more modules applies to every file below and is usually
-  // a bootstrap's guess at a global convention; it earns evidence through ratification, not by taxing every
-  // edit. A proposal on the file's own module asks.
-  const root = w.chain.length > 1 ? w.chain[w.chain.length - 1] : undefined;
+  // A proposal pinned to the repository root applies to every file and is usually a bootstrap's guess at a
+  // global convention; it earns evidence through ratification, not by taxing every edit. The root is the
+  // module the catch-all mapping names, or the top of a chain of two or more when there is no catch-all.
+  // In a one-module graph the root is the file's own module. A proposal on the file's own module asks.
+  const catchAll = graph && graph.logicals.size > 1 ? graph.mappings.find((m) => m.glob === '**')?.logical : undefined;
+  const root = catchAll ?? (w.chain.length > 1 ? w.chain[w.chain.length - 1] : undefined);
   return w.constraints.some((k) => isActiveMode(k) || (k.mode === 'G?' && k.attachedTo !== root));
 }
 

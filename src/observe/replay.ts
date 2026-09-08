@@ -40,7 +40,7 @@ export async function replayTranscript(file: string, opts: { repo?: string; grap
   const profile: HarnessProfile = parsed.harness === 'codex' ? codexProfile(opts.agent ?? 'codex') : claudeProfile(opts.agent ?? 'claude');
   const root = ctx.root;
   const cwd = parsed.cwd ?? root;
-  const tc: ToolContext = { root, cwd, shellParsing: ctx.config.shellParsing, rel: (p) => toRepoRelative(root, p, cwd), readFile: (p) => readRepoFile(root, p) };
+  const tc: ToolContext = { root, cwd, shellCwd: cwd, shellParsing: ctx.config.shellParsing, rel: (p) => toRepoRelative(root, p, cwd), readFile: (p) => readRepoFile(root, p) };
 
   let session = parsed.session;
   let store = new ObservationStore(root, session);

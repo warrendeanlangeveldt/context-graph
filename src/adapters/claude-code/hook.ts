@@ -24,7 +24,7 @@ export function claudeProfile(agent = 'claude'): HarnessProfile {
         return [range ? { path, range } : { path }];
       }
       if (tool === 'Bash' && tc.shellParsing) {
-        return parseShellCommand(String(ti.command ?? ''), tc.cwd)
+        return parseShellCommand(String(ti.command ?? ''), tc.shellCwd, tc.cwd)
           .filter((t) => (t.mode === 'edit' || t.mode === 'write') && t.path !== '.')
           .map((t) => ({ path: tc.rel(t.path) }));
       }
@@ -55,7 +55,7 @@ function claudeTouches(tool: string, ti: Record<string, unknown>, tc: ToolContex
     case 'Glob': return [{ path: tc.rel((ti.path as string | undefined) ?? tc.cwd), mode: 'name' }];
     case 'Bash':
       if (!tc.shellParsing) return [];
-      return parseShellCommand(String(ti.command ?? ''), tc.cwd).map((t) => ({ ...t, path: tc.rel(t.path) }));
+      return parseShellCommand(String(ti.command ?? ''), tc.shellCwd, tc.cwd).map((t) => ({ ...t, path: tc.rel(t.path) }));
     case 'Edit': {
       const fp = ti.file_path as string | undefined;
       if (!fp) return [];

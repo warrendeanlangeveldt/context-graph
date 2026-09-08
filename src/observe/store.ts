@@ -48,6 +48,8 @@ export interface PendingEntry {
   since: string;
   /** The decision id that was next when the edit was noted: any decision on this path from here on settles it, whoever records it. */
   sinceId?: string;
+  /** The tool call that first noted this edit; if that call fails, the edit never happened. */
+  toolUseId?: string;
 }
 
 export interface SessionStateData {
@@ -63,6 +65,8 @@ export interface SessionStateData {
   modulesAnnounced?: string[];
   /** Ancestor pids of the hook process, so the MCP server and shell commands under the same harness can find this session. */
   pids?: number[];
+  /** Where the harness's shell currently is, when it keeps its working directory between calls. */
+  shellCwd?: string;
   delegations: Record<string, { agentType?: string; since: string }>;
 }
 

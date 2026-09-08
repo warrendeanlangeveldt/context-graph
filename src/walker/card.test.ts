@@ -39,6 +39,9 @@ K E core.pure L:core enforced test:api/src/core/pure.test.ts
   it('a root-pinned proposal taxes nobody; a module proposal asks; a test file owes nothing unless it enforces a rule', () => {
     const g = Graph.fromRecords(parseText(G, 'd'));
     expect(demandsDecision(walk(g, 'web/page.tsx'))).toBe(false);
+    // A file that maps straight to the root of a many-module graph is not "its own module".
+    expect(demandsDecision(walk(g, 'CHANGELOG.md'), g)).toBe(false);
+    expect(demandsDecision(walk(g, 'CHANGELOG.md'))).toBe(true);
     expect(demandsDecision(walk(g, 'api/src/core/x.ts'))).toBe(true);
     expect(demandsDecision(walk(g, 'api/src/core/x.test.ts'))).toBe(false);
     expect(demandsDecision(walk(g, 'api/src/core/pure.test.ts'))).toBe(true);

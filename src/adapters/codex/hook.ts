@@ -17,7 +17,7 @@ export function codexProfile(agent = 'codex'): HarnessProfile {
         return patchFiles(ti).filter((f) => f.kind !== 'delete').map((f) => ({ path: tc.rel(f.movedTo ?? f.path) }));
       }
       if (tool === 'Bash' && tc.shellParsing) {
-        return parseShellCommand(commandOf(ti), tc.cwd)
+        return parseShellCommand(commandOf(ti), tc.shellCwd, tc.cwd)
           .filter((t) => (t.mode === 'edit' || t.mode === 'write') && t.path !== '.')
           .map((t) => ({ path: tc.rel(t.path) }));
       }
@@ -59,7 +59,7 @@ function codexTouches(tool: string, ti: Record<string, unknown>, tc: ToolContext
   }
   if (tool === 'Bash' || tool === 'exec_command' || tool === 'shell') {
     if (!tc.shellParsing) return [];
-    return parseShellCommand(commandOf(ti), tc.cwd).map((t) => ({ ...t, path: tc.rel(t.path) }));
+    return parseShellCommand(commandOf(ti), tc.shellCwd, tc.cwd).map((t) => ({ ...t, path: tc.rel(t.path) }));
   }
   return [];
 }

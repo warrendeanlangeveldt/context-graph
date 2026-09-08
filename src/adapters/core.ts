@@ -5,6 +5,7 @@ import { callersOf, loadOrBuildImportIndex } from '../index/imports.js';
 import { enclosingSymbol, lineRangeOf } from '../index/symbols.js';
 import { computeCoverage } from '../observe/coverage.js';
 import { envelope, isEditMode, type AccessMode, type CardPayload, type CompactPayload, type SessionPayload, type SlicePayload, type Touch } from '../observe/event.js';
+import { parseShell } from '../observe/shell.js';
 import { ancestorPids } from '../observe/session.js';
 import { ObservationStore, SessionState } from '../observe/store.js';
 import { Recorder } from '../record/recorder.js';
@@ -50,7 +51,10 @@ export interface EditTarget { path: string; range?: [number, number] }
 
 export interface ToolContext {
   root: string;
+  /** The session's working directory, which tool paths are relative to. */
   cwd: string;
+  /** Where the harness's shell is right now, which shell commands are relative to. Same as cwd unless the shell keeps state between calls. */
+  shellCwd: string;
   shellParsing: boolean;
   rel: (p: string) => string;
   readFile: (repoRelative: string) => string | undefined;
@@ -86,12 +90,21 @@ export async function runHook(input: HookInput, profile: HarnessProfile): Promis
   if (!state.data.pids) { state.data.pids = ancestorPids(); state.save(); }
   const injecting = Boolean(ctx.graph) && state.data.arm === 'on';
   const origin: Touch['origin'] = input.agent_id ? 'subagent' : 'main';
+  const shellCwd = state.data.shellCwd && existsSync(state.data.shellCwd) ? state.data.shellCwd : input.cwd;
   const tc: ToolContext = {
     root,
     cwd: input.cwd,
+    shellCwd,
     shellParsing: ctx.config.shellParsing,
     rel: (p) => toRepoRelative(root, p, input.cwd),
     readFile: (p) => readRepoFile(root, p),
+  };
+  const isShell = (tool: string): boolean => tool === 'Bash' || tool === 'exec_command' || tool === 'shell';
+  // Follow the shell: a harness that resets the directory says so in the tool result; one that keeps it is tracked through cd.
+  const followShell = (command: string, response: unknown): void => {
+    const said = /Shell cwd was reset to (\S+)/.exec(typeof response === 'string' ? response : JSON.stringify(response ?? ''));
+    const next = said ? said[1]!.replace(/[",\\]+$/, '') : parseShell(command, shellCwd, input.cwd).cwd;
+    if (next && next !== state.data.shellCwd) { state.data.shellCwd = next; state.save(); }
   };
 
   const emitTouches = (touches: TouchLike[], tool: string, failed = false): Touch[] => {
@@ -183,7 +196,7 @@ export async function runHook(input: HookInput, profile: HarnessProfile): Promis
     for (const t of profile.preEditTargets(tool, ti, tc).slice(0, 3)) {
       if (t.path.startsWith('/') || t.path === '.') continue;
       const s = await sliceFor(t.path, t.range, intent);
-      if (s) { slices.push(s.text); recorder.notePending(s.walk); if (s.walk.chain[0]) announced.add(s.walk.chain[0]); }
+      if (s) { slices.push(s.text); recorder.notePending(s.walk, input.tool_use_id); if (s.walk.chain[0]) announced.add(s.walk.chain[0]); }
     }
     // The module card: the first time this session reads or greps under a module, say what governs it,
     // before a line of its code is in context. Once per module per session, at most two per call.
@@ -210,10 +223,13 @@ export async function runHook(input: HookInput, profile: HarnessProfile): Promis
   }
 
   if (event === 'PostToolUse' || event === 'PostToolUseFailure') {
-    const failed = event === 'PostToolUseFailure';
     const tool = input.tool_name ?? '';
     const ti = input.tool_input ?? {};
+    // A shell command that exited non-zero edited nothing we can vouch for, whichever event reported it.
+    const failed = event === 'PostToolUseFailure' || (isShell(tool) && commandFailed(input.tool_response));
     const emitted = emitTouches(profile.touches(tool, ti, tc), tool, failed);
+    if (isShell(tool)) followShell(String(ti.command ?? ''), input.tool_response);
+    if (failed && ctx.graph) new Recorder(ctx.graph, state).dropPendingFrom(input.tool_use_id);
     // A test run that failed is a rework signal the benchmark counts (design spec §20.3).
     if ((tool === 'Bash' || tool === 'exec_command' || tool === 'shell') && looksLikeTestRun(String(ti.command ?? '')) && (failed || commandFailed(input.tool_response))) {
       store.append(envelope('finding', meta, { rule: 'test-failed', message: `test command failed: ${String(ti.command ?? '').slice(0, 160)}` }));
@@ -232,7 +248,7 @@ export async function runHook(input: HookInput, profile: HarnessProfile): Promis
       const env = envelope('coverage', meta, cov);
       store.append(env);
       notifyOverlay(ctx, env);
-      if (injecting && !profile.isEditTool(tool)) recorder.notePending(w);
+      if (injecting && !profile.isEditTool(tool)) recorder.notePending(w, input.tool_use_id);
       if (cov.callers_total > 0 && cov.callers_loaded === 0) {
         store.append(envelope('finding', meta, { rule: 'callers-dark', message: `edited ${e.path} with none of its ${cov.callers_total} callers in context`, path: e.path }));
       }

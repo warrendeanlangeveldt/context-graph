@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseShellCommand } from './shell.js';
+import { parseShell, parseShellCommand } from './shell.js';
 
 const modes = (cmd: string): string[] => parseShellCommand(cmd).map((t) => `${t.mode} ${t.path}${t.range ? ` ${t.range.join(':')}` : ''}${t.unparsed ? ' ?' : ''}`);
 
@@ -86,6 +86,14 @@ describe('parseShellCommand', () => {
     expect(modes("node -e \"import('./src/h.js')\"")).toEqual([]);
     expect(modes("python3 scripts/gen.py")).toEqual(['name scripts/gen.py']);
     expect(parseShellCommand("cd api && python3 - <<'PY'\nopen('src/i.ts','w').write('')\nPY", '/repo')).toEqual([{ path: '/repo/api/src/i.ts', mode: 'write' }]);
+  });
+
+  it('ignores ctx itself and sentences handed to tools, follows cd across calls, and prefers a path that exists', () => {
+    expect(modes('ctx record --node src/a.ts --serves x.rule --text "no-decision: src/b.ts is not the path/that exists"')).toEqual([]);
+    expect(modes('git commit -m "fix the thing in src/a.ts and src/b.ts"')).toEqual([]);
+    expect(modes('gh pr create --title "touch src/a.ts" --body "long/text here"')).toEqual([]);
+    expect(parseShell('cd api && cat src/a.ts', '/repo')).toEqual({ touches: [{ path: '/repo/api/src/a.ts', mode: 'full' }], cwd: '/repo/api' });
+    expect(parseShell('ls', '/repo/api').cwd).toBe('/repo/api');
   });
 
   it('never mistakes a regex or an inline script for a path', () => {

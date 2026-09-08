@@ -134,6 +134,8 @@ Shell observation sees through interpreter scripts as well: a heredoc fed to `py
 
 The MCP server and a `ctx` command run from the agent's shell are not told which session they serve. The hooks note their process ancestry once per session, and both match against it, so a decision recorded through either clears that session's pending list and hydrate sees what that session has read. A decision recorded on a path by any route settles the turn-end demand for it.
 
+Shell commands resolve against where the harness's shell actually is. A harness that keeps the shell's directory between calls is followed through every `cd`; one that resets it says so in the tool result and is believed. When a relative path does not exist against the tracked directory but does against the session root, the one that exists wins. A shell command that fails, or that the harness reports as non-zero, edited nothing: its touches are recorded as failed and the edits it announced before running owe no decision.
+
 ## Is it working?
 
 ```sh

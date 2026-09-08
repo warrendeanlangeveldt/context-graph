@@ -33,8 +33,8 @@ export class Recorder {
   constructor(readonly graph: Graph, readonly state: SessionState) {}
 
   /** Register an edit. Only nodes with an enforced or guided constraint owe a decision. */
-  notePending(w: WalkResult): boolean {
-    if (!demandsDecision(w)) return false;
+  notePending(w: WalkResult, toolUseId?: string): boolean {
+    if (!demandsDecision(w, this.graph)) return false;
     const key = w.path;
     const existing = this.state.data.pending[key];
     const entry: PendingEntry = {
@@ -44,6 +44,8 @@ export class Recorder {
       sinceId: existing?.sinceId ?? this.graph.nextDecisionId(),
     };
     if (w.symbol) entry.symbol = w.symbol;
+    const tu = existing?.toolUseId ?? toolUseId;
+    if (tu) entry.toolUseId = tu;
     this.state.data.pending[key] = entry;
     this.state.save();
     return true;
@@ -63,6 +65,14 @@ export class Recorder {
     }
     if (changed) this.state.save();
     return Object.values(this.state.data.pending);
+  }
+
+  /** A tool call that failed edited nothing: forget the edits it announced, keep any it merely repeated. */
+  dropPendingFrom(toolUseId: string | undefined): void {
+    if (!toolUseId) return;
+    let changed = false;
+    for (const [key, p] of Object.entries(this.state.data.pending)) if (p.toolUseId === toolUseId) { delete this.state.data.pending[key]; changed = true; }
+    if (changed) this.state.save();
   }
 
   clearPending(node: string): void {
