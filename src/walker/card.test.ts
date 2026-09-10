@@ -35,6 +35,7 @@ E L:web in L:repo
 K G? repo.global L:repo a bootstrap guess pinned to the root
 K G? core.local L:core a proposal about the engine
 K E core.pure L:core enforced test:api/src/core/pure.test.ts
+K G? core.guessed L:core a proposal the bootstrap took from a test test:api/src/core/guessed.test.ts
 `;
   it('a root-pinned proposal taxes nobody; a module proposal asks; a test file owes nothing unless it enforces a rule', () => {
     const g = Graph.fromRecords(parseText(G, 'd'));
@@ -45,6 +46,7 @@ K E core.pure L:core enforced test:api/src/core/pure.test.ts
     expect(demandsDecision(walk(g, 'api/src/core/x.ts'))).toBe(true);
     expect(demandsDecision(walk(g, 'api/src/core/x.test.ts'))).toBe(false);
     expect(demandsDecision(walk(g, 'api/src/core/pure.test.ts'))).toBe(true);
+    expect(demandsDecision(walk(g, 'api/src/core/guessed.test.ts'))).toBe(false);
   });
 });
 

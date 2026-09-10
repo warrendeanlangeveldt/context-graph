@@ -3583,7 +3583,7 @@ function walk(graph, pathIn, opts = {}) {
   return result;
 }
 function demandsDecision(w, graph) {
-  if (isTestPath(w.path) && !w.constraints.some((k) => k.test && k.test === w.path.split("#")[0])) return false;
+  if (isTestPath(w.path) && !w.constraints.some((k) => k.test && k.mode !== "G?" && k.test === w.path.split("#")[0])) return false;
   const catchAll = graph && graph.logicals.size > 1 ? graph.mappings.find((m) => m.glob === "**")?.logical : void 0;
   const root = catchAll ?? (w.chain.length > 1 ? w.chain[w.chain.length - 1] : void 0);
   return w.constraints.some((k) => isActiveMode(k) || k.mode === "G?" && k.attachedTo !== root);
@@ -28509,7 +28509,7 @@ var init_bootstrap = __esm({
     ARCH_FILE = /(boundary|architecture|layering|dependenc|arch-|-arch|\.arch\.|invariant|contract|policy|conventions|(^|\/)(no|never|must|only|rules?|guards?)-[^/]*)[^/]*\.(test|spec)\.[cm]?[jt]sx?$/i;
     RULE_TEXT = /(?<![-\w])(never|must|may not|cannot|can't|only|does not|do not|no longer|is not allowed|forbidden|no)\b/i;
     STRONG_ARCH_FILE = /(boundary|architecture|layering|\.arch\.|(^|\/)(no|never)-[^/]*)[^/]*\.(test|spec)\.[cm]?[jt]sx?$/i;
-    ruleShaped = (t) => t.length <= 140 && t.split(/\s+/).length <= 22 && !/->|=>|\bbelow\b|\bhere\b|\btests?\s+[—-]|^(So|Two|Three|Both|Neither|Every case|What is|Runs|This|These|Those|It|There|Prior|Before|After|Previously|Historically|Originally|Once|When|Because|Since|Now)\b/.test(t);
+    ruleShaped = (t) => t.length <= 140 && t.split(/\s+/).length <= 22 && !/->|=>|\bbelow\b|\bhere\b|\btests?\s+[—-]|^(So|Two|Three|Both|Neither|Enough|Most|Some|Many|Half|Every case|What is|Runs|This|These|Those|It|There|Prior|Before|After|Previously|Historically|Originally|Once|When|Because|Since|Now)\b/.test(t);
     RATIONALE = /\b(because|so that|so a|so the|so they|there were|there was|used to|instead of|rather than|otherwise|deliberately|on purpose|never|must|one of each|the reason)\b/i;
   }
 });

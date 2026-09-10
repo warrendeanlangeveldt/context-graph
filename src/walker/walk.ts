@@ -71,8 +71,9 @@ export function walk(graph: Graph, pathIn: string, opts: WalkOptions = {}): Walk
  * evidence that retires it. A freshly bootstrapped graph would otherwise never grow.
  */
 export function demandsDecision(w: WalkResult, graph?: Pick<Graph, 'logicals' | 'mappings'>): boolean {
-  // A test file owes nothing unless it is itself the test behind a rule; tests rarely embody a design decision.
-  if (isTestPath(w.path) && !w.constraints.some((k) => k.test && k.test === w.path.split('#')[0])) return false;
+  // A test file owes nothing unless it is the test behind a ratified rule; editing the test behind a proposal
+  // changes nothing anyone agreed to, and a bootstrap names a test behind every rule it proposes.
+  if (isTestPath(w.path) && !w.constraints.some((k) => k.test && k.mode !== 'G?' && k.test === w.path.split('#')[0])) return false;
   // A proposal pinned to the repository root applies to every file and is usually a bootstrap's guess at a
   // global convention; it earns evidence through ratification, not by taxing every edit. The root is the
   // module the catch-all mapping names, or the top of a chain of two or more when there is no catch-all.

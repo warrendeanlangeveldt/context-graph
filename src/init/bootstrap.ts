@@ -47,7 +47,7 @@ const RULE_TEXT = /(?<![-\w])(never|must|may not|cannot|can't|only|does not|do n
 /** Strong names: the file exists to state rules, so a describe block is a rule even without a keyword. */
 const STRONG_ARCH_FILE = /(boundary|architecture|layering|\.arch\.|(^|\/)(no|never)-[^/]*)[^/]*\.(test|spec)\.[cm]?[jt]sx?$/i;
 /** A sentence short and declarative enough to stand as a rule; explanations and narratives fail this. */
-const ruleShaped = (t: string): boolean => t.length <= 140 && t.split(/\s+/).length <= 22 && !/->|=>|\bbelow\b|\bhere\b|\btests?\s+[—-]|^(So|Two|Three|Both|Neither|Every case|What is|Runs|This|These|Those|It|There|Prior|Before|After|Previously|Historically|Originally|Once|When|Because|Since|Now)\b/.test(t);
+const ruleShaped = (t: string): boolean => t.length <= 140 && t.split(/\s+/).length <= 22 && !/->|=>|\bbelow\b|\bhere\b|\btests?\s+[—-]|^(So|Two|Three|Both|Neither|Enough|Most|Some|Many|Half|Every case|What is|Runs|This|These|Those|It|There|Prior|Before|After|Previously|Historically|Originally|Once|When|Because|Since|Now)\b/.test(t);
 /** A sentence that explains rather than describes. */
 const RATIONALE = /\b(because|so that|so a|so the|so they|there were|there was|used to|instead of|rather than|otherwise|deliberately|on purpose|never|must|one of each|the reason)\b/i;
 
