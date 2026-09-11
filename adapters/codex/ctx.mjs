@@ -393,9 +393,21 @@ function gitCmd(args) {
       return ps.length ? ps.map((p) => ({ path: p, mode: "edit", unparsed: true })) : [{ path: ".", mode: "edit", unparsed: true }];
     }
     case "checkout":
-    case "restore":
     case "switch":
-      return pathArgs(rest).map((p) => ({ path: p, mode: "write" }));
+      return checkoutLike(rest);
+    case "restore": {
+      const clean = [];
+      for (let i = 0; i < rest.length; i++) {
+        const a = rest[i];
+        if (a === "-s" || a === "--source") {
+          i++;
+          continue;
+        }
+        if (a.startsWith("--source=")) continue;
+        clean.push(a);
+      }
+      return pathArgs(clean).map((p) => ({ path: p, mode: "write" }));
+    }
     case "mv":
       return moveLike(rest);
     case "rm":
@@ -414,6 +426,35 @@ function gitCmd(args) {
     default:
       return [];
   }
+}
+function checkoutLike(args) {
+  const before = [];
+  const after = [];
+  let seenSep = false;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === "--") {
+      seenSep = true;
+      continue;
+    }
+    if (seenSep) {
+      after.push(a);
+      continue;
+    }
+    if (REF_VALUE_FLAGS.has(a)) {
+      i++;
+      continue;
+    }
+    if (a.startsWith("-")) continue;
+    before.push(a);
+  }
+  const paths = seenSep ? after.filter(isPathLike) : before.filter((a) => isPathLike(a) && looksLikeFile(a));
+  return paths.map((p) => ({ path: p, mode: "write" }));
+}
+function looksLikeFile(tok) {
+  if (tok.endsWith("/")) return true;
+  const last = tok.split("/").pop() ?? "";
+  return /\.[A-Za-z0-9]{1,8}$/.test(last);
 }
 function copyLike(args) {
   const ps = pathArgs(args);
@@ -623,7 +664,7 @@ function extractHeredocs(command) {
   }
   return { stripped: out.join("\n"), bodies };
 }
-var READ_FULL, LISTERS, GREPPERS, RUNNERS, NOOPS, WRAPPERS, GREP_VALUE_FLAGS, HEREDOC_MARK;
+var READ_FULL, LISTERS, GREPPERS, RUNNERS, NOOPS, WRAPPERS, GREP_VALUE_FLAGS, REF_VALUE_FLAGS, HEREDOC_MARK;
 var init_shell = __esm({
   "src/observe/shell.ts"() {
     "use strict";
@@ -683,6 +724,7 @@ var init_shell = __esm({
     NOOPS = /* @__PURE__ */ new Set(["cd", "export", "source", ".", "env", "which", "echo", "printf", "true", "false", "pwd", "set", "unset", "alias", "exit", "return", "sleep", "wait", "kill", "ps", "lsof", "date", "whoami", "id", "hostname", "uname", "clear", "history", "type", "command", "hash", "read", "trap", "ulimit"]);
     WRAPPERS = /* @__PURE__ */ new Set(["sudo", "env", "time", "nohup", "xargs", "command", "builtin", "exec", "nice", "timeout", "caffeinate"]);
     GREP_VALUE_FLAGS = /* @__PURE__ */ new Set(["-e", "-f", "-A", "-B", "-C", "-m", "-d", "-D", "--include", "--exclude", "--exclude-dir", "-t", "--type", "-T", "--type-not", "-g", "--glob", "--max-count", "--context", "-M", "--max-columns", "--color", "--colour", "-j", "--threads", "--regexp", "--file", "--iglob"]);
+    REF_VALUE_FLAGS = /* @__PURE__ */ new Set(["-b", "-B", "-c", "-C", "--branch", "--orphan", "-t", "--track", "--start-point", "--conflict", "--pathspec-from-file"]);
     HEREDOC_MARK = "__CTX_HEREDOC_";
   }
 });

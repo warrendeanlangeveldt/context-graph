@@ -88,6 +88,21 @@ describe('parseShellCommand', () => {
     expect(parseShellCommand("cd api && python3 - <<'PY'\nopen('src/i.ts','w').write('')\nPY", '/repo')).toEqual([{ path: '/repo/api/src/i.ts', mode: 'write' }]);
   });
 
+  it('never reads a branch name as a file: checkout and switch name refs, paths come after --', () => {
+    expect(modes('git checkout -b bugfix/bi-319-claim-reaches-board')).toEqual([]);
+    expect(modes('git checkout -B release/2026-09')).toEqual([]);
+    expect(modes('git switch -c feature/new-thing')).toEqual([]);
+    expect(modes('git switch --create feature/x --track origin/main')).toEqual([]);
+    expect(modes('git checkout feature/some-branch')).toEqual([]);
+    expect(modes('git checkout main')).toEqual([]);
+    // A path still reads as one, with or without the separator.
+    expect(modes('git checkout -- src/a.ts')).toEqual(['write src/a.ts']);
+    expect(modes('git checkout src/a.ts')).toEqual(['write src/a.ts']);
+    expect(modes('git checkout HEAD~1 -- api/src/core/')).toEqual(['write api/src/core/']);
+    expect(modes('git restore --source=HEAD~1 src/a.ts')).toEqual(['write src/a.ts']);
+    expect(modes('git restore -s main src/b.ts')).toEqual(['write src/b.ts']);
+  });
+
   it('ignores ctx itself and sentences handed to tools, follows cd across calls, and prefers a path that exists', () => {
     expect(modes('ctx record --node src/a.ts --serves x.rule --text "no-decision: src/b.ts is not the path/that exists"')).toEqual([]);
     expect(modes('git commit -m "fix the thing in src/a.ts and src/b.ts"')).toEqual([]);
