@@ -195,6 +195,11 @@ export async function runHook(input: HookInput, profile: HarnessProfile): Promis
     const g = ctx.graph;
     const recorder = new Recorder(g, state);
     const slices: string[] = announce ? [announce] : [];
+    // A decision owed from an earlier edit is asked for here, on the next tool call, where it costs a few
+    // tokens and no interruption. The turn-end block only fires for a turn that ends without one.
+    const owed = ctx.config.demand ? recorder.nudge() : undefined;
+    if (owed) slices.push(owed);
+
     const intent = intentOf(ti);
     const announced = new Set(state.data.modulesAnnounced ?? []);
     for (const t of profile.preEditTargets(tool, ti, tc).slice(0, 3)) {
@@ -284,6 +289,13 @@ export async function runHook(input: HookInput, profile: HarnessProfile): Promis
   if (event === 'Stop') {
     if (!injecting || !ctx.graph) return { exitCode: 0 };
     const recorder = new Recorder(ctx.graph, state);
+    if (!ctx.config.demand) {
+      // Demand off: the gap is recorded and visible in the view, but the turn is never held open.
+      for (const p of recorder.pending()) store.append(envelope('finding', meta, { rule: 'no-decision', message: `${p.path} edited under ${p.constraints.length} rule(s) with no decision recorded`, path: p.path }));
+      state.data.pending = {};
+      state.save();
+      return { exitCode: 0 };
+    }
     const verdict = recorder.stopDecision({ maxBlocks: ctx.config.maxBlocks, who: meta.who, branch: meta.branch, ...(input.stop_hook_active !== undefined ? { stopHookActive: input.stop_hook_active } : {}) });
     for (const d of verdict.gaveUp) {
       store.append(envelope('decision', meta, d));

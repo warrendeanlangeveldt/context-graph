@@ -1211,6 +1211,7 @@ As of 2026-09-07 every delivery step in §23 has an implementation in the reposi
 |---|---|---|
 | Grammar, walker, slice | Complete, including `rule:`, `since:`, and `Z` records | |
 | Observation | Shell and patch observers, coverage, import and symbol indexes | Import resolution covers relative specifiers; path aliases such as `@/` are unresolved, so caller counts on aliased trees undercount |
+| Turn-end demand | Asked first on the next tool call after the edit (once per pending set), held open only for a turn that ends owing one; `record.demand = false` records a finding instead | Claude Code renders any blocking Stop hook as an error; the wording says it is the demand, the label cannot be changed |
 | Read-time history | First read of a file carrying decisions injects them (newest first, cap 3, ~160 tokens, once per file, silent when the file has none); recorded as a `history` event | Module-scoped decisions arrive on the card instead, so they are not repeated per file |
 | Module card | First read or grep under a module injects its card (module, chain, rules enforced first, latest decision, hydrate pointer), once per module per session, at most two per tool call, budget 200 tokens; recorded as a `card` event | Not in the synapse view yet |
 | Instruction block | `ctx init --write` and `ctx install instructions` append the Context Graph block to AGENTS.md or CLAUDE.md | |

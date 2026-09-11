@@ -103,6 +103,34 @@ describe('Claude Code hook adapter, end to end on a temporary repository', () =>
     expect(seen.find((x) => x.path === '/etc/hosts')).toMatchObject({ t: 'touch', mode: 'external' });
   });
 
+  it('asks for the owed decision on the next tool call, and only holds the turn if it never comes', async () => {
+    await runClaudeHook({ ...base(), hook_event_name: 'SessionStart', start_reason: 'startup' });
+    await runClaudeHook({ ...base(), hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: join(repo, 'api/src/core/orch/bb.ts'), old_string: 'helper(e);', new_string: 'helper(e); this.n++;' } });
+    // The next tool call carries the ask, without blocking anything.
+    const next = await runClaudeHook({ ...base(), hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: 'npm test' } });
+    const text = (JSON.parse(next.stdout!) as { hookSpecificOutput: { additionalContext: string } }).hookSpecificOutput.additionalContext;
+    expect(text).toContain('owes a decision');
+    expect(text).toContain('api/src/core/orch/bb.ts#Blackboard  [orch.events, boundary.core]');
+    // Not repeated on every call thereafter.
+    const after = await runClaudeHook({ ...base(), hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: 'npm run build' } });
+    expect(after.stdout ?? '').not.toContain('owes a decision');
+    // Ignored, so the turn end still asks, and says it is the demand rather than a failure.
+    const stop = await runClaudeHook({ ...base(), hook_event_name: 'Stop', stop_hook_active: false });
+    const reason = (JSON.parse(stop.stdout!) as { decision: string; reason: string }).reason;
+    expect(reason.split('\n')[0]).toBe('Context Graph is asking for a decision before this turn ends. This is the demand working, not a failure.');
+  });
+
+  it('with the demand off, the gap is recorded as a finding and the turn is never held', async () => {
+    writeFileSync(join(repo, '.ctx/config.toml'), '[record]\ndemand = false\n');
+    await runClaudeHook({ ...base(), hook_event_name: 'SessionStart', start_reason: 'startup' });
+    await runClaudeHook({ ...base(), hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: join(repo, 'api/src/core/orch/bb.ts'), old_string: 'helper(e);', new_string: 'helper(e); this.n++;' } });
+    const next = await runClaudeHook({ ...base(), hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: 'npm test' } });
+    expect(next.stdout ?? '').not.toContain('owes a decision');
+    const stop = await runClaudeHook({ ...base(), hook_event_name: 'Stop', stop_hook_active: false });
+    expect(stop.stdout).toBeUndefined();
+    expect(events().some((e) => e.t === 'finding' && (e.p as { rule: string }).rule === 'no-decision')).toBe(true);
+  });
+
   it('hands a file its recorded decisions before a read puts its text in context, once, and only when it has any', async () => {
     await runClaudeHook({ ...base(), hook_event_name: 'SessionStart', start_reason: 'startup' });
     const read = await runClaudeHook({ ...base(), hook_event_name: 'PreToolUse', tool_name: 'Read', tool_input: { file_path: join(repo, 'api/src/core/orch/bb.ts') } });

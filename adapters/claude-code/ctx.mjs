@@ -3015,6 +3015,7 @@ function defaultConfig() {
     maxTokens: 300,
     maxDecisions: 4,
     maxBlocks: 2,
+    demand: true,
     hydrateOnPrompt: false,
     hydrateBudget: 1500,
     shellParsing: true,
@@ -3063,6 +3064,7 @@ function loadConfig(graphDir) {
     cfg.maxTokens = tomlGet(t, "slice", "max_tokens", cfg.maxTokens);
     cfg.maxDecisions = tomlGet(t, "slice", "max_decisions", cfg.maxDecisions);
     cfg.maxBlocks = tomlGet(t, "record", "max_blocks", cfg.maxBlocks);
+    cfg.demand = tomlGet(t, "record", "demand", cfg.demand);
     cfg.hydrateOnPrompt = tomlGet(t, "slice", "hydrate_on_prompt", cfg.hydrateOnPrompt);
     cfg.hydrateBudget = tomlGet(t, "slice", "hydrate_budget", cfg.hydrateBudget);
     cfg.shellParsing = tomlGet(t, "observe", "shell_parsing", cfg.shellParsing);
@@ -3604,6 +3606,11 @@ var init_walk = __esm({
 });
 
 // src/record/recorder.ts
+function activeFirst(graph, ids) {
+  const active = ids.filter((id) => graph.constraints.get(id)?.mode !== "G?");
+  const proposed = ids.length - active.length;
+  return [...active.slice(0, 6), ...active.length > 6 ? [`+${active.length - 6} more`] : [], ...proposed ? [`+${proposed} proposed`] : []].join(", ");
+}
 function idNumber(id) {
   return Number(/(\d+)$/.exec(id)?.[1] ?? 0);
 }
@@ -3674,6 +3681,25 @@ var init_recorder = __esm({
           changed = true;
         }
         if (changed) this.state.save();
+      }
+      /**
+       * The ask, made once on the next tool call rather than by holding the turn open. Most decisions are
+       * recorded from here, which is the point: the turn-end block is a backstop, and a backstop that rarely
+       * fires is the difference between a prompt and an interruption.
+       */
+      nudge() {
+        const pending = this.pending();
+        if (!pending.length) return void 0;
+        const key = pending.map((p) => p.path).sort().join("|");
+        if (this.state.data.nudgedKey === key) return void 0;
+        this.state.data.nudgedKey = key;
+        this.state.save();
+        const lines = pending.map((p) => `  ${p.path}${p.symbol ? `#${p.symbol}` : ""}  [${activeFirst(this.graph, p.constraints)}]`);
+        return [
+          `Context Graph: ${pending.length === 1 ? "a file you edited carries rules" : `${pending.length} files you edited carry rules`} and owes a decision.`,
+          ...lines,
+          "Record it now with the `record` tool (node, serves, text = why) while the reason is fresh. The turn will otherwise stop to ask."
+        ].join("\n");
       }
       clearPending(node) {
         const path = node.split("#")[0];
@@ -3773,15 +3799,11 @@ var init_recorder = __esm({
           this.state.save();
           return { block: false, gaveUp };
         }
-        const lines = pending.map((p) => {
-          const active = p.constraints.filter((id) => this.graph.constraints.get(id)?.mode !== "G?");
-          const proposed = p.constraints.length - active.length;
-          const shown = [...active.slice(0, 6), ...active.length > 6 ? [`+${active.length - 6} more`] : [], ...proposed ? [`+${proposed} proposed`] : []];
-          return `  ${p.path}${p.symbol ? `#${p.symbol}` : ""}  [${shown.join(", ")}]`;
-        });
+        const lines = pending.map((p) => `  ${p.path}${p.symbol ? `#${p.symbol}` : ""}  [${activeFirst(this.graph, p.constraints)}]`);
         const proposedOnly = pending.every((p) => p.constraints.every((id) => this.graph.constraints.get(id)?.mode === "G?"));
         const reason = [
-          `Context Graph: ${pending.length} edited ${pending.length === 1 ? "file has" : "files have"} constraints and no recorded decision.`,
+          `Context Graph is asking for a decision before this turn ends. This is the demand working, not a failure.`,
+          `${pending.length} edited ${pending.length === 1 ? "file carries rules" : "files carry rules"} and has no recorded decision:`,
           ...lines,
           ...proposedOnly ? ["These rules are proposed, not yet ratified. A decision that serves one is the evidence that ratifies it; one that overrides it is the evidence that retires it. Record what you actually did and why."] : [],
           'Record one decision per file with the ctx MCP tool `record` (node, serves = the constraint or concept it honours, text = why; add overrides when you deliberately broke a guided constraint), or from the shell: ctx record --node <path> --serves <id> --text "<why>".',
@@ -5040,6 +5062,8 @@ ${sessionContext(ctx, injecting, false)}` : void 0;
     const g = ctx.graph;
     const recorder = new Recorder(g, state);
     const slices = announce ? [announce] : [];
+    const owed = ctx.config.demand ? recorder.nudge() : void 0;
+    if (owed) slices.push(owed);
     const intent = intentOf(ti);
     const announced = new Set(state.data.modulesAnnounced ?? []);
     for (const t of profile.preEditTargets(tool, ti, tc).slice(0, 3)) {
@@ -5129,6 +5153,12 @@ ${sessionContext(ctx, injecting, false)}` : void 0;
   if (event === "Stop") {
     if (!injecting || !ctx.graph) return { exitCode: 0 };
     const recorder = new Recorder(ctx.graph, state);
+    if (!ctx.config.demand) {
+      for (const p of recorder.pending()) store.append(envelope("finding", meta, { rule: "no-decision", message: `${p.path} edited under ${p.constraints.length} rule(s) with no decision recorded`, path: p.path }));
+      state.data.pending = {};
+      state.save();
+      return { exitCode: 0 };
+    }
     const verdict = recorder.stopDecision({ maxBlocks: ctx.config.maxBlocks, who: meta.who, branch: meta.branch, ...input.stop_hook_active !== void 0 ? { stopHookActive: input.stop_hook_active } : {} });
     for (const d of verdict.gaveUp) {
       store.append(envelope("decision", meta, d));
@@ -29119,6 +29149,7 @@ max_decisions = 4
 
 [record]
 max_blocks = 2
+demand = true             # false: record the gap as a finding instead of holding the turn open
 
 [observe]
 shell_parsing = true

@@ -76,6 +76,24 @@ describe('Recorder', () => {
     expect(fresh.stopDecision({ maxBlocks: 2, who: 'w/claude', branch: 'main' })).toMatchObject({ block: false, gaveUp: [] });
   });
 
+  it('asks once on the next call, names ratified rules and counts proposals, and stops asking once recorded', () => {
+    const { g, r } = setup();
+    expect(r.nudge()).toBeUndefined();
+    r.notePending(walk(g, 'api/src/core/orch/bb.ts'));
+    const first = r.nudge()!;
+    expect(first).toContain('a file you edited carries rules and owes a decision');
+    expect(first).toContain('api/src/core/orch/bb.ts  [orch.events, boundary.core]');
+    expect(first).toContain('Record it now with the `record` tool');
+    // Asked once for the same set, not on every tool call.
+    expect(r.nudge()).toBeUndefined();
+    // A new file joins the set, so the ask is made again.
+    r.notePending(walk(g, 'api/src/other/thing.ts'));
+    expect(r.nudge()).toContain('2 files you edited carry rules');
+    r.record({ node: 'api/src/core/orch/bb.ts', serves: 'orch.events', text: 'why', who: 'w/c', branch: 'main' });
+    r.record({ node: 'api/src/other/thing.ts', serves: 'other.rule', text: 'why', who: 'w/c', branch: 'main' });
+    expect(r.nudge()).toBeUndefined();
+  });
+
   it('records a decision, appends it, and clears pending', () => {
     const { g, r } = setup();
     r.notePending(walk(g, 'api/src/core/orch/bb.ts'));

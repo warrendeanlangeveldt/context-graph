@@ -26,6 +26,8 @@ export interface Config {
   maxTokens: number;
   maxDecisions: number;
   maxBlocks: number;
+  /** Hold the turn open until an edited file's decision is recorded. Off records the gap as a finding and lets the turn end. */
+  demand: boolean;
   /** Hydrate the files and modules a user prompt names, before the first tool call. Off by default: it spends tokens on every prompt. */
   hydrateOnPrompt: boolean;
   hydrateBudget: number;
@@ -57,6 +59,7 @@ export function defaultConfig(): Config {
     maxTokens: 300,
     maxDecisions: 4,
     maxBlocks: 2,
+    demand: true,
     hydrateOnPrompt: false,
     hydrateBudget: 1500,
     shellParsing: true,
@@ -109,6 +112,7 @@ export function loadConfig(graphDir: string | undefined): Config {
     cfg.maxTokens = tomlGet(t, 'slice', 'max_tokens', cfg.maxTokens);
     cfg.maxDecisions = tomlGet(t, 'slice', 'max_decisions', cfg.maxDecisions);
     cfg.maxBlocks = tomlGet(t, 'record', 'max_blocks', cfg.maxBlocks);
+    cfg.demand = tomlGet(t, 'record', 'demand', cfg.demand);
     cfg.hydrateOnPrompt = tomlGet(t, 'slice', 'hydrate_on_prompt', cfg.hydrateOnPrompt);
     cfg.hydrateBudget = tomlGet(t, 'slice', 'hydrate_budget', cfg.hydrateBudget);
     cfg.shellParsing = tomlGet(t, 'observe', 'shell_parsing', cfg.shellParsing);

@@ -24,6 +24,7 @@ max_decisions = 4
 
 [record]
 max_blocks = 2
+demand = true             # false: record the gap as a finding instead of holding the turn open
 
 [observe]
 shell_parsing = true
