@@ -175,6 +175,14 @@ export class Graph {
     return out.sort((a, b) => (a.date === b.date ? compareIds(b.id, a.id) : b.date.localeCompare(a.date)));
   }
 
+  /** Decisions that serve or override a constraint or concept, newest first. The "why" of a rule is here,
+   * not on the rule's own node: a decision is recorded against the file or module it changed. */
+  decisionsFor(id: string, opts: { includeSuperseded?: boolean } = {}): DRecord[] {
+    return [...this.decisions.values()]
+      .filter((d) => (d.serves === id || d.overrides === id) && (opts.includeSuperseded === true || this.isActiveDecision(d)))
+      .sort((a, b) => (a.date === b.date ? compareIds(b.id, a.id) : b.date.localeCompare(a.date)));
+  }
+
   allDecisionsOn(node: string): DRecord[] {
     return [...this.decisions.values()].filter((d) => d.node === node).sort((a, b) => compareIds(a.id, b.id));
   }

@@ -2884,6 +2884,11 @@ var init_graph = __esm({
         }
         return out.sort((a, b) => a.date === b.date ? compareIds(b.id, a.id) : b.date.localeCompare(a.date));
       }
+      /** Decisions that serve or override a constraint or concept, newest first. The "why" of a rule is here,
+       * not on the rule's own node: a decision is recorded against the file or module it changed. */
+      decisionsFor(id, opts = {}) {
+        return [...this.decisions.values()].filter((d) => (d.serves === id || d.overrides === id) && (opts.includeSuperseded === true || this.isActiveDecision(d))).sort((a, b) => a.date === b.date ? compareIds(b.id, a.id) : b.date.localeCompare(a.date));
+      }
       allDecisionsOn(node) {
         return [...this.decisions.values()].filter((d) => d.node === node).sort((a, b) => compareIds(a.id, b.id));
       }
@@ -3832,6 +3837,11 @@ var init_tokens = __esm({
 });
 
 // src/walker/card.ts
+function clip(t, max) {
+  if (t.length <= max) return t;
+  const cut = t.lastIndexOf(" ", max - 1);
+  return `${t.slice(0, cut > max / 2 ? cut : max - 1)}\u2026`;
+}
 function renderCard(graph, w, opts = {}) {
   const module = w.chain[0];
   if (!module) return void 0;
@@ -3847,7 +3857,7 @@ function renderCard(graph, w, opts = {}) {
   const latest = decisions[0];
   const specific = ownRules.length > 0 || decisions.length > 0;
   const tail = [
-    decisions.length ? `  decisions ${decisions.length} in this module, latest ${latest.id} ${latest.date.slice(5)} ${latest.overrides ? `!${latest.overrides} ` : ""}${latest.text.slice(0, 90)}` : void 0,
+    decisions.length ? `  decisions ${decisions.length} in this module, latest ${latest.id} ${latest.date.slice(5)} ${latest.overrides ? `!${latest.overrides} ` : ""}${clip(latest.text, 90)}` : void 0,
     specific ? `  hydrate ${module} for callers, history, and what this session already holds` : void 0
   ].filter((x) => Boolean(x));
   const line = (k, withText) => k.mode === "G?" ? `  must?  ${withText ? `${k.text}  ` : ""}[G? ${k.id} proposed]` : `  must   ${withText ? `${k.text}  ` : ""}[${k.mode} ${k.id}]`;
@@ -3892,6 +3902,49 @@ var init_card = __esm({
     "use strict";
     init_tokens();
     MODE_ORDER = { E: 0, G: 1, "G?": 2, R: 3 };
+  }
+});
+
+// src/walker/history.ts
+function renderHistory(graph, path, opts = {}) {
+  const file = path.split("#")[0];
+  const maxDecisions = opts.maxDecisions ?? 3;
+  const maxTokens = opts.maxTokens ?? 160;
+  const all = [...graph.decisions.values()].filter((d) => (d.node === file || d.node.startsWith(`${file}#`)) && graph.isActiveDecision(d)).sort((a, b) => a.date === b.date ? b.id.localeCompare(a.id) : b.date.localeCompare(a.date));
+  if (!all.length) return void 0;
+  const shown = all.slice(0, maxDecisions);
+  const name = graph.aliasFor(file) ?? file;
+  const line = (d, withWho2) => {
+    const symbol = d.node.includes("#") ? `${d.node.split("#")[1]}  ` : "";
+    const prov = d.sha === "-" ? `${d.branch} provisional` : d.sha;
+    return `  decided  ${d.id} ${d.date.slice(5)}${withWho2 ? ` ${d.who}` : ""}  ${symbol}${d.overrides ? `!${d.overrides}  ` : ""}${d.text}  (${prov})`;
+  };
+  const tail = all.length > shown.length ? `  and ${all.length - shown.length} more: ctx history ${name}` : void 0;
+  let withWho = true;
+  let count = shown.length;
+  const assemble = () => [
+    `read ${name}`,
+    ...shown.slice(0, count).map((d) => line(d, withWho)),
+    ...count < all.length ? [`  and ${all.length - count} more: ctx history ${name}`] : tail ? [tail] : []
+  ].join("\n");
+  let text = assemble();
+  let tokens = estimateTokens(text);
+  if (tokens > maxTokens && withWho) {
+    withWho = false;
+    text = assemble();
+    tokens = estimateTokens(text);
+  }
+  while (tokens > maxTokens && count > 1) {
+    count--;
+    text = assemble();
+    tokens = estimateTokens(text);
+  }
+  return { path: file, text, tokens, decisions: shown.slice(0, count).map((d) => d.id) };
+}
+var init_history = __esm({
+  "src/walker/history.ts"() {
+    "use strict";
+    init_tokens();
   }
 });
 
@@ -3946,7 +3999,7 @@ function renderSlice(graph, w, opts = {}) {
     dropped.push(`live:${liveLines.pop().trim()}`);
     recount();
   }
-  while (over() && lastLines.length) {
+  while (over() && lastLines.length > 1) {
     dropped.push(`decision:${w.decisions[lastLines.length - 1].id}`);
     lastLines.pop();
     recount();
@@ -3971,7 +4024,7 @@ function renderSlice(graph, w, opts = {}) {
     dropped.push("proposed text");
     recount();
   }
-  if (over()) warnings.push(`enforced and guided constraints alone exceed the ${maxTokens}-token budget at ${w.path}; the graph is too fine-grained at this node`);
+  if (over()) warnings.push(`enforced and guided constraints plus the newest decision exceed the ${maxTokens}-token budget at ${w.path}; the graph is too fine-grained at this node`);
   return { text, tokens, dropped, warnings, applicable: w.applicable };
 }
 var MODE_ORDER2;
@@ -4554,16 +4607,16 @@ async function hydrate(ctx, scopeIn, opts = {}) {
   const { files, reason } = await resolveScope(ctx, scopeIn, index, events, opts);
   if (!files.length) throw new Error(`hydrate: nothing in the repository matches "${scopeIn}" (${reason})`);
   const walks = files.map((f) => walk(g, f, { maxDecisions: ctx.config.maxDecisions }));
-  const sliceBlocks = (fileCap2) => {
+  const sliceBlocks = (fileCap2, sliceTokens2) => {
     const groups = /* @__PURE__ */ new Map();
     for (const w of walks.slice(0, fileCap2)) {
       const sig = [...w.chain, ...w.constraints.map((k) => k.id)].join("|");
       groups.set(sig, [...groups.get(sig) ?? [], w]);
     }
     return [...groups.values()].map((ws) => {
-      if (ws.length === 1) return renderSlice(g, ws[0], { maxTokens: ctx.config.maxTokens, proposed: "full" }).text;
+      if (ws.length === 1) return renderSlice(g, ws[0], { maxTokens: sliceTokens2, proposed: "full" }).text;
       const rep = { ...ws[0], decisions: [] };
-      const [, ...rest] = renderSlice(g, rep, { maxTokens: ctx.config.maxTokens, proposed: "full" }).text.split("\n");
+      const [, ...rest] = renderSlice(g, rep, { maxTokens: sliceTokens2, proposed: "full" }).text.split("\n");
       const last = ws.flatMap((w) => w.decisions.map((d) => `  last   ${basename(w.path)}  ${d.id} ${d.date.slice(5)} ${d.who}  ${d.overrides ? `!${d.overrides}  ` : ""}${d.text}  (${d.sha === "-" ? `${d.branch} provisional` : d.sha})`));
       return [`edit ${ws.map((w) => short(w.path)).join(", ")}  (same chain and rules)`, ...rest, ...last.slice(0, ctx.config.maxDecisions)].join("\n");
     });
@@ -4578,7 +4631,7 @@ async function hydrate(ctx, scopeIn, opts = {}) {
   const rules = /* @__PURE__ */ new Map();
   for (const w of walks) for (const k of w.constraints) if (k.mode === "E" || k.mode === "G" || k.mode === "G?") rules.set(k.id, k);
   const histories = [...rules.values()].map((k) => {
-    const ds = [...g.decisions.values()].filter((d) => g.isActiveDecision(d) && (d.serves === k.id || d.overrides === k.id)).sort((a, b) => b.date.localeCompare(a.date));
+    const ds = g.decisionsFor(k.id);
     const overrides = ds.filter((d) => d.overrides === k.id);
     return { k, serves: ds.filter((d) => d.serves === k.id && d.overrides !== k.id), overrides, legacy: overrides.filter((d) => /^legacy:/.test(d.text)) };
   }).filter((h) => h.serves.length || h.overrides.length);
@@ -4593,11 +4646,11 @@ async function hydrate(ctx, scopeIn, opts = {}) {
   const live2 = [...new Set((await Promise.all(walks.map((w) => liveLinesFor(ctx, w, meta)))).flat())];
   const hints = ctx.config.embed.enabled ? await hintsFor2(ctx, scopeIn, files) : [];
   const dropped = [];
-  const render = (callerCap2, lineCap2, withHints2, withLive2, withCallees2, decisionCap2, fileCap2) => {
+  const render = (callerCap2, lineCap2, withHints2, withLive2, withCallees2, decisionCap2, fileCap2, sliceTokens2) => {
     const shown = files.slice(0, fileCap2);
     const count = shown.length === files.length ? `${files.length} file${files.length === 1 ? "" : "s"}` : `${shown.length} of ${files.length} files`;
     const out = [`hydrate ${scopeIn}${files.length > 1 || files[0] !== scopeIn ? `  (${count}: ${reason})` : ""}`];
-    out.push(...sliceBlocks(fileCap2));
+    out.push(...sliceBlocks(fileCap2, sliceTokens2));
     for (const f of shown) {
       const cs = callerRefs[f] ?? [];
       const dark = cs.filter((c) => !c.loaded).length;
@@ -4633,7 +4686,8 @@ async function hydrate(ctx, scopeIn, opts = {}) {
     return out.join("\n");
   };
   let callerCap = 8, lineCap = 3, withHints = true, withLive = true, withCallees = true, decisionCap = 3, fileCap = files.length;
-  let text = render(callerCap, lineCap, withHints, withLive, withCallees, decisionCap, fileCap);
+  let sliceTokens = Math.max(ctx.config.maxTokens * 2, 600);
+  let text = render(callerCap, lineCap, withHints, withLive, withCallees, decisionCap, fileCap, sliceTokens);
   let tokens = estimateTokens(text);
   const steps = [
     () => {
@@ -4646,7 +4700,7 @@ async function hydrate(ctx, scopeIn, opts = {}) {
     },
     () => {
       decisionCap = 1;
-      return "older decisions";
+      return "inherited provenance";
     },
     () => {
       lineCap = 1;
@@ -4665,6 +4719,11 @@ async function hydrate(ctx, scopeIn, opts = {}) {
       fileCap = 3;
       return "files beyond three";
     },
+    // Only now is the target's own history trimmed, and renderSlice still keeps its newest decision.
+    () => {
+      sliceTokens = ctx.config.maxTokens;
+      return "older decisions on the files themselves";
+    },
     () => {
       if (fileCap <= 1) return void 0;
       fileCap = 1;
@@ -4676,7 +4735,7 @@ async function hydrate(ctx, scopeIn, opts = {}) {
     const what = step();
     if (!what) continue;
     dropped.push(what);
-    text = render(callerCap, lineCap, withHints, withLive, withCallees, decisionCap, fileCap);
+    text = render(callerCap, lineCap, withHints, withLive, withCallees, decisionCap, fileCap, sliceTokens);
     tokens = estimateTokens(text);
   }
   if (opts.record !== false) {
@@ -4978,7 +5037,8 @@ ${sessionContext(ctx, injecting, false)}` : void 0;
     if (!injecting || !ctx.graph) return announce ? { stdout: profile.formatPreToolUse(announce), exitCode: 0 } : { exitCode: 0 };
     const tool = input.tool_name ?? "";
     const ti = input.tool_input ?? {};
-    const recorder = new Recorder(ctx.graph, state);
+    const g = ctx.graph;
+    const recorder = new Recorder(g, state);
     const slices = announce ? [announce] : [];
     const intent = intentOf(ti);
     const announced = new Set(state.data.modulesAnnounced ?? []);
@@ -4991,14 +5051,34 @@ ${sessionContext(ctx, injecting, false)}` : void 0;
         if (s.walk.chain[0]) announced.add(s.walk.chain[0]);
       }
     }
+    const answered = new Set(state.data.filesAnnounced ?? []);
+    let histories = 0;
+    for (const path of profile.preReadTargets(tool, ti, tc)) {
+      if (histories >= 2) break;
+      if (path.startsWith("/") || path === "." || answered.has(path)) continue;
+      if (slices.some((t) => t.startsWith(`edit ${g.aliasFor(path) ?? path}`))) continue;
+      const h = renderHistory(g, path);
+      answered.add(path);
+      if (!h) continue;
+      histories++;
+      slices.push(h.text);
+      const payload = { path: h.path, decisions: h.decisions, tokens: h.tokens, rendered: h.text };
+      const env = envelope("history", meta, payload);
+      store.append(env);
+      notifyOverlay(ctx, env);
+    }
+    if (answered.size !== (state.data.filesAnnounced ?? []).length) {
+      state.data.filesAnnounced = [...answered];
+      state.save();
+    }
     let cards = 0;
     for (const t of profile.touches(tool, ti, tc)) {
       if (cards >= 2) break;
       if (!(t.mode === "full" || t.mode === "range" || t.mode === "grep" || t.mode === "name") || t.path.startsWith("/")) continue;
-      const w = walk(ctx.graph, walkablePath(root, t.path), { maxDecisions: ctx.config.maxDecisions });
+      const w = walk(g, walkablePath(root, t.path), { maxDecisions: ctx.config.maxDecisions });
       const mod = w.chain[0];
       if (!mod || announced.has(mod)) continue;
-      const card = renderCard(ctx.graph, w, { maxTokens: Math.min(200, ctx.config.maxTokens) });
+      const card = renderCard(g, w, { maxTokens: Math.min(200, ctx.config.maxTokens) });
       if (!card) continue;
       announced.add(mod);
       cards++;
@@ -5199,6 +5279,7 @@ var init_core = __esm({
     init_paths();
     init_root();
     init_card();
+    init_history();
     init_slice();
     init_walk();
     init_client();
@@ -5224,6 +5305,20 @@ function claudeProfile(agent = "claude") {
       }
       if (tool === "Bash" && tc.shellParsing) {
         return parseShellCommand(String(ti.command ?? ""), tc.shellCwd, tc.cwd).filter((t) => (t.mode === "edit" || t.mode === "write") && t.path !== ".").map((t) => ({ path: tc.rel(t.path) }));
+      }
+      return [];
+    },
+    preReadTargets(tool, ti, tc) {
+      if (tool === "Read") {
+        const raw = ti.file_path ?? ti.notebook_path;
+        return raw ? [tc.rel(raw)] : [];
+      }
+      if (tool === "Grep" || tool === "Glob") {
+        const raw = ti.path;
+        return raw ? [tc.rel(raw)] : [];
+      }
+      if (tool === "Bash" && tc.shellParsing) {
+        return parseShellCommand(String(ti.command ?? ""), tc.shellCwd, tc.cwd).filter((t) => t.mode === "full" || t.mode === "range").map((t) => tc.rel(t.path));
       }
       return [];
     },
@@ -5392,6 +5487,10 @@ function codexProfile(agent = "codex") {
         return parseShellCommand(commandOf(ti), tc.shellCwd, tc.cwd).filter((t) => (t.mode === "edit" || t.mode === "write") && t.path !== ".").map((t) => ({ path: tc.rel(t.path) }));
       }
       return [];
+    },
+    preReadTargets(tool, ti, tc) {
+      if (tool !== "Bash" || !tc.shellParsing) return [];
+      return parseShellCommand(commandOf(ti), tc.shellCwd, tc.cwd).filter((t) => t.mode === "full" || t.mode === "range").map((t) => tc.rel(t.path));
     },
     touches: (tool, ti, tc) => codexTouches(tool, ti, tc),
     sessionStartReason: (input) => input.source ?? input.start_reason ?? "startup",
@@ -28376,7 +28475,7 @@ function bootstrap(ctx, opts = {}) {
     if (sentences.length < 2) continue;
     const why = sentences.slice(1).find((x) => RATIONALE.test(x));
     if (!why) continue;
-    const text = clip(`${sentences[0]} ${why}`.replace(/\s+/g, " ").trim(), 220);
+    const text = clip2(`${sentences[0]} ${why}`.replace(/\s+/g, " ").trim(), 220);
     constraints.push({ kind: "K", mode: "R", id: `hdr.${slug(f.replace(/\.[^.]+$/, "")).slice(0, 60)}`, attachedTo: f, text, since: today2, line: 0 });
     headerNotes++;
   }
@@ -28455,7 +28554,7 @@ function newRecordsOnly(result, graph) {
   for (const k of result.constraints) if (!graph.constraints.has(k.id)) out.push(k);
   return out;
 }
-function clip(t, max) {
+function clip2(t, max) {
   if (t.length <= max) return t;
   const cut = t.lastIndexOf(" ", max - 1);
   return `${t.slice(0, cut > max / 2 ? cut : max - 1)}\u2026`;
@@ -34649,15 +34748,18 @@ async function main() {
         console.log(json ? JSON.stringify(rows, null, 2) : rows.map((r) => `${r.date}  ${r.kind.padEnd(11)} ${r.id.padEnd(8)} ${r.text}${r.archived ? "  (archived)" : ""}`).join("\n") || "(no history)");
         return 0;
       }
+      const isRule = g.constraints.has(node) || g.concepts.has(node);
       const w = walk(g, node, { maxDecisions: 1e3 });
-      const decisions = args.cmd === "why" ? w.decisions : g.allDecisionsOn(node);
+      const decisions = isRule ? g.decisionsFor(node, { includeSuperseded: args.cmd === "history" }) : args.cmd === "why" ? w.decisions : g.allDecisionsOn(node);
       if (json) {
         console.log(JSON.stringify({ node, constraints: w.constraints, decisions }, null, 2));
         return 0;
       }
       if (args.cmd === "why") {
         console.log(node);
-        for (const k of w.constraints) console.log(`  [${k.mode}] ${k.id}  ${k.text}${k.test ? `  test:${k.test}` : ""}${g.isRetired(k.id) ? "  (retired)" : ""}`);
+        const own = g.constraints.get(node);
+        if (own) console.log(`  [${own.mode}] ${own.id}  ${own.text}${own.test ? `  test:${own.test}` : ""}${g.isRetired(own.id) ? "  (retired)" : ""}  on ${own.attachedTo}`);
+        else for (const k of w.constraints) console.log(`  [${k.mode}] ${k.id}  ${k.text}${k.test ? `  test:${k.test}` : ""}${g.isRetired(k.id) ? "  (retired)" : ""}`);
       }
       if (!decisions.length) console.log("  (no decisions)");
       for (const d of decisions) {

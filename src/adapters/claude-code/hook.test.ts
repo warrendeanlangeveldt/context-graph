@@ -48,6 +48,7 @@ describe('Claude Code hook adapter, end to end on a temporary repository', () =>
     mkdirSync(join(repo, 'api/src/core/orch'), { recursive: true });
     mkdirSync(join(repo, '.ctx'));
     writeFileSync(join(repo, '.ctx/graph.ctx'), GRAPH);
+    writeFileSync(join(repo, '.ctx/decisions.ctx'), 'D d-0001 2026-09-08 w/claude aaaaaaa main api/src/core/orch/bb.ts ->K orch.events applyEvent takes the event, never the workspace, so a replay cannot double-apply\n');
     writeFileSync(join(repo, 'api/boundary.test.ts'), '');
     writeFileSync(join(repo, 'api/src/core/orch/bb.ts'), BB);
     writeFileSync(join(repo, 'api/src/core/helper.ts'), 'export const helper = (e: string): void => {};\n');
@@ -102,6 +103,37 @@ describe('Claude Code hook adapter, end to end on a temporary repository', () =>
     expect(seen.find((x) => x.path === '/etc/hosts')).toMatchObject({ t: 'touch', mode: 'external' });
   });
 
+  it('hands a file its recorded decisions before a read puts its text in context, once, and only when it has any', async () => {
+    await runClaudeHook({ ...base(), hook_event_name: 'SessionStart', start_reason: 'startup' });
+    const read = await runClaudeHook({ ...base(), hook_event_name: 'PreToolUse', tool_name: 'Read', tool_input: { file_path: join(repo, 'api/src/core/orch/bb.ts') } });
+    const out = (JSON.parse(read.stdout!) as { hookSpecificOutput: { additionalContext: string } }).hookSpecificOutput.additionalContext;
+    expect(out).toContain('read bb');
+    expect(out).toContain('decided  d-0001 09-08 w/claude  applyEvent takes the event, never the workspace');
+    // The module card rides along the first time too; the history is the file-specific half.
+    expect(out).toContain('module L:orch');
+    const ev = events().find((e) => e.t === 'history');
+    expect((ev!.p as { path: string; decisions: string[] })).toMatchObject({ path: 'api/src/core/orch/bb.ts', decisions: ['d-0001'] });
+
+    // Read it again: nothing. Read a file with no decisions: nothing.
+    const again = await runClaudeHook({ ...base(), hook_event_name: 'PreToolUse', tool_name: 'Read', tool_input: { file_path: join(repo, 'api/src/core/orch/bb.ts') } });
+    expect(again.stdout).toBeUndefined();
+    const plain = await runClaudeHook({ ...base(), hook_event_name: 'PreToolUse', tool_name: 'Read', tool_input: { file_path: join(repo, 'api/src/core/helper.ts') } });
+    expect(JSON.parse(plain.stdout!).hookSpecificOutput.additionalContext).not.toContain('read ');
+    // A repository-wide grep has no one file to answer for.
+    expect(events().filter((e) => e.t === 'history')).toHaveLength(1);
+    await runClaudeHook({ ...base(), hook_event_name: 'PreToolUse', tool_name: 'Grep', tool_input: { pattern: 'applyEvent' } });
+    expect(events().filter((e) => e.t === 'history')).toHaveLength(1);
+  });
+
+  it('does not repeat the history inside the slice when the same call is an edit', async () => {
+    await runClaudeHook({ ...base(), hook_event_name: 'SessionStart', start_reason: 'startup' });
+    const pre = await runClaudeHook({ ...base(), hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: join(repo, 'api/src/core/orch/bb.ts'), old_string: 'helper(e);', new_string: 'helper(e); this.n++;' } });
+    const out = (JSON.parse(pre.stdout!) as { hookSpecificOutput: { additionalContext: string } }).hookSpecificOutput.additionalContext;
+    expect(out).toContain('last   d-0001');
+    expect(out).not.toContain('read bb');
+    expect(events().filter((e) => e.t === 'history')).toHaveLength(0);
+  });
+
   it('hands over a module card the first time the session reads or greps under a module, once per module', async () => {
     await runClaudeHook({ ...base(), hook_event_name: 'SessionStart', start_reason: 'startup' });
     const grep = await runClaudeHook({ ...base(), hook_event_name: 'PreToolUse', tool_name: 'Grep', tool_input: { pattern: 'applyEvent', path: join(repo, 'api/src/core/orch') } });
@@ -110,9 +142,11 @@ describe('Claude Code hook adapter, end to end on a temporary repository', () =>
     expect(card).toContain('[G orch.events]');
     expect(card).toContain('  inherits 1 rule from L:core: boundary.core');
     expect(card).toContain('hydrate L:orch for callers, history, and what this session already holds');
-    // Same module again: nothing. A sibling module: its own card.
+    // Same module again: no second card, though the file's own history still arrives once.
     const again = await runClaudeHook({ ...base(), hook_event_name: 'PreToolUse', tool_name: 'Read', tool_input: { file_path: join(repo, 'api/src/core/orch/bb.ts') } });
-    expect(again.stdout).toBeUndefined();
+    const againText = (JSON.parse(again.stdout!) as { hookSpecificOutput: { additionalContext: string } }).hookSpecificOutput.additionalContext;
+    expect(againText).toContain('read bb');
+    expect(againText).not.toContain('module L:');
     const core = await runClaudeHook({ ...base(), hook_event_name: 'PreToolUse', tool_name: 'Read', tool_input: { file_path: join(repo, 'api/src/core/helper.ts') } });
     expect((JSON.parse(core.stdout!) as { hookSpecificOutput: { additionalContext: string } }).hookSpecificOutput.additionalContext.split('\n')[0]).toBe('module L:core  Engine  impl C:pure');
     const cards = events().filter((e) => e.t === 'card').map((e) => (e.p as { module: string }).module);

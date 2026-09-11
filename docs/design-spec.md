@@ -506,6 +506,7 @@ An MCP server exposes the graph to any harness that speaks MCP. Hooks push; MCP 
 |---|---|
 | `ctx.hydrate(scope, budget?)` | One bounded briefing for a file, module (`L:`), concept (`C:`), or task description: the slice per distinct chain, callers with the lines that use each file and whether they are already in context, decision history behind the rules in force, what the session already holds, hints, and teammates' open files. Drop order under budget: hints, callee lists, older decisions, caller usage lines, callers beyond three, live lines, files beyond three; rules are never dropped. Observed as a `reach` event plus `range` touches for the caller lines returned. Optionally run at prompt time for the paths and module ids a prompt names (`slice.hydrate_on_prompt`, off by default). |
 | `ctx.slice(path, range?)` | The rendered slice for a path. Same output the hook injects. |
+| `ctx.why(rule)` | For a constraint or concept id, every decision that serves or overrides it, wherever it was recorded. For a path or module, the decisions on it. |
 | `ctx.slice_patch(patch)` | Slices for every file named in a unified patch, concatenated under the budget. Used by harnesses whose edits arrive as patches. |
 | `ctx.why(node)` | Active decisions on a node with full text and provenance. |
 | `ctx.history(node, limit?)` | All decisions including superseded, newest first. |
@@ -1210,6 +1211,7 @@ As of 2026-09-07 every delivery step in §23 has an implementation in the reposi
 |---|---|---|
 | Grammar, walker, slice | Complete, including `rule:`, `since:`, and `Z` records | |
 | Observation | Shell and patch observers, coverage, import and symbol indexes | Import resolution covers relative specifiers; path aliases such as `@/` are unresolved, so caller counts on aliased trees undercount |
+| Read-time history | First read of a file carrying decisions injects them (newest first, cap 3, ~160 tokens, once per file, silent when the file has none); recorded as a `history` event | Module-scoped decisions arrive on the card instead, so they are not repeated per file |
 | Module card | First read or grep under a module injects its card (module, chain, rules enforced first, latest decision, hydrate pointer), once per module per session, at most two per tool call, budget 200 tokens; recorded as a `card` event | Not in the synapse view yet |
 | Instruction block | `ctx init --write` and `ctx install instructions` append the Context Graph block to AGENTS.md or CLAUDE.md | |
 | Bootstrap | Modules from the tree (leaf names, enclosing-module prefix on collisions, `src` as a convention), rules from rule-stating tests (`no-*`, `never-*`, boundary, architecture, contract, invariant, policy; describe blocks and header sentences), instruction-file imperatives, ADR concepts, header rationale as notes, packs with a half-the-roles threshold for auto selection, bootstrapper as first ratifier; proposed rules on the file's own module ask for decisions (root-pinned ones and test files do not); a curated graph keeps its modules on re-run; harness-injected instruction files yield only module-anchored lines | No symbol-level rules; no clustering by embeddings |

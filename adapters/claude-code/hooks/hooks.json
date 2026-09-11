@@ -1,5 +1,5 @@
 {
-  "description": "Context Graph: slice before edits, observe every tool call, demand a decision at turn end.",
+  "description": "Context Graph: decisions before a read, a slice before an edit, observe every tool call, demand a decision at turn end.",
   "hooks": {
     "SessionStart": [
       {

@@ -30,6 +30,17 @@ export function claudeProfile(agent = 'claude'): HarnessProfile {
       }
       return [];
     },
+    preReadTargets(tool, ti, tc): string[] {
+      if (tool === 'Read') { const raw = (ti.file_path ?? ti.notebook_path) as string | undefined; return raw ? [tc.rel(raw)] : []; }
+      // A grep or glob with no path searches the repository; there is no one file whose history to give.
+      if (tool === 'Grep' || tool === 'Glob') { const raw = ti.path as string | undefined; return raw ? [tc.rel(raw)] : []; }
+      if (tool === 'Bash' && tc.shellParsing) {
+        return parseShellCommand(String(ti.command ?? ''), tc.shellCwd, tc.cwd)
+          .filter((t) => t.mode === 'full' || t.mode === 'range')
+          .map((t) => tc.rel(t.path));
+      }
+      return [];
+    },
     touches: (tool, ti, tc) => claudeTouches(tool, ti, tc),
     sessionStartReason: (input) => input.start_reason ?? input.source ?? 'startup',
     formatSessionStart: (text) => text,

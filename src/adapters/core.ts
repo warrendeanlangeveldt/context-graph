@@ -4,7 +4,7 @@ import { openRepo, type RepoContext } from '../core/context.js';
 import { callersOf, loadOrBuildImportIndex } from '../index/imports.js';
 import { enclosingSymbol, lineRangeOf } from '../index/symbols.js';
 import { computeCoverage } from '../observe/coverage.js';
-import { envelope, isEditMode, type AccessMode, type CardPayload, type CompactPayload, type SessionPayload, type SlicePayload, type Touch } from '../observe/event.js';
+import { envelope, isEditMode, type AccessMode, type CardPayload, type CompactPayload, type HistoryPayload, type SessionPayload, type SlicePayload, type Touch } from '../observe/event.js';
 import { parseShell } from '../observe/shell.js';
 import { ancestorPids } from '../observe/session.js';
 import { ObservationStore, SessionState } from '../observe/store.js';
@@ -13,6 +13,7 @@ import { currentBranch, gitPerson } from '../util/git.js';
 import { toAbsolute, toRepoRelative } from '../util/paths.js';
 import { packageRoot } from '../util/root.js';
 import { renderCard } from '../walker/card.js';
+import { renderHistory } from '../walker/history.js';
 import { renderSlice } from '../walker/slice.js';
 import { walk, type WalkResult } from '../walker/walk.js';
 import { liveLinesFor, notifyOverlay } from '../overlay/client.js';
@@ -67,6 +68,8 @@ export interface HarnessProfile {
   isEditTool(tool: string): boolean;
   /** Paths (repo-relative) about to be edited by this tool call, for the pre-edit slice. */
   preEditTargets(tool: string, ti: Record<string, unknown>, tc: ToolContext): EditTarget[];
+  /** Paths (repo-relative) about to be read by this tool call, for the pre-read decision history. */
+  preReadTargets(tool: string, ti: Record<string, unknown>, tc: ToolContext): string[];
   /** Touches implied by a completed tool call. */
   touches(tool: string, ti: Record<string, unknown>, tc: ToolContext): TouchLike[];
   sessionStartReason(input: HookInput): string;
@@ -189,7 +192,8 @@ export async function runHook(input: HookInput, profile: HarnessProfile): Promis
     if (!injecting || !ctx.graph) return announce ? { stdout: profile.formatPreToolUse(announce), exitCode: 0 } : { exitCode: 0 };
     const tool = input.tool_name ?? '';
     const ti = input.tool_input ?? {};
-    const recorder = new Recorder(ctx.graph, state);
+    const g = ctx.graph;
+    const recorder = new Recorder(g, state);
     const slices: string[] = announce ? [announce] : [];
     const intent = intentOf(ti);
     const announced = new Set(state.data.modulesAnnounced ?? []);
@@ -198,16 +202,37 @@ export async function runHook(input: HookInput, profile: HarnessProfile): Promis
       const s = await sliceFor(t.path, t.range, intent);
       if (s) { slices.push(s.text); recorder.notePending(s.walk, input.tool_use_id); if (s.walk.chain[0]) announced.add(s.walk.chain[0]); }
     }
+    // The decision history: the first time this session reads a file that carries decisions, say what was
+    // decided there and why, before its text is in context. A wrong model is built by reading, not writing,
+    // so this is the read-time half of the pair. Silent for a file with no decisions, once per file.
+    const answered = new Set(state.data.filesAnnounced ?? []);
+    let histories = 0;
+    for (const path of profile.preReadTargets(tool, ti, tc)) {
+      if (histories >= 2) break;
+      if (path.startsWith('/') || path === '.' || answered.has(path)) continue;
+      if (slices.some((t) => t.startsWith(`edit ${g.aliasFor(path) ?? path}`))) continue;
+      const h = renderHistory(g, path);
+      answered.add(path);
+      if (!h) continue;
+      histories++;
+      slices.push(h.text);
+      const payload: HistoryPayload = { path: h.path, decisions: h.decisions, tokens: h.tokens, rendered: h.text };
+      const env = envelope('history', meta, payload);
+      store.append(env);
+      notifyOverlay(ctx, env);
+    }
+    if (answered.size !== (state.data.filesAnnounced ?? []).length) { state.data.filesAnnounced = [...answered]; state.save(); }
+
     // The module card: the first time this session reads or greps under a module, say what governs it,
     // before a line of its code is in context. Once per module per session, at most two per call.
     let cards = 0;
     for (const t of profile.touches(tool, ti, tc)) {
       if (cards >= 2) break;
       if (!(t.mode === 'full' || t.mode === 'range' || t.mode === 'grep' || t.mode === 'name') || t.path.startsWith('/')) continue;
-      const w = walk(ctx.graph, walkablePath(root, t.path), { maxDecisions: ctx.config.maxDecisions });
+      const w = walk(g, walkablePath(root, t.path), { maxDecisions: ctx.config.maxDecisions });
       const mod = w.chain[0];
       if (!mod || announced.has(mod)) continue;
-      const card = renderCard(ctx.graph, w, { maxTokens: Math.min(200, ctx.config.maxTokens) });
+      const card = renderCard(g, w, { maxTokens: Math.min(200, ctx.config.maxTokens) });
       if (!card) continue;
       announced.add(mod);
       cards++;

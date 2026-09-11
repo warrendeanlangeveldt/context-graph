@@ -77,4 +77,21 @@ A dup a/y.ts
     const rules = bad.validate().map((f) => f.rule).sort();
     expect(rules).toEqual(expect.arrayContaining(['attach', 'arrow-target', 'supersession', 'alias-unique']));
   });
+
+  it('answers a rule\'s why with the decisions that serve or override it, wherever they were recorded', () => {
+    const g = Graph.fromRecords(parseText(`
+M api/** L:api
+L L:api API
+K G k.one L:api a rule
+K G k.two L:api another
+D d-0001 2026-09-01 w/c aaaaaaa main api/a.ts ->K k.one served early
+D d-0002 2026-09-08 w/c bbbbbbb main L:api ->K k.one served on the module itself
+D d-0003 2026-09-05 w/c ccccccc main api/b.ts ->K k.two !k.one broke it here
+S d-0003 d-0001
+`, 'g'));
+    expect(g.decisionsFor('k.one').map((d) => d.id)).toEqual(['d-0002', 'd-0003']);
+    expect(g.decisionsFor('k.one', { includeSuperseded: true }).map((d) => d.id)).toEqual(['d-0002', 'd-0003', 'd-0001']);
+    expect(g.decisionsFor('k.two').map((d) => d.id)).toEqual(['d-0003']);
+    expect(g.decisionsOn(['k.one'])).toEqual([]);
+  });
 });

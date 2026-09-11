@@ -1,7 +1,7 @@
 {
   "name": "context-graph",
-  "version": "0.1.14",
-  "description": "Per-edit context slices, decision recording, and context observation for any repository",
+  "version": "0.1.15",
+  "description": "Decision history before reads, context slices before edits, decision recording, and context observation for any repository",
   "skills": "./skills/",
   "mcpServers": "./.mcp.json",
   "hooks": "./hooks/hooks.json"

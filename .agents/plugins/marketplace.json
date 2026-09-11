@@ -3,8 +3,13 @@
   "plugins": [
     {
       "name": "context-graph",
-      "source": { "source": "local", "path": "./adapters/codex" },
-      "policy": { "installation": "AVAILABLE" }
+      "source": {
+        "source": "local",
+        "path": "./adapters/codex"
+      },
+      "policy": {
+        "installation": "AVAILABLE"
+      }
     }
   ]
 }

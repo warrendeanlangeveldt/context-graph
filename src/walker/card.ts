@@ -13,6 +13,13 @@ export interface Card { module: string; text: string; tokens: number; dropped: s
 
 const MODE_ORDER: Record<KRecord['mode'], number> = { E: 0, G: 1, 'G?': 2, R: 3 };
 
+/** Cut at a word boundary so a pointer to the full text does not end mid-word. */
+function clip(t: string, max: number): string {
+  if (t.length <= max) return t;
+  const cut = t.lastIndexOf(' ', max - 1);
+  return `${t.slice(0, cut > max / 2 ? cut : max - 1)}…`;
+}
+
 export function renderCard(graph: Graph, w: WalkResult, opts: { maxTokens?: number } = {}): Card | undefined {
   const module = w.chain[0];
   if (!module) return undefined;
@@ -29,7 +36,7 @@ export function renderCard(graph: Graph, w: WalkResult, opts: { maxTokens?: numb
   const latest = decisions[0];
   const specific = ownRules.length > 0 || decisions.length > 0;
   const tail = [
-    decisions.length ? `  decisions ${decisions.length} in this module, latest ${latest!.id} ${latest!.date.slice(5)} ${latest!.overrides ? `!${latest!.overrides} ` : ''}${latest!.text.slice(0, 90)}` : undefined,
+    decisions.length ? `  decisions ${decisions.length} in this module, latest ${latest!.id} ${latest!.date.slice(5)} ${latest!.overrides ? `!${latest!.overrides} ` : ''}${clip(latest!.text, 90)}` : undefined,
     specific ? `  hydrate ${module} for callers, history, and what this session already holds` : undefined,
   ].filter((x): x is string => Boolean(x));
 

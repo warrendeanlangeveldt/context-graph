@@ -23,6 +23,13 @@ export function codexProfile(agent = 'codex'): HarnessProfile {
       }
       return [];
     },
+    preReadTargets(tool, ti, tc): string[] {
+      // Codex has no read tool: every read arrives as shell.
+      if (tool !== 'Bash' || !tc.shellParsing) return [];
+      return parseShellCommand(commandOf(ti), tc.shellCwd, tc.cwd)
+        .filter((t) => t.mode === 'full' || t.mode === 'range')
+        .map((t) => tc.rel(t.path));
+    },
     touches: (tool, ti, tc) => codexTouches(tool, ti, tc),
     sessionStartReason: (input) => input.source ?? input.start_reason ?? 'startup',
     preCompactEvent: 'PreCompact',

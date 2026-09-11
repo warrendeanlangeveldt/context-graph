@@ -213,10 +213,10 @@ const coverageRows: Coverage[] = [];
 const findings: Finding[] = [];
 const slices = new Map<string, { ts: string; rendered: string; applicable: string[] }[]>();
 const decisionsSeen: { ts: string; node: string; serves: string; overrides?: string; text: string }[] = [];
-let reaches = 0, compactions = 0, reads = 0, opaque = 0;
+let reaches = 0, compactions = 0, reads = 0, opaque = 0, histories = 0;
 let lastTouched: string | undefined;
 
-function resetDerived(): void { nodeState.clear(); coverageRows.length = 0; findings.length = 0; slices.clear(); decisionsSeen.length = 0; reaches = 0; compactions = 0; reads = 0; opaque = 0; lastTouched = undefined; }
+function resetDerived(): void { nodeState.clear(); coverageRows.length = 0; findings.length = 0; slices.clear(); decisionsSeen.length = 0; reaches = 0; compactions = 0; reads = 0; opaque = 0; histories = 0; lastTouched = undefined; }
 
 function touch(path: string, level: number, mode: string, session: string, ts: string, edited: boolean): NodeState {
   const ns = nodeState.get(path) ?? { level: 0, mode, edited: false, dark: false, sessions: new Set(), lastTs: ts, edits: 0 };
@@ -256,6 +256,10 @@ function applyEvent(e: Env, animate: boolean): void {
     else if (c.callers_total > 0) findings.push({ ts: e.ts, session: e.session, rule: 'callers', message: `${short(c.path)} edited with ${c.callers_loaded} of ${c.callers_total} callers in context`, path: c.path, level: c.callers_loaded === c.callers_total ? 'ok' : 'warn' });
     if (c.summarized_since) findings.push({ ts: e.ts, session: e.session, rule: 'summarized', message: `${short(c.path)} edited after its content had been compacted away`, path: c.path, level: 'warn' });
     if (animate) { renderCoverage(); scheduleRefresh(); }
+  } else if (e.t === 'history') {
+    const p = e.p as { path: string; rendered: string; decisions: string[] };
+    slices.set(p.path, [...(slices.get(p.path) ?? []), { ts: e.ts, rendered: p.rendered, applicable: p.decisions }]);
+    histories++;
   } else if (e.t === 'slice') {
     const p = e.p as { path: string; rendered: string; applicable: string[] };
     slices.set(p.path, [...(slices.get(p.path) ?? []), { ts: e.ts, rendered: p.rendered, applicable: p.applicable }]);
@@ -844,6 +848,8 @@ function renderHeadline(): void {
   $('h-callers-wrap').className = `stat ${ct ? (cl / ct < 0.34 ? 'bad' : cl / ct < 0.67 ? 'warn' : 'good') : ''}`;
   $('h-dark').textContent = String(darkEdits);
   $('h-dark-wrap').className = `stat ${darkEdits ? 'bad' : edits ? 'good' : ''}`;
+  $('h-history').textContent = String(histories);
+  $('h-history-wrap').className = `stat ${histories ? 'good' : ''}`;
   $('h-opaque').textContent = String(opaque);
   $('h-opaque-wrap').className = `stat ${opaque ? 'warn' : ''}`;
   $('h-opaque-wrap').title = opaque ? 'edits made by a script the observer could not attribute to a file: coverage for these is unknown, not clean' : 'edits made by a script the observer could not attribute to a file';

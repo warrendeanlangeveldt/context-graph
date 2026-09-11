@@ -62,17 +62,19 @@ export async function hydrate(ctx: RepoContext, scopeIn: string, opts: HydrateOp
 
   // 1. The floor: one slice per distinct chain-and-rules signature, so a module scope does not repeat itself.
   const walks = files.map((f) => walk(g, f, { maxDecisions: ctx.config.maxDecisions }));
-  const sliceBlocks = (fileCap: number): string[] => {
+  // The target's own decisions are the most specific thing hydrate has, so the slice gets room for them and
+  // gives it back only after the general material (hints, callee lists, inherited provenance) has gone.
+  const sliceBlocks = (fileCap: number, sliceTokens: number): string[] => {
     const groups = new Map<string, WalkResult[]>();
     for (const w of walks.slice(0, fileCap)) {
       const sig = [...w.chain, ...w.constraints.map((k) => k.id)].join('|');
       groups.set(sig, [...(groups.get(sig) ?? []), w]);
     }
     return [...groups.values()].map((ws) => {
-      if (ws.length === 1) return renderSlice(g, ws[0]!, { maxTokens: ctx.config.maxTokens, proposed: 'full' }).text;
+      if (ws.length === 1) return renderSlice(g, ws[0]!, { maxTokens: sliceTokens, proposed: 'full' }).text;
       // One slice for the group, then each file's own latest decisions, named by file.
       const rep: WalkResult = { ...ws[0]!, decisions: [] };
-      const [, ...rest] = renderSlice(g, rep, { maxTokens: ctx.config.maxTokens, proposed: 'full' }).text.split('\n');
+      const [, ...rest] = renderSlice(g, rep, { maxTokens: sliceTokens, proposed: 'full' }).text.split('\n');
       const last = ws.flatMap((w) => w.decisions.map((d) => `  last   ${basename(w.path)}  ${d.id} ${d.date.slice(5)} ${d.who}  ${d.overrides ? `!${d.overrides}  ` : ''}${d.text}  (${d.sha === '-' ? `${d.branch} provisional` : d.sha})`));
       return [`edit ${ws.map((w) => short(w.path)).join(', ')}  (same chain and rules)`, ...rest, ...last.slice(0, ctx.config.maxDecisions)].join('\n');
     });
@@ -93,7 +95,7 @@ export async function hydrate(ctx: RepoContext, scopeIn: string, opts: HydrateOp
   const rules = new Map<string, KRecord>();
   for (const w of walks) for (const k of w.constraints) if (k.mode === 'E' || k.mode === 'G' || k.mode === 'G?') rules.set(k.id, k);
   const histories = [...rules.values()].map((k) => {
-    const ds = [...g.decisions.values()].filter((d) => g.isActiveDecision(d) && (d.serves === k.id || d.overrides === k.id)).sort((a, b) => b.date.localeCompare(a.date));
+    const ds = g.decisionsFor(k.id);
     const overrides = ds.filter((d) => d.overrides === k.id);
     return { k, serves: ds.filter((d) => d.serves === k.id && d.overrides !== k.id), overrides, legacy: overrides.filter((d) => /^legacy:/.test(d.text)) };
   }).filter((h) => h.serves.length || h.overrides.length);
@@ -114,11 +116,11 @@ export async function hydrate(ctx: RepoContext, scopeIn: string, opts: HydrateOp
 
   // Assemble under budget: hints, callee lists, older decisions, caller lines go first; slices and rules never go.
   const dropped: string[] = [];
-  const render = (callerCap: number, lineCap: number, withHints: boolean, withLive: boolean, withCallees: boolean, decisionCap: number, fileCap: number): string => {
+  const render = (callerCap: number, lineCap: number, withHints: boolean, withLive: boolean, withCallees: boolean, decisionCap: number, fileCap: number, sliceTokens: number): string => {
     const shown = files.slice(0, fileCap);
     const count = shown.length === files.length ? `${files.length} file${files.length === 1 ? '' : 's'}` : `${shown.length} of ${files.length} files`;
     const out: string[] = [`hydrate ${scopeIn}${files.length > 1 || files[0] !== scopeIn ? `  (${count}: ${reason})` : ''}`];
-    out.push(...sliceBlocks(fileCap));
+    out.push(...sliceBlocks(fileCap, sliceTokens));
     for (const f of shown) {
       const cs = callerRefs[f] ?? [];
       const dark = cs.filter((c) => !c.loaded).length;
@@ -149,16 +151,19 @@ export async function hydrate(ctx: RepoContext, scopeIn: string, opts: HydrateOp
   };
 
   let callerCap = 8, lineCap = 3, withHints = true, withLive = true, withCallees = true, decisionCap = 3, fileCap = files.length;
-  let text = render(callerCap, lineCap, withHints, withLive, withCallees, decisionCap, fileCap);
+  let sliceTokens = Math.max(ctx.config.maxTokens * 2, 600);
+  let text = render(callerCap, lineCap, withHints, withLive, withCallees, decisionCap, fileCap, sliceTokens);
   let tokens = estimateTokens(text);
   const steps: (() => string | undefined)[] = [
     () => { withHints = false; return 'hints'; },
     () => { withCallees = false; return 'callee list'; },
-    () => { decisionCap = 1; return 'older decisions'; },
+    () => { decisionCap = 1; return 'inherited provenance'; },
     () => { lineCap = 1; return 'caller usage lines'; },
     () => { callerCap = 3; return 'callers beyond three'; },
     () => { withLive = false; return 'live lines'; },
     () => { if (fileCap <= 3) return undefined; fileCap = 3; return 'files beyond three'; },
+    // Only now is the target's own history trimmed, and renderSlice still keeps its newest decision.
+    () => { sliceTokens = ctx.config.maxTokens; return 'older decisions on the files themselves'; },
     () => { if (fileCap <= 1) return undefined; fileCap = 1; return 'files beyond the first'; },
   ];
   for (const step of steps) {
@@ -166,7 +171,7 @@ export async function hydrate(ctx: RepoContext, scopeIn: string, opts: HydrateOp
     const what = step();
     if (!what) continue;
     dropped.push(what);
-    text = render(callerCap, lineCap, withHints, withLive, withCallees, decisionCap, fileCap);
+    text = render(callerCap, lineCap, withHints, withLive, withCallees, decisionCap, fileCap, sliceTokens);
     tokens = estimateTokens(text);
   }
 

@@ -198,12 +198,19 @@ async function main(): Promise<number> {
         console.log(json ? JSON.stringify(rows, null, 2) : rows.map((r) => `${r.date}  ${r.kind.padEnd(11)} ${r.id.padEnd(8)} ${r.text}${r.archived ? '  (archived)' : ''}`).join('\n') || '(no history)');
         return 0;
       }
+      // A rule's "why" is the decisions that serve or override it, wherever they were recorded; a file's or
+      // module's is the decisions on it. Asking a rule for decisions recorded *on* it always found none.
+      const isRule = g.constraints.has(node) || g.concepts.has(node);
       const w = walk(g, node, { maxDecisions: 1000 });
-      const decisions = args.cmd === 'why' ? w.decisions : g.allDecisionsOn(node);
+      const decisions = isRule
+        ? g.decisionsFor(node, { includeSuperseded: args.cmd === 'history' })
+        : args.cmd === 'why' ? w.decisions : g.allDecisionsOn(node);
       if (json) { console.log(JSON.stringify({ node, constraints: w.constraints, decisions }, null, 2)); return 0; }
       if (args.cmd === 'why') {
         console.log(node);
-        for (const k of w.constraints) console.log(`  [${k.mode}] ${k.id}  ${k.text}${k.test ? `  test:${k.test}` : ''}${g.isRetired(k.id) ? '  (retired)' : ''}`);
+        const own = g.constraints.get(node);
+        if (own) console.log(`  [${own.mode}] ${own.id}  ${own.text}${own.test ? `  test:${own.test}` : ''}${g.isRetired(own.id) ? '  (retired)' : ''}  on ${own.attachedTo}`);
+        else for (const k of w.constraints) console.log(`  [${k.mode}] ${k.id}  ${k.text}${k.test ? `  test:${k.test}` : ''}${g.isRetired(k.id) ? '  (retired)' : ''}`);
       }
       if (!decisions.length) console.log('  (no decisions)');
       for (const d of decisions) {

@@ -63,6 +63,8 @@ export interface SessionStateData {
   graphAnnounced?: boolean;
   /** Modules whose card this session has already seen, by id. */
   modulesAnnounced?: string[];
+  /** Files whose decision history this session has been shown, by path. */
+  filesAnnounced?: string[];
   /** Ancestor pids of the hook process, so the MCP server and shell commands under the same harness can find this session. */
   pids?: number[];
   /** Where the harness's shell currently is, when it keeps its working directory between calls. */

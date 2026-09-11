@@ -117,11 +117,14 @@ describe('hydrate', () => {
     await expect(hydrate(ctx, 'nothing here at all', { session: 's-2', record: false })).rejects.toThrow(/nothing in the repository matches/);
   });
 
-  it('drops hints, callee lists, and older decisions before it ever drops a rule', async () => {
+  it('drops general material before the file\'s own history, and never a rule', async () => {
     const ctx = openRepo({ cwd: repo });
     const h = await hydrate(ctx, 'api/src/core/orch/bb.ts', { session: 's-3', record: false, budget: 120 });
     expect(h.dropped).toContain('callee list');
-    expect(h.dropped).toContain('older decisions');
+    expect(h.dropped).toContain('inherited provenance');
+    // The target's own decisions are the last thing to go, and its newest survives even then.
+    expect(h.dropped.indexOf('inherited provenance')).toBeLessThan(h.dropped.indexOf('older decisions on the files themselves'));
+    expect(h.text).toContain('d-0003');
     expect(h.text).toContain('[G orch.events]');
     expect(h.text).toContain('[E core.pure]');
     expect(h.text).toContain('orch.events  served 2: d-0003');

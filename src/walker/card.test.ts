@@ -67,6 +67,20 @@ describe('proposed rules in a slice', () => {
   });
 });
 
+describe('the newest decision outranks the budget', () => {
+  it('survives a slice whose rules alone exhaust it, and older ones go first', () => {
+    const g = Graph.fromRecords(parseText(`${GRAPH}
+D d-0001 2026-09-01 w/c aaaaaaa main api/src/core/x.ts ->K core.reuse the older reason
+D d-0002 2026-09-08 w/c bbbbbbb main api/src/core/x.ts ->K core.reuse the newest reason, which is the one that must survive
+`, 'card'));
+    const s = renderSlice(g, walk(g, 'api/src/core/x.ts'), { maxTokens: 10 });
+    expect(s.text).toContain('the newest reason');
+    expect(s.text).not.toContain('the older reason');
+    expect(s.dropped).toContain('decision:d-0001');
+    expect(s.warnings[0]).toContain('plus the newest decision exceed');
+  });
+});
+
 describe('module card', () => {
   it('names the module, lists rules enforced first, and points at hydrate', () => {
     const g = Graph.fromRecords(parseText(GRAPH, 'card'));

@@ -78,12 +78,14 @@ export function renderSlice(graph: Graph, w: WalkResult, opts: SliceOptions = {}
 
   while (over() && hintLines.length) { dropped.push(`hint:${hintLines.pop()!.trim()}`); recount(); }
   while (over() && liveLines.length) { dropped.push(`live:${liveLines.pop()!.trim()}`); recount(); }
-  while (over() && lastLines.length) { dropped.push(`decision:${w.decisions[lastLines.length - 1]!.id}`); lastLines.pop(); recount(); }
+  // The newest decision survives the budget like an enforced rule does. A file rich enough in rules to
+  // exhaust the budget is exactly the one whose history the next agent cannot reconstruct from the code.
+  while (over() && lastLines.length > 1) { dropped.push(`decision:${w.decisions[lastLines.length - 1]!.id}`); lastLines.pop(); recount(); }
   while (over() && noteLines.length) { noteLines.pop(); dropped.push('note'); recount(); }
   if (over() && inheritedLines.length) { inheritedLines = [`  also   ${inherited.length} proposed on ${inheritedFrom}  (ctx why)`]; dropped.push('inherited ids'); recount(); }
   if (over() && inheritedLines.length) { inheritedLines = []; dropped.push('inherited'); recount(); }
   if (over() && ownProposed.length && proposedLines.length > 1) { proposedLines = [`  must?  ${ownProposed.length} proposed: ${ownProposed.map((k) => k.id).join(', ')}  (ctx why <id> for the text)`]; dropped.push('proposed text'); recount(); }
-  if (over()) warnings.push(`enforced and guided constraints alone exceed the ${maxTokens}-token budget at ${w.path}; the graph is too fine-grained at this node`);
+  if (over()) warnings.push(`enforced and guided constraints plus the newest decision exceed the ${maxTokens}-token budget at ${w.path}; the graph is too fine-grained at this node`);
 
   return { text, tokens, dropped, warnings, applicable: w.applicable };
 }
