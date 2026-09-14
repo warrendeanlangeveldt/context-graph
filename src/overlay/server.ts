@@ -313,7 +313,7 @@ function snapshot(s: RepoState): unknown {
   const ctx = openRepo({ repo: s.root });
   const index = loadOrBuildImportIndex(s.root);
   interface SnapConstraint { id: string; mode: string; text: string; pack?: string }
-  interface SnapNode { id: string; kind: 'file' | 'module' | 'concept' | 'constraint'; label: string; module?: string; size: number; constraints?: SnapConstraint[]; decisions?: number; parent?: string; mode?: string; pack?: string; attached?: string; adr?: string }
+  interface SnapNode { id: string; kind: 'file' | 'module' | 'concept' | 'constraint'; label: string; module?: string; size: number; constraints?: SnapConstraint[]; decisions?: number; parent?: string; mode?: string; pack?: string; attached?: string; adr?: string; rule?: string }
   interface SnapLink { source: string; target: string; rel: 'import' | 'in' | 'impl' | 'governs' | 'serves' | 'overrides'; decision?: string; who?: string; date?: string; text?: string }
   const nodes: SnapNode[] = [];
   const links: SnapLink[] = [];
@@ -349,7 +349,7 @@ function snapshot(s: RepoState): unknown {
     for (const k of g.constraints.values()) {
       if (g.isRetired(k.id)) continue;
       const id = `K:${k.id}`;
-      add({ id, kind: 'constraint', label: k.text, size: 1, mode: k.mode, attached: k.attachedTo, ...(pack(k.from) ? { pack: pack(k.from)! } : {}) });
+      add({ id, kind: 'constraint', label: k.text, size: 1, mode: k.mode, attached: k.attachedTo, ...(k.rule ? { rule: k.rule } : {}), ...(pack(k.from) ? { pack: pack(k.from)! } : {}) });
       if (!k.attachedTo.startsWith('L:') && !k.attachedTo.startsWith('C:')) ensureFile(k.attachedTo.split('#')[0]!);
       if (seen.has(k.attachedTo.split('#')[0]!)) links.push({ source: id, target: k.attachedTo.split('#')[0]!, rel: 'governs' });
     }

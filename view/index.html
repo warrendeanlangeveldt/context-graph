@@ -27,6 +27,11 @@
     .stat.good b { color: var(--good); }
     .stat.warn b { color: var(--warm); }
     #headline .note { color: var(--muted); margin-left: auto; max-width: 48ch; text-wrap: pretty; }
+    #headline .sentence { flex: 1 0 100%; margin: 2px 0 4px; font-size: 20px; font-weight: 500; line-height: 1.28; letter-spacing: -0.01em; text-wrap: balance; }
+    #headline .sentence em { font-style: normal; color: var(--hot); }
+    #map { width: 100%; height: 100%; display: block; }
+    #map .district { cursor: pointer; }
+    #map .district:hover .body { stroke: var(--ink); }
     #timeline { padding: 4px 12px; gap: 8px; }
     #timeline canvas { flex: 1; height: 34px; min-width: 0; cursor: crosshair; border-radius: 3px; }
     #timeline .tl-label { color: var(--muted); font-size: 11px; white-space: nowrap; }
@@ -115,7 +120,8 @@
       <span id="status">connecting</span>
     </header>
     <div id="controls">
-      <button id="mode3d" aria-pressed="true">3D</button>
+      <button id="modemap" aria-pressed="true" title="the codebase as a fixed map: height is containment depth, light is this session">map</button>
+      <button id="mode3d" aria-pressed="false">3D</button>
       <button id="mode2d" aria-pressed="false">2D</button>
       <label>files <select id="files"><option value="touched" selected>touched only</option><option value="all">all</option></select></label>
       <label>labels <select id="labels"><option value="modules" selected>modules</option><option value="lit">modules and lit files</option><option value="all">all</option><option value="none">none</option></select></label>
@@ -130,6 +136,7 @@
       <input id="search" type="search" placeholder="find a file or module…" size="26">
     </div>
     <div id="headline">
+      <p class="sentence" id="h-sentence"></p>
       <div class="stat"><b id="h-edits">0</b><span>edits</span></div>
       <div class="stat" id="h-slice-wrap"><b id="h-slice">0%</b><span>with a slice</span></div>
       <div class="stat" id="h-callers-wrap"><b id="h-callers">–</b><span>callers in context</span></div>

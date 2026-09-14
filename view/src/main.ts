@@ -14,7 +14,7 @@ import { Vector2, type Object3D } from 'three';
 
 type Kind = 'file' | 'module' | 'concept' | 'constraint';
 interface SnapConstraint { id: string; mode: string; text: string; pack?: string }
-interface SnapNode { id: string; kind: Kind; label: string; module?: string; size: number; constraints?: SnapConstraint[]; decisions?: number; parent?: string; mode?: string; pack?: string; attached?: string; adr?: string }
+interface SnapNode { id: string; kind: Kind; label: string; module?: string; size: number; constraints?: SnapConstraint[]; decisions?: number; parent?: string; mode?: string; pack?: string; attached?: string; adr?: string; rule?: string }
 type Rel = 'import' | 'in' | 'impl' | 'governs' | 'serves' | 'overrides';
 interface SnapLink { source: string; target: string; rel: Rel; decision?: string; who?: string; date?: string; text?: string }
 interface Snapshot { root?: string; nodes: SnapNode[]; links: SnapLink[]; error?: string }
@@ -49,8 +49,8 @@ const CATEGORIES: { key: Category; name: string; color: (p: Palette) => string }
   { key: 'proposed', name: 'proposed', color: (p) => p.proposed },
 ];
 
-interface Controls { theme: 'dark' | 'light'; mode: '3d' | '2d'; window: 'all' | 'day' | 'hour'; files: 'touched' | 'all'; labels: 'modules' | 'lit' | 'all' | 'none'; meaning: 'both' | 'concepts' | 'constraints' | 'none'; links: 'containment' | 'meaning' | 'imports' | 'all' | 'none'; colour: 'mode' | 'concept' | 'governance' | 'pack' | 'session'; size: number; bloom: boolean; freeze: boolean; speed: number; risky: boolean }
-const DEFAULTS: Controls = { theme: 'dark', mode: '3d', window: 'all', files: 'touched', labels: 'modules', meaning: 'both', links: 'meaning', colour: 'mode', size: 1.4, bloom: false, freeze: false, speed: 20, risky: true };
+interface Controls { theme: 'dark' | 'light'; mode: 'map' | '3d' | '2d'; window: 'all' | 'day' | 'hour'; files: 'touched' | 'all'; labels: 'modules' | 'lit' | 'all' | 'none'; meaning: 'both' | 'concepts' | 'constraints' | 'none'; links: 'containment' | 'meaning' | 'imports' | 'all' | 'none'; colour: 'mode' | 'concept' | 'governance' | 'pack' | 'session'; size: number; bloom: boolean; freeze: boolean; speed: number; risky: boolean }
+const DEFAULTS: Controls = { theme: 'dark', mode: 'map', window: 'all', files: 'touched', labels: 'modules', meaning: 'both', links: 'meaning', colour: 'mode', size: 1.4, bloom: false, freeze: false, speed: 20, risky: true };
 const controls: Controls = { ...DEFAULTS, ...load() };
 if (!['containment', 'meaning', 'imports', 'all', 'none'].includes(controls.links)) controls.links = 'meaning';
 
@@ -465,6 +465,7 @@ function rebuild(): void {
   el.innerHTML = '';
   g3 = undefined; g2 = undefined;
   fitted = false;
+  if (controls.mode === 'map') { renderMap(); renderLegend(); return; }
   const data = visibleData();
   const p = pal();
   const w = el.clientWidth, h = el.clientHeight;
@@ -547,7 +548,146 @@ function rebuild(): void {
   renderLegend();
 }
 
+// ---- the map: a fixed instrument face -------------------------------------------------------
+//
+// The force layouts answer "what is connected to what" and re-roll the dice on every load, so a
+// module is somewhere different each time and nothing can be learned by looking twice. The map
+// gives position a meaning instead: height is containment depth, a module keeps its place for the
+// life of the graph, and the only thing that changes is the light this session puts on it.
+
+interface Place { x: number; y: number; rx: number; ry: number; node: SnapNode }
+
+/** A plate is as wide as the level is crowded, so a depth holding one module does not read as an empty floor. */
+function plateWidth(levels: SnapNode[][], d: number): number {
+  const most = Math.max(1, ...levels.map((r) => r.length));
+  return 0.16 + 0.34 * ((levels[d]?.length ?? 1) / most);
+}
+
+function mapPlaces(w: number, h: number): { places: Map<string, Place>; levels: SnapNode[][]; rowH: number; padLeft: number } {
+  const mods = state.snapshot.nodes.filter((n) => n.kind === 'module');
+  const depthOf = (id: string): number => Math.max(0, chainOf(id).length - 1);
+  const maxD = mods.reduce((m, n) => Math.max(m, depthOf(n.id)), 0);
+  const levels: SnapNode[][] = [];
+  for (let d = 0; d <= maxD; d++) levels[d] = mods.filter((n) => depthOf(n.id) === d).sort((a, b) => a.id.localeCompare(b.id));
+  const padLeft = 104, padRight = 28, padTop = 22, padBottom = 26;
+  const rowH = (h - padTop - padBottom) / (maxD + 1);
+  const span = w - padLeft - padRight;
+  const cx = padLeft + span / 2;
+  const sizes = mods.map((n) => moduleStats(n.id).total);
+  const maxSize = Math.max(1, ...sizes);
+  const places = new Map<string, Place>();
+  for (let d = 0; d <= maxD; d++) {
+    const row = levels[d]!;
+    if (!row.length) continue;
+    const cy = padTop + rowH * (d + 0.5);
+    const hw = span * plateWidth(levels, d);
+    const hh = rowH * 0.42;
+    const n = row.length;
+    const step = n > 1 ? (hw * 1.46) / (n - 1) : 0;
+    row.forEach((node, i) => {
+      const dx = n > 1 ? -hw * 0.73 + step * i : 0;
+      // Inside the plate's diamond, so a district never floats off its own level.
+      const room = hh * (1 - Math.abs(dx) / hw) * 0.86;
+      const weight = Math.sqrt(moduleStats(node.id).total / maxSize);
+      const ry = Math.max(7, Math.min(room, rowH * 0.1 + rowH * 0.2 * weight));
+      const rx = Math.max(14, Math.min(ry * 2.3, step ? step * 0.48 : hw * 0.5));
+      places.set(node.id, { x: cx + dx, y: cy, rx, ry, node });
+    });
+  }
+  return { places, levels, rowH, padLeft };
+}
+
+/** Module-to-module import counts, and the pairs a machine-checkable rule forbids. */
+function moduleImports(): { pairs: Map<string, number>; forbidden: Map<string, SnapNode> } {
+  const pairs = new Map<string, number>();
+  for (const l of state.snapshot.links) {
+    if (l.rel !== 'import') continue;
+    const a = moduleOf(l.source), b = moduleOf(l.target);
+    if (!a || !b || a === b) continue;
+    const key = `${a}\u0000${b}`;
+    pairs.set(key, (pairs.get(key) ?? 0) + 1);
+  }
+  const forbidden = new Map<string, SnapNode>();
+  for (const n of state.snapshot.nodes) {
+    const m = n.kind === 'constraint' && n.rule ? /^noimport:(L:[^:]+):(L:.+)$/.exec(n.rule) : null;
+    if (m) forbidden.set(`${m[1]}\u0000${m[2]}`, n);
+  }
+  return { pairs, forbidden };
+}
+
+function renderMap(): void {
+  const p = pal();
+  const w = Math.max(360, el.clientWidth), h = Math.max(280, el.clientHeight);
+  const { places, levels, rowH, padLeft } = mapPlaces(w, h);
+  if (!places.size) { el.innerHTML = '<p style="padding:24px;color:var(--muted)">No modules in this graph yet. Run ctx init to derive some.</p>'; return; }
+  const { pairs, forbidden } = moduleImports();
+  const out: string[] = [`<svg id="map" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}">`];
+
+  // Plates, one per containment depth, with the depth named on the left.
+  const span = w - padLeft - 28;
+  const cx = padLeft + span / 2;
+  levels.forEach((row, d) => {
+    if (!row.length) return;
+    const cy = 22 + rowH * (d + 0.5);
+    const hw = span * plateWidth(levels, d);
+    const hh = rowH * 0.42;
+    out.push(`<polygon points="${cx - hw},${cy} ${cx},${cy - hh} ${cx + hw},${cy} ${cx},${cy + hh}" fill="${p.idle}" fill-opacity="0.16" stroke="${p.contain}" stroke-width="1.2"></polygon>`);
+    const name = d === 0 && row.length === 1 ? (row[0]!.id.startsWith('L:') ? row[0]!.id.slice(2) : row[0]!.id) : `depth ${d}`;
+    out.push(`<text x="26" y="${cy - 3}" fill="${p.labelModule}" font-size="13" font-weight="600">${esc(trunc(name, 14))}</text>`);
+    out.push(`<text x="26" y="${cy + 13}" fill="${p.dim}" font-size="10">${row.length} module${row.length === 1 ? '' : 's'}</text>`);
+  });
+  out.push(`<text x="26" y="16" fill="${p.dim}" font-size="10" letter-spacing="0.1em">DEPTH</text>`);
+
+  // Imports between modules: the strongest few, plus every one a rule forbids.
+  const drawn = [...pairs.entries()].sort((a, b) => b[1] - a[1]);
+  const top = new Set(drawn.slice(0, 18).map(([k]) => k));
+  for (const [key, count] of drawn) {
+    const bad = forbidden.get(key);
+    if (!bad && !top.has(key)) continue;
+    const [a, b] = key.split('\u0000') as [string, string];
+    const pa = places.get(a), pb = places.get(b);
+    if (!pa || !pb) continue;
+    const colour = bad ? p.dark : p.link;
+    const width = bad ? 1.8 : Number(Math.min(2.2, 0.4 + Math.log2(count) / 3).toFixed(2));
+    const sameLevel = Math.abs(pa.y - pb.y) < 4;
+    const bow = Math.max(pa.ry, pb.ry) + 24 + Math.abs(pa.x - pb.x) * 0.07;
+    const d = sameLevel
+      ? `M ${pa.x.toFixed(1)} ${pa.y.toFixed(1)} Q ${((pa.x + pb.x) / 2).toFixed(1)} ${(pa.y + bow).toFixed(1)} ${pb.x.toFixed(1)} ${pb.y.toFixed(1)}`
+      : `M ${pa.x.toFixed(1)} ${pa.y.toFixed(1)} L ${pb.x.toFixed(1)} ${pb.y.toFixed(1)}`;
+    out.push(`<path d="${d}" fill="none" stroke="${colour}" stroke-width="${width}" stroke-opacity="${bad ? 0.95 : 0.45}"${bad ? ' stroke-dasharray="5 4"' : ''}><title>${esc(a)} imports ${esc(b)} in ${count} file${count === 1 ? '' : 's'}${bad ? ` — forbidden by ${esc(bad.id.slice(2))}` : ''}</title></path>`);
+  }
+
+  // Districts: one per module, lit by what this session read, ringed when an edit went in blind.
+  for (const [id, place] of places) {
+    const st = moduleStats(id);
+    const lit = st.total ? st.touched / st.total : 0;
+    const ns = nodeState.get(id);
+    const selected = state.selected === id;
+    const fill = lit > 0 || st.edits ? p.edit : p.idle;
+    // Capped: a district bright enough to swallow its own label is worse than a dimmer one, and the
+    // ring and halo already carry the intensity.
+    const opacity = st.edits ? Math.min(0.56, 0.3 + 0.4 * lit) : lit > 0 ? 0.12 + 0.34 * lit : 0.10;
+    const stroke = st.dark ? p.dark : st.edits ? p.edit : lit > 0 ? mix(p.edit, p.idle, 0.45) : p.contain;
+    const label = id.startsWith('L:') ? id.slice(2) : id;
+    const note = st.edits ? `${countOf(st.edits, 'edit')}${st.dark ? ` · ${st.dark} blind` : ''}` : st.total ? `${st.total} files${lit > 0 ? ` · ${Math.round(lit * 100)}% read` : ''}` : '';
+    out.push(`<g class="district" data-id="${esc(id)}"><title>${esc(id)} — ${esc(note || 'not touched this session')}</title>`);
+    if (st.edits || ns) out.push(`<ellipse cx="${place.x.toFixed(1)}" cy="${place.y.toFixed(1)}" rx="${(place.rx * 1.3).toFixed(1)}" ry="${(place.ry * 1.38).toFixed(1)}" fill="${st.dark ? p.dark : p.edit}" opacity="0.10"></ellipse>`);
+    out.push(`<ellipse class="body" cx="${place.x.toFixed(1)}" cy="${place.y.toFixed(1)}" rx="${place.rx.toFixed(1)}" ry="${place.ry.toFixed(1)}" fill="${fill}" fill-opacity="${opacity.toFixed(2)}" stroke="${selected ? p.label : stroke}" stroke-width="${selected ? 2.4 : st.dark ? 1.6 : 1}"${lit === 0 && !st.edits ? ' stroke-dasharray="3 3"' : ''}></ellipse>`);
+    const size = Math.min(14, Math.max(10, place.rx / 4.6));
+    const roomy = place.rx > 52 && place.ry > 17;
+    const ty = roomy ? place.y + (note ? -1 : size / 3) : place.y + place.ry + size + 2;
+    const cap = Math.max(7, Math.floor((roomy ? place.rx * 2 : place.rx * 3.4) / (size * 0.58)));
+    out.push(`<text x="${place.x.toFixed(1)}" y="${ty.toFixed(1)}" text-anchor="middle" fill="${p.label}" font-size="${size.toFixed(0)}" font-weight="${st.edits ? 600 : 500}">${esc(trunc(label, cap))}</text>`);
+    if (note && roomy) out.push(`<text x="${place.x.toFixed(1)}" y="${(place.y + size + 3).toFixed(1)}" text-anchor="middle" fill="${p.label}" fill-opacity="0.8" font-size="9.5">${esc(note)}</text>`);
+    out.push('</g>');
+  }
+  out.push('</svg>');
+  el.innerHTML = out.join('');
+  for (const g of el.querySelectorAll<SVGGElement>('.district')) g.addEventListener('click', () => { const id = g.dataset.id; if (id) select(id); });
+}
+
 function refreshGraph(): void {
+  if (controls.mode === 'map') { renderMap(); return; }
   const data = visibleData();
   if (!g3 && !g2) return;
   const cur = currentNodes();
@@ -761,8 +901,9 @@ function treeSvg(centre: TreeItem, above: { head: string; items: TreeItem[] }[],
 
 function proseFor(n: SnapNode, ns: NodeState | undefined, chain: string[], concepts: string[], rules: SnapNode[]): string {
   const out: string[] = [];
-  const title = n.kind === 'file' ? n.id : `${nameOf(n.id)} <small style="color:var(--muted)">${n.kind}</small>`;
-  out.push(`<h3>${esc(title)}<button id="focusClose">close</button></h3>`);
+  // The kind is markup, the name is not: escaping the whole string printed the tag at the reader.
+  const title = n.kind === 'file' ? esc(n.id) : `${esc(nameOf(n.id))} <small style="color:var(--muted)">${esc(n.kind)}</small>`;
+  out.push(`<h3>${title}<button id="focusClose">close</button></h3>`);
   const chainText = chain.length ? chain.map(nameOf).join(', inside ') : 'no mapped module';
   const conceptText = concepts.length ? concepts.map((c) => `<b>${esc(nodeIndex.get(c)?.label ?? c)}</b>`).join(' and ') : '';
   const enforced = rules.filter((k) => k.mode === 'E'), guided = rules.filter((k) => k.mode === 'G'), proposed = rules.filter((k) => k.mode === 'G?');
@@ -835,7 +976,24 @@ function focusNode(id: string): void {
 
 // ---- panels ---------------------------------------------------------------------------------
 
+/** The one sentence a newcomer should read first: the most alarming thing that is true. */
+function headlineSentence(): string {
+  const edits = coverageRows.length;
+  const dark = coverageRows.filter((c) => c.callers_total > 0 && c.callers_loaded === 0).length;
+  const stale = coverageRows.filter((c) => c.summarized_since).length;
+  const noSlice = coverageRows.filter((c) => !c.slice_injected).length;
+  const owed = findings.filter((f) => f.rule === 'no-decision').length;
+  const f = (n: number) => countOf(n, 'file');
+  if (!edits) return reads ? `${countOf(reads, 'read')} so far, and nothing edited yet.` : 'Nothing observed in this window yet.';
+  if (dark) return `${f(edits)} edited. <em>${dark} of them changed code whose callers were never read.</em>`;
+  if (stale) return `${f(edits)} edited. <em>${stale} after their own text had been compacted away.</em>`;
+  if (noSlice) return `${f(edits)} edited, <em>${noSlice} with no slice injected</em>.`;
+  if (owed) return `${f(edits)} edited, every one with its callers in context, but <em>${countOf(owed, 'decision')} went unrecorded.</em>`;
+  return `${f(edits)} edited, every one with its callers in context.`;
+}
+
 function renderHeadline(): void {
+  $('h-sentence').innerHTML = headlineSentence();
   const edits = coverageRows.length;
   const withSlice = coverageRows.filter((c) => c.slice_injected).length;
   const ct = coverageRows.reduce((s, c) => s + c.callers_total, 0);
@@ -954,7 +1112,24 @@ function renderMeaning(): void {
   }
 }
 
+function renderMapLegend(): void {
+  const ul = $('legend');
+  const p = pal();
+  const swatch = (fill: string, op: number, stroke: string, dash = false): string =>
+    `<svg width="22" height="12" viewBox="0 0 22 12"><ellipse cx="11" cy="6" rx="10" ry="5" fill="${fill}" fill-opacity="${op}" stroke="${stroke}" stroke-width="1.2"${dash ? ' stroke-dasharray="3 3"' : ''}></ellipse></svg>`;
+  const rows: [string, string][] = [
+    [swatch(p.edit, 0.8, p.edit), 'edited this session'],
+    [swatch(p.edit, 0.3, mix(p.edit, p.idle, 0.45)), 'read, brighter is more'],
+    [swatch(p.idle, 0.1, p.contain, true), 'never opened'],
+    [swatch(p.edit, 0.5, p.dark), 'edited with callers unread'],
+    [`<svg width="22" height="12" viewBox="0 0 22 12"><line x1="2" y1="9" x2="20" y2="3" stroke="${p.dark}" stroke-width="1.8" stroke-dasharray="4 3"></line></svg>`, 'an import a rule forbids'],
+  ];
+  ul.innerHTML = rows.map(([g, t]) => `<span style="display:inline-flex;align-items:center;gap:6px;padding:3px 8px">${g}${esc(t)}</span>`).join('')
+    + '<span style="padding:3px 8px;opacity:0.8">height is containment depth, and a module keeps its place</span>';
+}
+
 function renderLegend(): void {
+  if (controls.mode === 'map') { renderMapLegend(); return; }
   const box = $('legend');
   box.innerHTML = '';
   const p = pal();
@@ -1043,7 +1218,7 @@ function press(on: string, off: string): void { $(on).setAttribute('aria-pressed
 function applyTheme(): void { document.documentElement.dataset.theme = controls.theme; $('theme').textContent = controls.theme === 'dark' ? 'light theme' : 'dark theme'; }
 function syncControls(): void {
   applyTheme();
-  press(controls.mode === '3d' ? 'mode3d' : 'mode2d', controls.mode === '3d' ? 'mode2d' : 'mode3d');
+  for (const [id, m] of [['modemap', 'map'], ['mode3d', '3d'], ['mode2d', '2d']] as const) $(id).setAttribute('aria-pressed', String(controls.mode === m));
   $<HTMLSelectElement>('files').value = controls.files;
   $<HTMLSelectElement>('window').value = controls.window;
   $<HTMLSelectElement>('labels').value = controls.labels;
@@ -1059,6 +1234,7 @@ function syncControls(): void {
 
 $<HTMLSelectElement>('repo').onchange = (e) => { state.repo = (e.target as HTMLSelectElement).value; resetDerived(); void loadRepo(); };
 $<HTMLSelectElement>('session').onchange = (e) => { state.session = (e.target as HTMLSelectElement).value; replayTo(state.cursor); };
+$('modemap').onclick = () => { controls.mode = 'map'; save(); syncControls(); rebuild(); };
 $('mode3d').onclick = () => { controls.mode = '3d'; save(); syncControls(); rebuild(); };
 $('mode2d').onclick = () => { controls.mode = '2d'; save(); syncControls(); rebuild(); };
 $<HTMLSelectElement>('files').onchange = (e) => { controls.files = (e.target as HTMLSelectElement).value as Controls['files']; save(); refreshGraph(); };

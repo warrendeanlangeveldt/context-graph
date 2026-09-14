@@ -33810,7 +33810,7 @@ function snapshot(s) {
     for (const k of g.constraints.values()) {
       if (g.isRetired(k.id)) continue;
       const id = `K:${k.id}`;
-      add({ id, kind: "constraint", label: k.text, size: 1, mode: k.mode, attached: k.attachedTo, ...pack2(k.from) ? { pack: pack2(k.from) } : {} });
+      add({ id, kind: "constraint", label: k.text, size: 1, mode: k.mode, attached: k.attachedTo, ...k.rule ? { rule: k.rule } : {}, ...pack2(k.from) ? { pack: pack2(k.from) } : {} });
       if (!k.attachedTo.startsWith("L:") && !k.attachedTo.startsWith("C:")) ensureFile(k.attachedTo.split("#")[0]);
       if (seen.has(k.attachedTo.split("#")[0])) links.push({ source: id, target: k.attachedTo.split("#")[0], rel: "governs" });
     }
