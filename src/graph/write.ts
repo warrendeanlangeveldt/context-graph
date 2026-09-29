@@ -18,6 +18,7 @@ export function formatRecord(r: GraphRecord): string {
     case 'Z': return `Z ${r.target} ${r.date} ${r.who}${r.succ ? ` succ:${r.succ}` : ''} ${r.reason}`;
     case 'A': return `A ${r.alias} ${r.node}`;
     case 'R': return `R ${r.role} ${r.heuristic}`;
+    case 'F': return `F ${r.path} ${r.hash} ${r.date} ${r.who} ${r.text}${r.req?.length ? ` req:${r.req.join(',')}` : ''}`;
   }
 }
 

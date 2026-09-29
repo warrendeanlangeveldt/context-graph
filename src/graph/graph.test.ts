@@ -53,7 +53,10 @@ describe('Graph', () => {
     const ids = g.decisionsOn(['api/src/core/orch/bb.ts', 'L:orch']).map((d) => d.id);
     expect(ids).toEqual(['d-0003', 'd-0002']);
     expect(g.allDecisionsOn('api/src/core/orch/bb.ts').map((d) => d.id)).toEqual(['d-0001', 'd-0002', 'd-0004']);
-    expect(g.nextDecisionId()).toBe('d-0005');
+    // Ids are random, so parallel branches never collide; never one the graph already holds.
+    const next = g.nextDecisionId();
+    expect(next).toMatch(/^d-[0-9a-f]{6}$/);
+    expect(g.decisions.has(next)).toBe(false);
   });
 
   it('validates references', () => {

@@ -1,3 +1,4 @@
+import { textAfterEdit } from '../../index/exports.js';
 import { parseShellCommand } from '../../observe/shell.js';
 import { rangeOfText, runHook, type EditTarget, type HarnessProfile, type HookInput, type HookOutput, type ToolContext, type TouchLike } from '../core.js';
 
@@ -46,7 +47,19 @@ export function claudeProfile(agent = 'claude'): HarnessProfile {
     formatSessionStart: (text) => text,
     formatPreToolUse: (context) => JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: context } }),
     formatStopBlock: (reason) => JSON.stringify({ decision: 'block', reason }),
+    formatPreToolUseDeny: (reason) => JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason } }),
     formatPromptContext: (context) => context,
+    proposedText(tool, ti, tc, path) {
+      if (tool === 'Write') return typeof ti.content === 'string' ? ti.content : undefined;
+      const before = tc.readFile(path);
+      if (before === undefined) return undefined;
+      if (tool === 'Edit') return textAfterEdit(before, [{ old: String(ti.old_string ?? ''), new: String(ti.new_string ?? ''), all: ti.replace_all === true }]);
+      if (tool === 'MultiEdit') {
+        const edits = (ti.edits as { old_string?: string; new_string?: string; replace_all?: boolean }[] | undefined) ?? [];
+        return textAfterEdit(before, edits.map((e) => ({ old: String(e.old_string ?? ''), new: String(e.new_string ?? ''), all: e.replace_all === true })));
+      }
+      return undefined;
+    },
   };
 }
 

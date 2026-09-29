@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | Proposal for review |
+| Status | Implemented in 0.2.0 (see design spec §8.3, §9.1, §9.4, §9.5, §15.4, §17). Kept as the record of why. |
 | Date | 2026-09-30 |
 | Author | Warren Langeveldt, drafted with Claude |
 | Touches | §8 Observation, §9 Recording decisions, §15 Harness adapters, §17 Configuration |
@@ -45,7 +45,7 @@ Checked against the code on 2026-09-30.
 
 A **card** is a file-level record of what a file is for, what it relies on, who relies on it, and the invariants it keeps. Decisions keep the *why of each change*; a card holds the *why of the file*.
 
-- A new record kind, `F`, in `decisions.ctx` (or a sibling `cards.ctx`), carrying the file's content hash at the time it was written.
+- A new record kind, `F`, in its own file, `cards.ctx`, carrying the file's content hash at the time it was written.
 - Written only after the observer has seen a **full read** of the file in the same agent's context (§4.4). A card from a grep is rejected.
 - **Fresh** when the file's current hash matches. **Stale** when it doesn't: the agent reads at least the diff since the card's hash and updates the card.
 
@@ -61,13 +61,13 @@ Before an edit of an existing file:
 
 When the requirement isn't met, the edit is refused with the exact list: "read `src/booking.ts` in full and `src/api/cancel.ts`, or run `ctx hydrate src/booking.ts`". New files are exempt from reading but owe a card.
 
-Configured under a new `[enforce]` section, each rule `off | nudge | block`, defaulting to `nudge` so existing users aren't surprised:
+Configured under a new `[enforce]` section, each rule `off | nudge | block`. As built, the defaults are `block`: the loop is the point of the tool, and `nudge` remains for a repository that wants to adopt it gradually.
 
 ```toml
 [enforce]
-read_before_edit = "nudge"   # the file, or its fresh card
-dependencies     = "nudge"   # imports on a miss; importers when exports change
-card_on_miss     = "nudge"   # a card is owed after editing a file that had none
+read_before_edit = "block"   # the file, or its fresh card
+dependencies     = "block"   # imports on a miss; importers when exports change
+cards            = "block"   # a card is owed after every edit, until it matches the file
 ```
 
 `nudge` asks on the next tool call, as decisions already do; `block` refuses the edit (PreToolUse deny with the reason).
@@ -91,7 +91,7 @@ Enforcement is only fair if each agent's reads count for that agent. Today they 
   - `graph.ctx` and `config.toml` as protected paths (approval `ctx`);
   - a block on any Claude actor writing a `Ctx-Ratified-By` trailer;
   - setup: ignore ctx's working files, and `merge=union` for `decisions.ctx`.
-- ctx gets the same shape: `src/integrations/code-kit.ts`. "Integrations", because "adapters" already means harness adapters here (§15). The core never names code-kit; it calls whichever integrations are detected.
+- ctx gets the same shape: a **tool adapter**, `src/tool-adapters/code-kit.ts`, kept apart from the harness adapters in `src/adapters/` (§15). The core never names code-kit; it calls whichever tool adapters are detected.
 
 ### 5.2 What ctx takes from code-kit
 
@@ -141,7 +141,7 @@ PreToolUse records the edit as pending before it runs (`core.ts:208`, `src/recor
 
 The post-commit hook runs `ctx provenance` (`src/install/install.ts:90-92`), which rewrites `-` SHAs in `decisions.ctx` and never stages or amends (`src/record/provenance.ts:40-51`). The tree is dirty after the commit. code-kit's finish check tells a lane to commit its work; the lane commits, provenance dirties the file again, and the lane loops.
 
-**Fix:** link in the same commit, not after it. A `prepare-commit-msg` or pre-commit step can't know the SHA, so record the **branch and tree** instead and resolve the SHA lazily (`ctx provenance` becomes read-time: find the commit that introduced the line with `git log -S`). No write after commit.
+**Fix:** never write after a commit. The commit that carries a decision is the one that added its line, so it is resolved when shown, from `git blame` on `decisions.ctx`.
 
 ## 7. Order of work
 
@@ -154,6 +154,6 @@ The post-commit hook runs `ctx provenance` (`src/install/install.ts:90-92`), whi
 
 ## 8. Open questions
 
-- Cards in `decisions.ctx`, or a separate `cards.ctx`? A separate file keeps decision history readable, but it's one more file to merge.
+- ~~Cards in `decisions.ctx`, or a separate `cards.ctx`?~~ Settled: `cards.ctx`, with `merge=union` like decisions.
 - How big may a card be before it defeats its purpose? A budget like the slice's (around 150 tokens) seems right.
 - Should `dependencies = "block"` cap the importers required, so a widely used file doesn't demand fifty reads? Probably: require importers' cards when they exist, and full reads of at most N without them.

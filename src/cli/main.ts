@@ -19,10 +19,12 @@ import { parseShellCommand } from '../observe/shell.js';
 import { resolveSession } from '../observe/session.js';
 import { ObservationStore, SessionState } from '../observe/store.js';
 import { publishDecision } from '../overlay/client.js';
-import { linkProvenance } from '../record/provenance.js';
+import { commitOf, linkProvenance } from '../record/provenance.js';
 import { RecordError, Recorder } from '../record/recorder.js';
 import { currentBranch, gitPerson } from '../util/git.js';
-import { ctxHome, repoHash } from '../util/paths.js';
+import { ctxHome, repoHash, toRepoRelative } from '../util/paths.js';
+import { cardState, renderFileCard, writeCard } from '../cards/cards.js';
+import { factsFor } from '../tool-adapters/index.js';
 import { renderSlice } from '../walker/slice.js';
 import { walk } from '../walker/walk.js';
 import { extraCommands } from './commands.js';
@@ -39,9 +41,10 @@ Graph
   ctx history <node> [--timeline]                  every decision on a node; --timeline includes the archive
   ctx check [--conformance]                        validate the graph; --conformance counts rule violations
   ctx record --node <n> --serves <id> --text "<why>" [--overrides <k-id>] [--agent <name>]
+  ctx card <path> --text "<why the file exists>" [--req ID,ID]   write or update a file's card
   ctx retire <id> --reason "<why>" [--succ <id>]   retire a constraint or concept
   ctx ratify <id>...                               accept proposed records
-  ctx provenance [--sha <sha>]                     link provisional decisions to the last commit
+  ctx provenance                                   which of this branch's decisions are committed, and where
 
 Observation
   ctx pending [--session <id>]                     nodes owing a decision
@@ -205,7 +208,9 @@ async function main(): Promise<number> {
       const decisions = isRule
         ? g.decisionsFor(node, { includeSuperseded: args.cmd === 'history' })
         : args.cmd === 'why' ? w.decisions : g.allDecisionsOn(node);
-      if (json) { console.log(JSON.stringify({ node, constraints: w.constraints, decisions }, null, 2)); return 0; }
+      const card = isRule ? undefined : renderFileCard(node, cardState(g, ctx.root, node), factsFor(ctx.root, node).lines);
+      if (json) { console.log(JSON.stringify({ node, card: g.cards.get(node) ?? null, constraints: w.constraints, decisions }, null, 2)); return 0; }
+      if (card && args.cmd === 'why') console.log(card.text);
       if (args.cmd === 'why') {
         console.log(node);
         const own = g.constraints.get(node);
@@ -214,8 +219,9 @@ async function main(): Promise<number> {
       }
       if (!decisions.length) console.log('  (no decisions)');
       for (const d of decisions) {
-        const flags = [g.superseded.has(d.id) ? 'superseded' : '', d.sha === '-' ? 'provisional' : ''].filter(Boolean).join(', ');
-        console.log(`  ${d.id} ${d.date} ${d.who} ${d.sha} ${d.branch}  ->${d.serves}${d.overrides ? ` !${d.overrides}` : ''}  ${d.text}${flags ? `  (${flags})` : ''}`);
+        const sha = commitOf(g, ctx.root, d);
+        const flags = [g.superseded.has(d.id) ? 'superseded' : '', sha === '-' ? 'not committed' : ''].filter(Boolean).join(', ');
+        console.log(`  ${d.id} ${d.date} ${d.who} ${sha} ${d.branch}  ->${d.serves}${d.overrides ? ` !${d.overrides}` : ''}  ${d.text}${flags ? `  (${flags})` : ''}`);
       }
       return 0;
     }
@@ -244,11 +250,30 @@ async function main(): Promise<number> {
       }
     }
 
+    case 'card': {
+      const ctx = openFromArgs(args);
+      const g = needGraph(ctx);
+      const path = args.positional[0] ?? str(args.flags.node);
+      const text = str(args.flags.text);
+      if (!path || !text) throw new Error('ctx card <path> --text "<what the file is for, what it relies on, who relies on it, what it must keep true>" [--req ID,ID]');
+      const rel = toRepoRelative(ctx.root, path, process.cwd());
+      const req = str(args.flags.req)?.split(',').map((s) => s.trim()).filter(Boolean) ?? factsFor(ctx.root, rel).requirements;
+      const who = `${gitPerson(ctx.root)}/${str(args.flags.agent) ?? 'human'}`;
+      try {
+        const c = writeCard(g, ctx.root, { path: rel, text, who, date: todayIso(), ...(req.length ? { req } : {}) });
+        console.log(json ? JSON.stringify(c) : `card ${c.path} @ ${c.hash}${c.req?.length ? `  [${c.req.join(', ')}]` : ''}`);
+        return 0;
+      } catch (e) {
+        console.error(`rejected: ${(e as Error).message}`);
+        return 2;
+      }
+    }
+
     case 'provenance': {
       const ctx = openFromArgs(args);
       const g = needGraph(ctx);
-      const r = linkProvenance(g, ctx.root, { ...(str(args.flags.sha) ? { sha: str(args.flags.sha)! } : {}) });
-      console.log(json ? JSON.stringify(r) : `${r.sha}: linked ${r.linked.length} decision(s)${r.linked.length ? ` (${r.linked.join(', ')})` : ''}, ${r.skipped.length} untouched`);
+      const r = linkProvenance(g, ctx.root);
+      console.log(json ? JSON.stringify(r) : `${r.linked.length} of this branch's decision(s) committed${r.linked.length ? ` (${r.linked.join(', ')})` : ''}, ${r.skipped.length} not yet committed`);
       return 0;
     }
 
@@ -441,3 +466,8 @@ main().then(
   (code) => { process.exitCode = code; },
   (err: Error) => { console.error(err.message); process.exitCode = 1; },
 );
+
+function todayIso(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}

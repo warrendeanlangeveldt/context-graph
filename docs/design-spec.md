@@ -144,7 +144,10 @@ S <new-d-id> <old-d-id>
 Z <k-id|c-id> <date> <who> [succ:<id>] <reason>     retirement, see §21.2
 A <alias> <node>
 R <{role}> <detection heuristic>          pack files only, see §16.1
+F <path> <hash> <date> <who> <text> [req:<id>,...]   file card, in cards.ctx, see §9.5
 ```
+
+Decision ids are random (`d-3fa91c`): decisions recorded on parallel branches must never collide when the branches merge. Older sequential ids (`d-0042`) stay valid. Nothing orders by id; newest-first is by date, then by position in the file.
 
 ### 6.1 Records
 
@@ -349,13 +352,21 @@ Callers are resolved from a language-aware import graph built by the indexer. "E
 
 Events append to `~/.ctx/observations/<repo-hash>/<session>.jsonl` locally. Forwarding to the live overlay is opt-in per stream (§11.4).
 
+The repository hash identifies the repository, not the checkout: every git worktree of one repository shares it, so an agent isolated in a worktree writes to its session's store. Its paths map through its own worktree (`src/x.ts`, not `.claude/worktrees/<id>/src/x.ts`), it reads its own branch's files, and it records into its own branch's `.ctx/`.
+
+Each agent's context is its own. Touches carry the agent; coverage and the read-before-edit check (§9.5) count an agent's own reads as in context and everyone else's as delegated. Session state (what has been shown, what is owed) is one file per agent, so parallel agents neither share announcements nor overwrite each other's state.
+
+Reads are recorded as their tool call starts (PreToolUse), with the call id, because the completion hook runs asynchronously; the completion does not record them again, and marks them failed if the call failed.
+
 ## 9. Recording decisions
 
 ### 9.1 When
 
 At the end of every turn in which an `edit` or `write` event touched a node with at least one active `E` or `G` constraint, the adapter blocks the turn from ending until the agent has recorded a decision for each such node, or explicitly declined with a reason. Declining is itself recorded as a decision with `->` pointing at the most specific constraint and text `no-decision: <reason>`.
 
-Edits to nodes with no active constraints do not require a decision. This keeps the demand proportional and stops boilerplate.
+Edits to nodes with no active constraints do not require a decision. This keeps the demand proportional and stops boilerplate. They owe a card instead (§9.5), which is the file's why rather than the change's.
+
+An edit is noted as pending when its tool call starts and counts only once the call completes: another hook may refuse the call, and a refused edit owes nothing. Entries still provisional when the turn ends are dropped. A subagent is held to its own pending decisions and cards at SubagentStop, as the main session is at Stop.
 
 ### 9.2 How
 
@@ -378,7 +389,19 @@ The alternative of a model ranking or filtering constraints inside the walker is
 
 ### 9.4 Provenance
 
-`sha` is `-` at record time. A post-commit hook rewrites `-` to the commit SHA for every decision whose node was changed in that commit. A decision still carrying `-` when its branch is pushed is a gate warning.
+`sha` is `-` at record time, and the file is never rewritten afterwards. The commit that carries a decision is the commit that added its line, which git already knows: it is resolved when shown (`git blame` on `decisions.ctx`). Rewriting after each commit left the working tree dirty after every commit, which a process that requires committed work (a lane in code-kit) could never finish. The gate reports branch decisions that are not yet committed.
+
+### 9.5 File cards and the context loop
+
+A decision holds the why of a change. A **card** holds the why of a file: what it is for, what it relies on, who relies on it, and what it must keep true. It is an `F` record in `cards.ctx`, carrying the file's content hash; it is **fresh** while the file's hash matches, and the latest card for a path is the one in force. `req:` names the spec requirements the file delivers, when a tool adapter knows them (§15.4).
+
+The loop, for every edit:
+
+1. **Before.** The file must be understood by the editing agent: its card is fresh (and shown with the slice), or the agent read it in full this session. On a miss, so must each file it imports (a fresh card counts). When the edit removes or alters an export declaration, so must its importers, those without fresh cards first, at most `max_importers`. Otherwise the edit is refused (PreToolUse deny) with each file to read and why. A new file has nothing to read.
+2. **After.** The file owes its card until a card matches its new content: asked on the next tool call, and held at turn end like a decision. An unwritten card is never invented to end a turn; it becomes a finding, and the next agent to edit the file reads it in full because no fresh card exists.
+3. **On read.** The first time an agent reads a file, it is shown the card and what tool adapters know of the file, before its decision history; or told there is no card and that it must read the file in full before editing it.
+
+Each step is `off`, `nudge`, or `block` under `[enforce]` (§17). Generated, vendored and non-code files are exempt (`[cards] exclude`). The gate reports files a branch changed without a card matching them (§11), so the loop holds for changes made outside a session too.
 
 ## 10. Embeddings (optional, standalone)
 
@@ -865,6 +888,12 @@ The two adapters share more than they differ, and the shared part is the spec's 
 
 A third harness is a matter of confirming which rows of §15.0 it satisfies and writing the event mapping table. Nothing in the core changes.
 
+### 15.4 Tool adapters
+
+Harness adapters translate one AI tool's events. **Tool adapters** (`src/tool-adapters/`) tell ctx about another tool that shares the repository. Each is detected per checkout and contributes facts about a file that anchor its why. The core calls whichever are detected and never names one.
+
+**code-kit** is detected by `.claude/code-kit.json`. ctx asks `code-kit trace <path> --json`, through its command line only: the spec requirements the file delivers (from the stories its commits name), the lane that owns it, and its layer with what that layer may import. These appear with the file's card and slice, and fill a new card's `req:`. code-kit refuses a write outside a lane or across a layer; ctx puts the rule in front of the agent before it drafts the edit. With code-kit layers present, `ctx init` keeps pack import rules as guidance and leaves the machine check to code-kit. The counterpart, code-kit's adapter for ctx, lets every agent write `decisions.ctx` and `cards.ctx`, protects `graph.ctx` and `config.toml`, and blocks agents from writing a ratification trailer.
+
 ## 16. Bootstrapping an existing codebase
 
 `ctx init` derives a first graph so that adoption does not begin with a blank file.
@@ -951,6 +980,15 @@ Where a checkable rule has zero violations and the repository already has an arc
 
 ```toml
 # .ctx/config.toml
+[enforce]                       # the context loop, §9.5: off | nudge | block
+read_before_edit = "block"
+dependencies = "block"
+cards = "block"
+max_importers = 5
+
+[cards]
+exclude = [".ctx/**", ".claude/**", "**/*.md", "**/*.lock", "**/generated/**"]
+
 [repo]
 ratifiers = ["warren.langeveldt@example.com"]
 default_branch = "main"
@@ -1229,6 +1267,8 @@ As of 2026-09-07 every delivery step in §23 has an implementation in the reposi
 | Packaging | Single-file bundle committed in each adapter directory with a CI freshness check; Claude Code and Codex marketplace manifests; npm `files` and `bin`; a Dockerfile and compose file for the hosted overlay with an optional embedding service | The package is marked private until a registry and scope are chosen; `npm pack` produces the tarball today |
 | Hosted mode | Token, forwarding, provisional decisions, cross-branch opposed-arrows check, live lines in the slice, monitor tail, branch retirement | Double-supersession across branches needs `S` records, which the record path does not send to the overlay; the merge gate still catches it |
 | Benchmark | Corpus from history, three arms with the temporal cut, Claude, Codex, and command drivers, paired report with the §20.7 predictions judged | Not yet run with a model on a real corpus; the pipeline is proven with the command driver |
+| Context loop (2026-09-30) | File cards with content-hash freshness; read before edit (file, imports, importers on an export change) as a PreToolUse deny; cards owed after an edit and held at Stop and SubagentStop; per-agent observation and state; reads recorded at call start; worktree-aware roots; provisional pending for refused edits; random decision ids; provenance resolved from git; gate card check | Export changes are detected from declaration lines, not a type checker, and only for JavaScript and TypeScript; Codex patches are checked for the file and its imports but not for export changes, since the patch is not applied ahead of time |
+| Tool adapters | code-kit, through `code-kit trace` | ctx finds code-kit through `CODE_KIT_CLI` or the installed plugin; an older code-kit without `trace` contributes nothing |
 
 ## 25. Sources
 

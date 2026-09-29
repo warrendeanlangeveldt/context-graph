@@ -29,6 +29,8 @@ describe('Codex hook adapter', () => {
     mkdirSync(join(repo, 'api/src/core'), { recursive: true });
     mkdirSync(join(repo, '.ctx'));
     writeFileSync(join(repo, '.ctx/graph.ctx'), GRAPH);
+    // These cases are about slices, histories, cards and decisions; the read-before-edit loop has its own suite.
+    writeFileSync(join(repo, '.ctx/config.toml'), '[enforce]\nread_before_edit = "off"\ndependencies = "off"\ncards = "off"\n');
     writeFileSync(join(repo, 'api/src/core/a.ts'), 'export const a = 1;\n');
   });
   afterEach(() => {

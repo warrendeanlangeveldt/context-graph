@@ -7,6 +7,9 @@ import { callersOf, loadOrBuildImportIndex, type ImportIndex } from '../index/im
 import { envelope, type Envelope, type Touch } from '../observe/event.js';
 import { ObservationStore, SessionState } from '../observe/store.js';
 import { liveLinesFor, localServer, notifyOverlay } from '../overlay/client.js';
+import { cardState, renderFileCard } from '../cards/cards.js';
+import { commitOf } from '../record/provenance.js';
+import { factsFor } from '../tool-adapters/index.js';
 import { repoHash, toAbsolute, toRepoRelative } from '../util/paths.js';
 import { estimateTokens } from '../util/tokens.js';
 import { renderSlice } from '../walker/slice.js';
@@ -75,7 +78,7 @@ export async function hydrate(ctx: RepoContext, scopeIn: string, opts: HydrateOp
       // One slice for the group, then each file's own latest decisions, named by file.
       const rep: WalkResult = { ...ws[0]!, decisions: [] };
       const [, ...rest] = renderSlice(g, rep, { maxTokens: sliceTokens, proposed: 'full' }).text.split('\n');
-      const last = ws.flatMap((w) => w.decisions.map((d) => `  last   ${basename(w.path)}  ${d.id} ${d.date.slice(5)} ${d.who}  ${d.overrides ? `!${d.overrides}  ` : ''}${d.text}  (${d.sha === '-' ? `${d.branch} provisional` : d.sha})`));
+      const last = ws.flatMap((w) => w.decisions.map((d) => `  last   ${basename(w.path)}  ${d.id} ${d.date.slice(5)} ${d.who}  ${d.overrides ? `!${d.overrides}  ` : ''}${d.text}  (${commitOf(g, ctx.root, d) === '-' ? `${d.branch} provisional` : commitOf(g, ctx.root, d)})`));
       return [`edit ${ws.map((w) => short(w.path)).join(', ')}  (same chain and rules)`, ...rest, ...last.slice(0, ctx.config.maxDecisions)].join('\n');
     });
   };
@@ -114,7 +117,15 @@ export async function hydrate(ctx: RepoContext, scopeIn: string, opts: HydrateOp
   const live = [...new Set((await Promise.all(walks.map((w) => liveLinesFor(ctx, w, meta)))).flat())];
   const hints = ctx.config.embed.enabled ? await hintsFor(ctx, scopeIn, files) : [];
 
-  // Assemble under budget: hints, callee lists, older decisions, caller lines go first; slices and rules never go.
+  // Each file's card (and what a tool like code-kit knows of it) travels with the file and is never dropped:
+  // it is the file's why, the one thing the rest of the briefing cannot reconstruct.
+  const cardText: Record<string, string> = {};
+  for (const f of files) {
+    const c = renderFileCard(f, cardState(g, ctx.root, f), factsFor(ctx.root, f).lines);
+    if (c) cardText[f] = c.text;
+  }
+
+  // Assemble under budget: hints, callee lists, older decisions, caller lines go first; slices, rules and cards never go.
   const dropped: string[] = [];
   const render = (callerCap: number, lineCap: number, withHints: boolean, withLive: boolean, withCallees: boolean, decisionCap: number, fileCap: number, sliceTokens: number): string => {
     const shown = files.slice(0, fileCap);
@@ -122,6 +133,7 @@ export async function hydrate(ctx: RepoContext, scopeIn: string, opts: HydrateOp
     const out: string[] = [`hydrate ${scopeIn}${files.length > 1 || files[0] !== scopeIn ? `  (${count}: ${reason})` : ''}`];
     out.push(...sliceBlocks(fileCap, sliceTokens));
     for (const f of shown) {
+      if (cardText[f]) out.push(cardText[f]!);
       const cs = callerRefs[f] ?? [];
       const dark = cs.filter((c) => !c.loaded).length;
       out.push(`${cs.length} caller${cs.length === 1 ? '' : 's'} of ${short(f)}${cs.length ? dark === cs.length ? ', none in context this session' : dark ? `, ${dark} not in context this session` : ', all in context this session' : ''}`);

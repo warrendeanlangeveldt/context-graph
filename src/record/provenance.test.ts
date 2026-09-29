@@ -4,10 +4,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { Graph } from '../graph/graph.js';
-import { linkProvenance } from './provenance.js';
+import { commitOf, linkProvenance } from './provenance.js';
 
-describe('linkProvenance', () => {
-  it('links provisional decisions on this branch whose nodes the commit touched', () => {
+describe('provenance', () => {
+  it('resolves each decision to the commit that added its line, and never rewrites the file', () => {
     const repo = mkdtempSync(join(tmpdir(), 'ctx-prov-'));
     const g = (a: string[]): string => execFileSync('git', a, { cwd: repo, encoding: 'utf8' }).trim();
     g(['init', '-q', '-b', 'feature/x']);
@@ -28,20 +28,19 @@ describe('linkProvenance', () => {
     writeFileSync(join(repo, 'api/src/other/z.ts'), 'y');
     g(['add', '.']);
     g(['commit', '-q', '-m', 'initial']);
-    writeFileSync(join(repo, 'api/src/core/orch/bb.ts'), 'changed');
-    g(['add', 'api/src/core/orch/bb.ts']);
-    g(['commit', '-q', '-m', 'touch bb']);
-    const sha = g(['rev-parse', '--short', 'HEAD']);
+    const sha = g(['rev-parse', 'HEAD']).slice(0, 8);
+    // Recorded after the commit: not committed yet.
+    writeFileSync(join(repo, '.ctx/decisions.ctx'), readFileSync(join(repo, '.ctx/decisions.ctx'), 'utf8') + 'D d-9f3a21 2026-09-08 w/c - feature/x api/src/core/orch/bb.ts ->K k.one after the commit\n');
+    const before = readFileSync(join(repo, '.ctx/decisions.ctx'), 'utf8');
 
     const graph = Graph.load(join(repo, '.ctx'));
     const r = linkProvenance(graph, repo);
-    expect(r.sha).toBe(sha.slice(0, 8));
-    expect(r.linked).toEqual(['d-0001', 'd-0002']);
-    expect(r.skipped).toEqual(['d-0003', 'd-0004']);
-    const after = readFileSync(join(repo, '.ctx/decisions.ctx'), 'utf8');
-    expect(after).toContain(`D d-0001 2026-09-07 w/c ${r.sha} feature/x`);
-    expect(after).toContain(`D d-0002 2026-09-07 w/c ${r.sha} feature/x L:core`);
-    expect(after).toContain('D d-0003 2026-09-07 w/c - feature/x');
-    expect(after).toContain('D d-0005 2026-09-07 w/c abcd1234');
+    expect(r.linked).toEqual(['d-0001', 'd-0002', 'd-0003']);
+    expect(r.skipped).toEqual(['d-9f3a21']);
+    expect(commitOf(graph, repo, graph.decisions.get('d-0001')!)).toBe(sha);
+    expect(commitOf(graph, repo, graph.decisions.get('d-9f3a21')!)).toBe('-');
+    expect(commitOf(graph, repo, graph.decisions.get('d-0005')!)).toBe('abcd1234');
+    // Nothing is written: a commit leaves the working tree clean.
+    expect(readFileSync(join(repo, '.ctx/decisions.ctx'), 'utf8')).toBe(before);
   });
 });

@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { Graph } from '../graph/graph.js';
-import { ctxHome, findRepoRoot, resolveGraphDir } from '../util/paths.js';
+import { ctxHome, findRepoRoot, isLinkedWorktree, mainCheckout, resolveGraphDir } from '../util/paths.js';
 import { parseToml, tomlGet, type TomlValue } from '../util/toml.js';
 
 export interface EmbedConfig {
@@ -18,6 +18,20 @@ export interface EmbedConfig {
   includeArchived: boolean;
   /** Embed inside hook processes when no local server is running. Off by default: loading a model per edit costs more than the hint is worth. */
   inProcessHooks: boolean;
+}
+
+/** How a rule of the context loop acts: not at all, as a note on the next tool call, or by refusing. */
+export type EnforceMode = 'off' | 'nudge' | 'block';
+
+export interface EnforceConfig {
+  /** Before editing a file: its fresh card, or the file read in full. */
+  readBeforeEdit: EnforceMode;
+  /** On a miss, what the file imports; when an edit changes its exports, what imports it. Each read, or its fresh card. */
+  dependencies: EnforceMode;
+  /** After editing a file, its card is written or brought up to date. `block` holds the turn like a decision. */
+  cards: EnforceMode;
+  /** At most this many importers are required, the ones without fresh cards first. */
+  maxImporters: number;
 }
 
 export interface Config {
@@ -37,13 +51,16 @@ export interface Config {
   overlayUrl: string;
   defaultBranch: string;
   ratifiers: string[];
-  gate: { staleBasis: 'warn' | 'fail'; contextMoved: 'warn' | 'fail'; testCommand: string };
+  gate: { staleBasis: 'warn' | 'fail'; contextMoved: 'warn' | 'fail'; testCommand: string; cards: 'off' | 'warn' | 'fail' };
   hygiene: { archiveAfterDays: number; dormantAfterDays: number; overrideStreak: number; proposalTtlDays: number };
   serve: { port: number; bufferEvents: number };
   view: { expandThreshold: number };
   embed: EmbedConfig;
   packs: string[];
   packBindings: Record<string, string>;
+  enforce: EnforceConfig;
+  /** Globs that owe no card and need no read before an edit. */
+  cardsExclude: string[];
 }
 
 export interface RepoContext {
@@ -67,13 +84,19 @@ export function defaultConfig(): Config {
     overlayUrl: '',
     defaultBranch: 'main',
     ratifiers: [],
-    gate: { staleBasis: 'warn', contextMoved: 'warn', testCommand: '' },
+    gate: { staleBasis: 'warn', contextMoved: 'warn', testCommand: '', cards: 'warn' },
     hygiene: { archiveAfterDays: 90, dormantAfterDays: 180, overrideStreak: 3, proposalTtlDays: 30 },
     serve: { port: 7399, bufferEvents: 50_000 },
     view: { expandThreshold: 1500 },
     embed: { enabled: false, provider: 'minilm', apiKeyEnv: 'OPENAI_API_KEY', minScore: 0.45, maxHints: 2, include: ['docs/**/*.md'], exclude: ['**/generated/**', '**/*.lock', '**/package-lock.json', '**/*.min.js'], includeArchived: false, inProcessHooks: false },
     packs: ['auto'],
     packBindings: {},
+    enforce: { readBeforeEdit: 'block', dependencies: 'block', cards: 'block', maxImporters: 5 },
+    cardsExclude: [
+      '.ctx/**', '.claude/**', '.git/**', '.github/**', '**/node_modules/**', '**/dist/**', '**/build/**', '**/generated/**',
+      '**/*.lock', '**/package-lock.json', '**/pnpm-lock.yaml', '**/yarn.lock', '**/*.min.js', '**/*.map',
+      '**/*.md', '**/*.{png,jpg,jpeg,gif,svg,ico,webp,pdf,woff,woff2,ttf}',
+    ],
   };
 }
 
@@ -82,8 +105,7 @@ export function defaultConfig(): Config {
  * A missing graph is not an error: it is observe-only mode.
  */
 export function openRepo(opts: { cwd?: string; repo?: string; graph?: string } = {}): RepoContext {
-  const start = opts.repo ?? process.env.CLAUDE_PROJECT_DIR ?? opts.cwd ?? process.cwd();
-  const root = findRepoRoot(resolve(start));
+  const root = opts.repo ? findRepoRoot(resolve(opts.repo)) : sessionRoot(opts.cwd ?? process.cwd());
   const graphDir = opts.graph ? resolve(opts.graph) : resolveGraphDir(root);
   const config = loadConfig(graphDir);
   const ctx: RepoContext = { root, config };
@@ -92,6 +114,25 @@ export function openRepo(opts: { cwd?: string; repo?: string; graph?: string } =
     ctx.graph = Graph.load(graphDir);
   }
   return ctx;
+}
+
+/**
+ * The checkout a session or agent works in. The harness's project directory wins over the working
+ * directory, because a shell can wander out of the repository; except when the working directory is a
+ * linked worktree of that same project, which is where an isolated agent (or a lane) does its work.
+ * Its files, its branch and its `.ctx/` are the ones that agent reads, edits and records into.
+ */
+export function sessionRoot(cwd: string): string {
+  const here = findRepoRoot(resolve(cwd));
+  const project = process.env.CLAUDE_PROJECT_DIR;
+  if (!project) return here;
+  const projectRoot = findRepoRoot(resolve(project));
+  if (here !== projectRoot && isLinkedWorktree(here) && mainCheckout(here) === mainCheckout(projectRoot)) return here;
+  return projectRoot;
+}
+
+function mode(v: TomlValue, fallback: EnforceMode): EnforceMode {
+  return v === 'off' || v === 'nudge' || v === 'block' ? v : v === false ? 'off' : v === true ? 'block' : fallback;
 }
 
 function days(v: TomlValue, fallback: number): number {
@@ -123,6 +164,7 @@ export function loadConfig(graphDir: string | undefined): Config {
     cfg.gate.staleBasis = tomlGet(t, 'gate', 'stale_basis', cfg.gate.staleBasis) as 'warn' | 'fail';
     cfg.gate.contextMoved = tomlGet(t, 'gate', 'context_moved', cfg.gate.contextMoved) as 'warn' | 'fail';
     cfg.gate.testCommand = tomlGet(t, 'gate', 'test_command', cfg.gate.testCommand);
+    cfg.gate.cards = tomlGet(t, 'gate', 'cards', cfg.gate.cards) as 'off' | 'warn' | 'fail';
     cfg.hygiene.archiveAfterDays = days(tomlGet<TomlValue>(t, 'hygiene', 'archive_after', cfg.hygiene.archiveAfterDays), cfg.hygiene.archiveAfterDays);
     cfg.hygiene.dormantAfterDays = days(tomlGet<TomlValue>(t, 'hygiene', 'dormant_after', cfg.hygiene.dormantAfterDays), cfg.hygiene.dormantAfterDays);
     cfg.hygiene.overrideStreak = tomlGet(t, 'hygiene', 'override_streak', cfg.hygiene.overrideStreak);
@@ -142,6 +184,11 @@ export function loadConfig(graphDir: string | undefined): Config {
     cfg.embed.includeArchived = tomlGet(t, 'embed', 'include_archived', cfg.embed.includeArchived);
     cfg.embed.inProcessHooks = tomlGet(t, 'embed', 'in_process_hooks', cfg.embed.inProcessHooks);
     cfg.packs = tomlGet(t, 'init', 'packs', cfg.packs);
+    cfg.enforce.readBeforeEdit = mode(tomlGet<TomlValue>(t, 'enforce', 'read_before_edit', cfg.enforce.readBeforeEdit), cfg.enforce.readBeforeEdit);
+    cfg.enforce.dependencies = mode(tomlGet<TomlValue>(t, 'enforce', 'dependencies', cfg.enforce.dependencies), cfg.enforce.dependencies);
+    cfg.enforce.cards = mode(tomlGet<TomlValue>(t, 'enforce', 'cards', cfg.enforce.cards), cfg.enforce.cards);
+    cfg.enforce.maxImporters = tomlGet(t, 'enforce', 'max_importers', cfg.enforce.maxImporters);
+    cfg.cardsExclude = tomlGet(t, 'cards', 'exclude', cfg.cardsExclude);
     const bindings = t['init.packs'];
     if (bindings) for (const [k, v] of Object.entries(bindings)) if (typeof v === 'string') cfg.packBindings[k] = v;
   };

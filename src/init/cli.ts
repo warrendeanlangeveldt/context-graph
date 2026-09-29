@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { needGraph, openFromArgs, str, type Args } from '../cli/main.js';
 import { openRepo } from '../core/context.js';
@@ -11,6 +11,7 @@ import { bootstrap, newRecordsOnly } from './bootstrap.js';
 import { conformanceReport, violationsFor } from './conformance.js';
 import { detectBindings, exportPack, instantiate, loadPacks } from './packs.js';
 import { ratify } from './ratify.js';
+import { toolAdapters } from '../tool-adapters/index.js';
 
 const CONFIG_TEMPLATE = `# Context Graph configuration. See docs/design-spec.md §17.
 [repo]
@@ -68,6 +69,7 @@ async function init(args: Args, env: { json: boolean }): Promise<number> {
   const today = new Date().toISOString().slice(0, 10);
   const packRecords: GraphRecord[] = [];
   const packReport: string[] = [];
+  const codeKitLayers = toolAdapters(ctx.root).some((a) => a.name === 'code-kit') && hasCodeKitLayers(ctx.root);
   if (!packNames.includes('none')) {
     for (const p of loadPacks(packNames)) {
       const { bindings, unbound } = detectBindings(p, merged, result.files, ctx.config.packBindings);
@@ -81,7 +83,10 @@ async function init(args: Args, env: { json: boolean }): Promise<number> {
         continue;
       }
       const inst = instantiate(p, bindings, unbound, today);
-      const usable = inst.records.filter((r) => !(r.kind === 'K' && merged.constraints.has(r.id)) && !(r.kind === 'C' && merged.concepts.has(r.id)));
+      let usable = inst.records.filter((r) => !(r.kind === 'K' && merged.constraints.has(r.id)) && !(r.kind === 'C' && merged.concepts.has(r.id)));
+      // Where code-kit enforces the import rules (its layers), a second machine-checked copy here would drift from
+      // it. The constraint stays as guidance, which is what a slice shows; the check itself is code-kit's.
+      if (codeKitLayers) usable = usable.map((r) => (r.kind === 'K' && r.rule?.startsWith('noimport:') ? (({ rule: _, ...k }) => k)(r) : r));
       packReport.push(`${p.name}@${p.version}: ${bindings.map((b) => `{${b.role}}=${b.logical} (${b.evidence})`).join(', ')}${unbound.length ? `; unbound: ${unbound.join(', ')}` : ''}; ${usable.length} record(s)`);
       packRecords.push(...usable);
     }
@@ -177,4 +182,12 @@ async function pack(args: Args, env: { json: boolean }): Promise<number> {
     return 0;
   }
   throw new Error('ctx pack list | export --name <name> | conformance');
+}
+
+/** Whether code-kit's config declares layers, which it then enforces on every edit and in CI. */
+function hasCodeKitLayers(root: string): boolean {
+  try {
+    const c = JSON.parse(readFileSync(join(root, '.claude', 'code-kit.json'), 'utf8')) as { layers?: unknown[] };
+    return Array.isArray(c.layers) && c.layers.length > 0;
+  } catch { return false; }
 }

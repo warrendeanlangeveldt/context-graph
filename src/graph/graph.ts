@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import picomatch from 'picomatch';
@@ -5,7 +6,7 @@ import { parseText } from './parse.js';
 import {
   isConceptId, isLogicalId, isPathId, splitSymbol,
   type ARecord, type CRecord, type DRecord, type ERecord, type GraphRecord, type KRecord, type LRecord,
-  type MRecord, type SRecord, type ZRecord,
+  type FRecord, type MRecord, type SRecord, type ZRecord,
 } from './records.js';
 import { toAbsolute } from '../util/paths.js';
 
@@ -21,6 +22,7 @@ export const GRAPH_FILE = 'graph.ctx';
 export const DECISIONS_FILE = 'decisions.ctx';
 export const ALIASES_FILE = 'aliases.ctx';
 export const PROPOSALS_FILE = 'proposals.ctx';
+export const CARDS_FILE = 'cards.ctx';
 
 /**
  * The active set of a repository's graph. Loads `graph.ctx`, `decisions.ctx`, `aliases.ctx`,
@@ -39,9 +41,13 @@ export class Graph {
   readonly aliases = new Map<string, ARecord>();
   readonly superseded = new Set<string>();
   readonly retired = new Map<string, ZRecord>();
+  /** The file card in force for each path: the latest one read. */
+  readonly cards = new Map<string, FRecord>();
   readonly loadFindings: Finding[] = [];
 
   private matchers: { rec: MRecord; match: (p: string) => boolean }[] = [];
+  /** Order of each decision as read (file order, then recorded order): later is newer. */
+  private decisionSeq = new Map<string, number>();
   private aliasByNode = new Map<string, string>();
 
   private constructor(readonly dir: string) {}
@@ -51,7 +57,7 @@ export class Graph {
     const graphFile = join(dir, GRAPH_FILE);
     if (!existsSync(graphFile)) throw new Error(`no ${GRAPH_FILE} in ${dir}`);
     g.ingest(parseText(readFileSync(graphFile, 'utf8'), graphFile));
-    for (const name of [DECISIONS_FILE, ALIASES_FILE, PROPOSALS_FILE]) {
+    for (const name of [DECISIONS_FILE, ALIASES_FILE, PROPOSALS_FILE, CARDS_FILE]) {
       const f = join(dir, name);
       if (existsSync(f)) g.ingest(parseText(readFileSync(f, 'utf8'), f));
     }
@@ -69,6 +75,7 @@ export class Graph {
 
   get decisionsFile(): string { return join(this.dir, DECISIONS_FILE); }
   get proposalsFile(): string { return join(this.dir, PROPOSALS_FILE); }
+  get cardsFile(): string { return join(this.dir, CARDS_FILE); }
 
   private ingest(records: GraphRecord[]): void {
     for (const r of records) {
@@ -83,7 +90,7 @@ export class Graph {
           break;
         case 'D':
           if (this.decisions.has(r.id)) this.loadFindings.push({ level: 'error', rule: 'unique-id', message: `duplicate decision id ${r.id}`, ...loc(r) });
-          this.decisions.set(r.id, r);
+          this.addDecision(r);
           break;
         case 'S': this.supersessions.push(r); break;
         case 'Z': this.retirements.push(r); break;
@@ -92,6 +99,7 @@ export class Graph {
           this.aliases.set(r.alias, r);
           break;
         case 'R': break;
+        case 'F': this.cards.set(r.path, r); break;
       }
     }
   }
@@ -165,6 +173,26 @@ export class Graph {
     return true;
   }
 
+  private provenanceCache?: Map<string, string>;
+
+  /** Commits of decisions whose line still carries `-`, resolved once per load by the given resolver. */
+  provenance(resolve: () => Map<string, string>): Map<string, string> {
+    return (this.provenanceCache ??= resolve());
+  }
+
+  /** Add a decision to the active set, as the newest. */
+  addDecision(d: DRecord): void {
+    this.decisions.set(d.id, d);
+    this.decisionSeq.set(d.id, this.decisionSeq.size);
+  }
+
+  /**
+   * Newest first: by date, then by position. Position is file order, so it holds for any id scheme and
+   * after a union merge; ids are random and carry no order.
+   */
+  newestFirst = (a: DRecord, b: DRecord): number =>
+    a.date === b.date ? (this.decisionSeq.get(b.id) ?? 0) - (this.decisionSeq.get(a.id) ?? 0) : b.date.localeCompare(a.date);
+
   /** Active decisions on any of the given nodes, newest first. */
   decisionsOn(nodes: string[]): DRecord[] {
     const set = new Set(nodes);
@@ -172,7 +200,7 @@ export class Graph {
     for (const d of this.decisions.values()) {
       if (set.has(d.node) && this.isActiveDecision(d)) out.push(d);
     }
-    return out.sort((a, b) => (a.date === b.date ? compareIds(b.id, a.id) : b.date.localeCompare(a.date)));
+    return out.sort(this.newestFirst);
   }
 
   /** Decisions that serve or override a constraint or concept, newest first. The "why" of a rule is here,
@@ -180,20 +208,22 @@ export class Graph {
   decisionsFor(id: string, opts: { includeSuperseded?: boolean } = {}): DRecord[] {
     return [...this.decisions.values()]
       .filter((d) => (d.serves === id || d.overrides === id) && (opts.includeSuperseded === true || this.isActiveDecision(d)))
-      .sort((a, b) => (a.date === b.date ? compareIds(b.id, a.id) : b.date.localeCompare(a.date)));
+      .sort(this.newestFirst);
   }
 
   allDecisionsOn(node: string): DRecord[] {
-    return [...this.decisions.values()].filter((d) => d.node === node).sort((a, b) => compareIds(a.id, b.id));
+    return [...this.decisions.values()].filter((d) => d.node === node).sort((a, b) => this.newestFirst(b, a));
   }
 
+  /**
+   * A fresh decision id. Random, so decisions recorded on parallel branches never collide when they
+   * merge; checked against the ids this graph already holds. Older `d-0042` ids stay valid.
+   */
   nextDecisionId(): string {
-    let max = 0;
-    for (const id of this.decisions.keys()) {
-      const m = /^d-(\d+)$/.exec(id);
-      if (m) max = Math.max(max, Number(m[1]));
+    for (;;) {
+      const id = `d-${randomBytes(3).toString('hex')}`;
+      if (!this.decisions.has(id)) return id;
     }
-    return `d-${String(max + 1).padStart(4, '0')}`;
   }
 
   // ---- validation (design spec §6.2) ----------------------------------------
@@ -251,10 +281,4 @@ function loc(r: { file?: string; line: number }): { file?: string; line?: number
   if (r.file) out.file = r.file;
   if (r.line) out.line = r.line;
   return out;
-}
-
-function compareIds(a: string, b: string): number {
-  const na = Number(/\d+/.exec(a)?.[0] ?? 0);
-  const nb = Number(/\d+/.exec(b)?.[0] ?? 0);
-  return na - nb || a.localeCompare(b);
 }

@@ -36,6 +36,7 @@ export function codexProfile(agent = 'codex'): HarnessProfile {
     formatSessionStart: (text) => JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: text } }),
     formatPreToolUse: (context) => JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: context } }),
     formatStopBlock: (reason) => JSON.stringify({ decision: 'block', reason }),
+    formatPreToolUseDeny: (reason) => JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason } }),
     formatPromptContext: (context) => JSON.stringify({ hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: context } }),
   };
 }

@@ -1,53 +1,55 @@
-import { readFileSync, writeFileSync } from 'node:fs';
+import { relative } from 'node:path';
 import type { Graph } from '../graph/graph.js';
-import { isPathId, splitSymbol } from '../graph/records.js';
+import type { DRecord } from '../graph/records.js';
 import { git } from '../util/git.js';
 
 /**
- * Commit provenance (design spec §9.4). Decisions are recorded with `sha` of `-`. After a commit,
- * every provisional decision on this branch whose node was changed by that commit gets the SHA.
- * A decision on a logical node is linked when any file mapped to it changed.
+ * Commit provenance (design spec §9.4). A decision is recorded with `sha` of `-` and the file is never
+ * rewritten afterwards: the commit that carries a decision is the commit that added its line, which git
+ * already knows. Resolving it at read time (`git blame`) instead of rewriting after each commit keeps the
+ * working tree clean, so a commit is the end of the work and not the start of another change.
  */
 export interface ProvenanceResult { sha: string; linked: string[]; skipped: string[] }
 
-export function linkProvenance(graph: Graph, root: string, opts: { sha?: string; branch?: string } = {}): ProvenanceResult {
-  const sha = (opts.sha ?? git(root, ['rev-parse', '--short', 'HEAD']) ?? '').slice(0, 8);
-  if (!sha) throw new Error('no commit to link: not a git repository or no HEAD');
-  const changed = new Set((git(root, ['diff-tree', '--no-commit-id', '--name-only', '-r', sha]) ?? '').split('\n').filter(Boolean));
+/** The commit that added each decision line still carrying `-`, by decision id. Uncommitted lines are absent. */
+export function resolveProvenance(graph: Graph, root: string): Map<string, string> {
+  const out = new Map<string, string>();
+  const file = relative(root, graph.decisionsFile).split('\\').join('/');
+  if (file.startsWith('..')) return out; // a linked graph outside the repository has no history here
+  const blame = git(root, ['blame', '--porcelain', '--', file]);
+  if (!blame) return out;
+  const shaAtLine = new Map<number, string>();
+  for (const line of blame.split('\n')) {
+    const m = /^([0-9a-f]{40}) \d+ (\d+)/.exec(line);
+    if (m && !/^0+$/.test(m[1]!)) shaAtLine.set(Number(m[2]), m[1]!.slice(0, 8));
+  }
+  for (const d of graph.decisions.values()) {
+    if (d.sha !== '-' || d.file !== graph.decisionsFile || !d.line) continue;
+    const sha = shaAtLine.get(d.line);
+    if (sha) out.set(d.id, sha);
+  }
+  return out;
+}
+
+/** The commit a decision arrived in, or `-` while it is not yet committed. */
+export function commitOf(graph: Graph, root: string, d: DRecord): string {
+  if (d.sha !== '-') return d.sha;
+  return graph.provenance(() => resolveProvenance(graph, root)).get(d.id) ?? '-';
+}
+
+/**
+ * What `ctx provenance` reports: which of this branch's decisions are committed, and in which commit.
+ * Read-only; kept so older post-commit hooks that still call it do no harm.
+ */
+export function linkProvenance(graph: Graph, root: string, opts: { branch?: string } = {}): ProvenanceResult {
   const branch = opts.branch ?? git(root, ['branch', '--show-current']) ?? '';
+  const resolved = resolveProvenance(graph, root);
   const linked: string[] = [];
   const skipped: string[] = [];
-
-  const touchesNode = (node: string): boolean => {
-    if (isPathId(node)) return changed.has(splitSymbol(node).path);
-    for (const f of changed) {
-      const m = graph.mapPath(f);
-      if (!m) continue;
-      if (m.logical === node) return true;
-      let cur: string[] = graph.parentsOf(m.logical);
-      const seen = new Set<string>();
-      while (cur.length) {
-        const n = cur.shift()!;
-        if (seen.has(n)) continue;
-        seen.add(n);
-        if (n === node) return true;
-        cur.push(...graph.parentsOf(n));
-      }
-    }
-    return false;
-  };
-
-  const file = graph.decisionsFile;
-  const lines = readFileSync(file, 'utf8').split('\n');
-  const out = lines.map((line) => {
-    const m = /^D (\S+) (\S+) (\S+) - (\S+) (\S+) (.*)$/.exec(line);
-    if (!m) return line;
-    const [, id, date, who, dBranch, node, rest] = m as unknown as [string, string, string, string, string, string, string];
-    if (branch && dBranch !== branch) { skipped.push(id); return line; }
-    if (!touchesNode(node)) { skipped.push(id); return line; }
-    linked.push(id);
-    return `D ${id} ${date} ${who} ${sha} ${dBranch} ${node} ${rest}`;
-  });
-  if (linked.length) writeFileSync(file, out.join('\n'), 'utf8');
+  for (const d of graph.decisions.values()) {
+    if (d.sha !== '-' || (branch && d.branch !== branch)) continue;
+    (resolved.has(d.id) ? linked : skipped).push(d.id);
+  }
+  const sha = (git(root, ['rev-parse', '--short', 'HEAD']) ?? '').slice(0, 8);
   return { sha, linked, skipped };
 }

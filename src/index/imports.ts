@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { headSha } from '../util/git.js';
-import { ctxHome, repoHash } from '../util/paths.js';
+import { checkoutHash, ctxHome } from '../util/paths.js';
 
 /**
  * Import graph for JavaScript and TypeScript trees. Relative specifiers are resolved to files;
@@ -74,7 +74,7 @@ export function callersOf(index: ImportIndex, path: string): string[] {
 
 export function loadOrBuildImportIndex(root: string, maxAgeMs = 15 * 60 * 1000): ImportIndex {
   const dir = join(ctxHome(), 'index');
-  const file = join(dir, `${repoHash(root)}.json`);
+  const file = join(dir, `${checkoutHash(root)}.json`);
   const head = headSha(root);
   if (existsSync(file)) {
     try {

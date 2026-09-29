@@ -80,7 +80,11 @@ export function installClaudeUser(home = homedir()): InstallResult {
   return { changed, notes };
 }
 
-/** Git hooks in a repository: post-commit links provenance and refreshes the embedding index when enabled. */
+/**
+ * Git hooks in a repository: post-commit refreshes the embedding index when enabled. It never writes the
+ * graph: a decision's commit is resolved from git when it is shown, so a commit leaves the tree clean.
+ * An older hook block (which rewrote decisions after each commit) is replaced.
+ */
 export function installGitHooks(root: string): InstallResult {
   const hooksDir = join(root, '.git', 'hooks');
   if (!existsSync(join(root, '.git'))) throw new Error(`${root} is not a git repository root`);
@@ -89,11 +93,18 @@ export function installGitHooks(root: string): InstallResult {
   const cli = existsSync(join(pluginRoot(), 'dist', 'cli', 'main.js')) ? join(pluginRoot(), 'dist', 'cli', 'main.js') : bundled;
   const file = join(hooksDir, 'post-commit');
   const marker = `# ${MARK}`;
-  const snippet = `${marker}\nnode "${cli}" provenance --repo "$(git rev-parse --show-toplevel)" >/dev/null 2>&1 || true\nnode "${cli}" embed update --repo "$(git rev-parse --show-toplevel)" --if-enabled >/dev/null 2>&1 || true\n`;
+  const snippet = `${marker}\nnode "${cli}" embed update --repo "$(git rev-parse --show-toplevel)" --if-enabled >/dev/null 2>&1 || true\n`;
   let content = existsSync(file) ? readFileSync(file, 'utf8') : '#!/bin/sh\n';
   if (!content.startsWith('#!')) content = '#!/bin/sh\n' + content;
-  if (!content.includes(marker)) content = content.replace(/\s*$/, '\n') + snippet;
+  // Drop any earlier block of ours (the marker and the ctx lines after it), then add the current one.
+  const lines = content.split('\n');
+  const kept: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i] === marker) { while (i + 1 < lines.length && /\|\| true$/.test(lines[i + 1]!) && lines[i + 1]!.includes(cli.split('/').pop()!)) i++; continue; }
+    kept.push(lines[i]!);
+  }
+  content = kept.join('\n').replace(/\s*$/, '\n') + snippet;
   writeFileSync(file, content, 'utf8');
   chmodSync(file, 0o755);
-  return { changed: [file], notes: ['post-commit: provenance link and embedding refresh (when enabled)'] };
+  return { changed: [file], notes: ['post-commit: embedding refresh (when enabled); provenance is read from git, never written after a commit'] };
 }

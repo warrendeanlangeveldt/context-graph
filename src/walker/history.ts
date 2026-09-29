@@ -1,5 +1,6 @@
 import type { Graph } from '../graph/graph.js';
 import type { DRecord } from '../graph/records.js';
+import { commitOf } from '../record/provenance.js';
 import { estimateTokens } from '../util/tokens.js';
 
 /**
@@ -11,21 +12,22 @@ import { estimateTokens } from '../util/tokens.js';
  */
 export interface History { path: string; text: string; tokens: number; decisions: string[] }
 
-export function renderHistory(graph: Graph, path: string, opts: { maxDecisions?: number; maxTokens?: number } = {}): History | undefined {
+export function renderHistory(graph: Graph, path: string, opts: { maxDecisions?: number; maxTokens?: number; root?: string } = {}): History | undefined {
   const file = path.split('#')[0]!;
   const maxDecisions = opts.maxDecisions ?? 3;
   const maxTokens = opts.maxTokens ?? 160;
   // Decisions on the file and on symbols within it. Not the module's: those arrive once, on its card.
   const all = [...graph.decisions.values()]
     .filter((d) => (d.node === file || d.node.startsWith(`${file}#`)) && graph.isActiveDecision(d))
-    .sort((a, b) => (a.date === b.date ? b.id.localeCompare(a.id) : b.date.localeCompare(a.date)));
+    .sort(graph.newestFirst);
   if (!all.length) return undefined;
 
   const shown = all.slice(0, maxDecisions);
   const name = graph.aliasFor(file) ?? file;
   const line = (d: DRecord, withWho: boolean): string => {
     const symbol = d.node.includes('#') ? `${d.node.split('#')[1]}  ` : '';
-    const prov = d.sha === '-' ? `${d.branch} provisional` : d.sha;
+    const sha = opts.root ? commitOf(graph, opts.root, d) : d.sha;
+    const prov = sha === '-' ? `${d.branch} provisional` : sha;
     return `  decided  ${d.id} ${d.date.slice(5)}${withWho ? ` ${d.who}` : ''}  ${symbol}${d.overrides ? `!${d.overrides}  ` : ''}${d.text}  (${prov})`;
   };
   const tail = all.length > shown.length ? `  and ${all.length - shown.length} more: ctx history ${name}` : undefined;

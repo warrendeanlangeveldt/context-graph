@@ -46,11 +46,21 @@ export interface PendingEntry {
   symbol?: string;
   constraints: string[];
   since: string;
-  /** The decision id that was next when the edit was noted: any decision on this path from here on settles it, whoever records it. */
+  /** Legacy: the decision id that was next when the edit was noted (numeric ids only). */
   sinceId?: string;
+  /** Decisions already on this path when the edit was noted: any other decision on it settles the entry, whoever records it. */
+  known?: string[];
   /** The tool call that first noted this edit; if that call fails, the edit never happened. */
   toolUseId?: string;
+  /**
+   * Noted before the tool ran. It becomes real only when the same call completes: another hook may refuse
+   * the call, and then no edit happened. Unconfirmed entries are dropped when the turn ends.
+   */
+  provisional?: boolean;
 }
+
+/** A file this agent edited, which owes its card until the card matches the file's content. */
+export interface CardOwed { path: string; since: string }
 
 export interface SessionStateData {
   pending: Record<string, PendingEntry>;
@@ -72,19 +82,35 @@ export interface SessionStateData {
   /** Where the harness's shell currently is, when it keeps its working directory between calls. */
   shellCwd?: string;
   delegations: Record<string, { agentType?: string; since: string }>;
+  /** Tool calls whose reads were recorded when the call started, so completion does not record them twice. */
+  readsRecorded?: string[];
+  /** Files edited by this agent whose card is not yet written or brought up to date. */
+  cardsOwed?: Record<string, CardOwed>;
 }
 
-/** Small mutable per-session state for the recorder: pending nodes and the Stop loop guard. */
+/**
+ * Small mutable state for the recorder: pending nodes, the Stop loop guard, and what has been shown.
+ * One file per agent: the main session's, and one per subagent. Parallel agents each have their own
+ * context window, so each is owed its own cards and histories, owes its own decisions, and never
+ * overwrites another's state. A subagent takes the session's arm, which is decided once.
+ */
 export class SessionState {
   readonly file: string;
   data: SessionStateData;
 
-  constructor(readonly root: string, readonly session: string) {
+  constructor(readonly root: string, readonly session: string, readonly agent?: string) {
     const dir = join(ctxHome(), 'state', repoHash(root));
-    this.file = join(dir, `${sanitize(session)}.json`);
+    this.file = join(dir, `${sanitize(session)}${agent ? `@${sanitize(agent)}` : ''}.json`);
     this.data = { pending: {}, blocks: 0, lastPendingKey: '', arm: 'on', delegations: {} };
-    if (existsSync(this.file)) {
-      try { this.data = { ...this.data, ...(JSON.parse(readFileSync(this.file, 'utf8')) as Partial<SessionStateData>) }; } catch { /* start fresh */ }
+    const load = (file: string): Partial<SessionStateData> | undefined => {
+      if (!existsSync(file)) return undefined;
+      try { return JSON.parse(readFileSync(file, 'utf8')) as Partial<SessionStateData>; } catch { return undefined; }
+    };
+    const own = load(this.file);
+    if (own) this.data = { ...this.data, ...own };
+    else if (agent) {
+      const main = load(join(dir, `${sanitize(session)}.json`));
+      if (main?.armSet) { this.data.arm = main.arm ?? 'on'; this.data.armSet = true; }
     }
   }
 

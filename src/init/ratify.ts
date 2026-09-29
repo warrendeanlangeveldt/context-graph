@@ -49,7 +49,7 @@ export function ratify(ctx: RepoContext, ids: string[], opts: { all?: boolean; t
         if (rec.rule) {
           for (const v of violationsFor(graph, rec, index)) {
             const d: DRecord = { kind: 'D', id: graph.nextDecisionId(), date: today, who: `${gitPerson(ctx.root)}/human`, sha: '-', branch: 'ratify', node: v.from, serves: rec.id, overrides: rec.id, text: `legacy: predates ${rec.id}; ${v.detail}`, line: 0 };
-            graph.decisions.set(d.id, d);
+            graph.addDecision(d);
             legacy.push(d);
           }
         }

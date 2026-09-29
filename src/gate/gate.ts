@@ -2,11 +2,13 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import type { RepoContext } from '../core/context.js';
-import { ALIASES_FILE, DECISIONS_FILE, GRAPH_FILE, Graph, PROPOSALS_FILE } from '../graph/graph.js';
+import { contentHash, exemptFromCards } from '../cards/cards.js';
+import { ALIASES_FILE, CARDS_FILE, DECISIONS_FILE, GRAPH_FILE, Graph, PROPOSALS_FILE } from '../graph/graph.js';
 import { parseText } from '../graph/parse.js';
 import { isPathId, type DRecord, type KRecord, type SRecord, type ZRecord } from '../graph/records.js';
 import type { CoverageRecord } from '../observe/coverage.js';
 import { ObservationStore } from '../observe/store.js';
+import { resolveProvenance } from '../record/provenance.js';
 import { git } from '../util/git.js';
 import { walk } from '../walker/walk.js';
 
@@ -158,9 +160,12 @@ export function runGate(ctx: RepoContext, opts: GateOptions): GateReport {
     if (isTop && !ratified.ok) findings.push({ level: ratified.configured ? 'fail' : 'warn', rule: 'unratified-retirement', title: `Z ${z.target}`, lines: [z.reason, ratified.configured ? 'needs a commit trailer Ctx-Ratified-By' : 'no ratifiers configured'] });
   }
 
-  // 7. Unlinked provenance.
-  const unlinked = branchDecisions.filter((d) => d.sha === '-');
-  if (unlinked.length) findings.push({ level: 'warn', rule: 'unlinked-provenance', title: `${unlinked.length} decision(s) without a commit`, lines: unlinked.map((d) => `${d.id} ${d.node}`), suggest: 'run ctx provenance after committing, or install the post-commit hook' });
+  // 7. Decisions not yet committed (only when the head is the working tree): they are not in the pull request.
+  if (!opts.head) {
+    const committed = resolveProvenance(atHead, root);
+    const uncommitted = branchDecisions.filter((d) => d.sha === '-' && !committed.has(d.id));
+    if (uncommitted.length) findings.push({ level: 'warn', rule: 'uncommitted-decisions', title: `${uncommitted.length} decision(s) not committed`, lines: uncommitted.map((d) => `${d.id} ${d.node}`), suggest: 'commit .ctx/decisions.ctx with the change it explains' });
+  }
 
   // 8. Orphaned basis, from validation.
   for (const f of atHead.validate(root)) if (f.rule === 'orphaned-basis') findings.push({ level: 'warn', rule: 'orphaned-basis', title: f.message, lines: [] });
@@ -169,6 +174,20 @@ export function runGate(ctx: RepoContext, opts: GateOptions): GateReport {
   const decided = new Set(branchDecisions.map((d) => d.node.split('#')[0]));
   const dark = darkEdits(root, changedFiles.filter((f) => !decided.has(f)));
   for (const [path, c] of dark) findings.push({ level: 'warn', rule: 'coverage', title: path, lines: [`edited with ${c.callers_loaded}/${c.callers_total} callers in context and no decision recorded`] });
+
+  // 10. Cards: every file this branch changed carries a card matching its content at the head, so the next
+  // agent to edit it starts from its why, whether the change was made in a session or by hand.
+  if (ctx.config.gate.cards !== 'off') {
+    const stale: string[] = [];
+    for (const f of changedFiles) {
+      if (exemptFromCards(f, ctx.config.cardsExclude)) continue;
+      const text = opts.head ? git(root, ['show', `${opts.head}:${f}`]) : readFileIfFile(join(root, f));
+      if (text === undefined) continue; // deleted on this branch
+      const card = atHead.cards.get(f);
+      if (!card || card.hash !== contentHash(text)) stale.push(`${f}${card ? '  (card is stale)' : '  (no card)'}`);
+    }
+    if (stale.length) findings.push({ level: ctx.config.gate.cards, rule: 'cards', title: `${stale.length} changed file(s) without a current card`, lines: stale, suggest: 'ctx card <path> --text "<what it is for, what it relies on, who relies on it, what it must keep true>"' });
+  }
 
   const ok = !findings.some((f) => f.level === 'fail');
   return { base: opts.base, head, mergeBase, changedFiles, findings, ok };
@@ -185,7 +204,7 @@ function graphRelativeDir(ctx: RepoContext): string {
 
 function loadAt(root: string, graphRel: string, ref: string): Graph {
   const records = [];
-  for (const name of [GRAPH_FILE, DECISIONS_FILE, ALIASES_FILE, PROPOSALS_FILE]) {
+  for (const name of [GRAPH_FILE, DECISIONS_FILE, ALIASES_FILE, PROPOSALS_FILE, CARDS_FILE]) {
     const text = git(root, ['show', `${ref}:${graphRel}/${name}`]);
     if (text !== undefined) records.push(...parseText(text, `${ref}:${graphRel}/${name}`));
   }
@@ -278,3 +297,7 @@ export function formatGate(report: GateReport): string {
 export function isPathNode(id: string): boolean { return isPathId(id); }
 export function readIfExists(p: string): string | undefined { return existsSync(p) ? readFileSync(p, 'utf8') : undefined; }
 export { join };
+
+function readFileIfFile(file: string): string | undefined {
+  try { return existsSync(file) ? readFileSync(file, 'utf8') : undefined; } catch { return undefined; }
+}

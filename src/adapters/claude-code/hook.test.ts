@@ -48,6 +48,8 @@ describe('Claude Code hook adapter, end to end on a temporary repository', () =>
     mkdirSync(join(repo, 'api/src/core/orch'), { recursive: true });
     mkdirSync(join(repo, '.ctx'));
     writeFileSync(join(repo, '.ctx/graph.ctx'), GRAPH);
+    // These cases are about slices, histories, cards and decisions; the read-before-edit loop has its own suite.
+    writeFileSync(join(repo, '.ctx/config.toml'), '[enforce]\nread_before_edit = "off"\ndependencies = "off"\ncards = "off"\n');
     writeFileSync(join(repo, '.ctx/decisions.ctx'), 'D d-0001 2026-09-08 w/claude aaaaaaa main api/src/core/orch/bb.ts ->K orch.events applyEvent takes the event, never the workspace, so a replay cannot double-apply\n');
     writeFileSync(join(repo, 'api/boundary.test.ts'), '');
     writeFileSync(join(repo, 'api/src/core/orch/bb.ts'), BB);
@@ -121,7 +123,7 @@ describe('Claude Code hook adapter, end to end on a temporary repository', () =>
   });
 
   it('with the demand off, the gap is recorded as a finding and the turn is never held', async () => {
-    writeFileSync(join(repo, '.ctx/config.toml'), '[record]\ndemand = false\n');
+    writeFileSync(join(repo, '.ctx/config.toml'), '[record]\ndemand = false\n[enforce]\nread_before_edit = "off"\ndependencies = "off"\ncards = "off"\n');
     await runClaudeHook({ ...base(), hook_event_name: 'SessionStart', start_reason: 'startup' });
     await runClaudeHook({ ...base(), hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: join(repo, 'api/src/core/orch/bb.ts'), old_string: 'helper(e);', new_string: 'helper(e); this.n++;' } });
     const next = await runClaudeHook({ ...base(), hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: 'npm test' } });
@@ -238,7 +240,7 @@ describe('Claude Code hook adapter, end to end on a temporary repository', () =>
   });
 
   it('records shell-driven edits and stays quiet in observe-only mode', async () => {
-    writeFileSync(join(repo, '.ctx/config.toml'), '[slice]\nenabled = false\n');
+    writeFileSync(join(repo, '.ctx/config.toml'), '[slice]\nenabled = false\n[enforce]\nread_before_edit = "off"\ndependencies = "off"\ncards = "off"\n');
     const start = await runClaudeHook({ ...base(), hook_event_name: 'SessionStart', start_reason: 'startup' });
     expect(start.stdout).toContain('observe-only');
     const pre = await runClaudeHook({ ...base(), hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: join(repo, 'api/src/core/orch/bb.ts'), old_string: 'x', new_string: 'y' } });

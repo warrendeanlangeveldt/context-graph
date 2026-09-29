@@ -1,0 +1,42 @@
+import { codeKitAdapter } from './code-kit.js';
+
+/**
+ * Tool adapters: what ctx knows about another tool that shares a repository, kept out of the core. Not to
+ * be confused with harness adapters (src/adapters/), which translate one AI harness's events. A tool
+ * adapter is detected per checkout and contributes facts about a file that anchor its why: the spec it
+ * delivers, who owns it, the rules its layer keeps. The core only calls `toolAdapters()` and the methods
+ * below; it never names a tool.
+ */
+export interface FileFacts {
+  /** Lines shown with the file's card before a read or an edit. */
+  lines: string[];
+  /** Requirement ids the file delivers, carried on its card. */
+  requirements: string[];
+}
+
+export interface ToolAdapter {
+  name: string;
+  detect(root: string): boolean;
+  /** Facts about a file, or undefined when the tool has nothing to say (or cannot be reached). */
+  fileFacts(root: string, path: string): FileFacts | undefined;
+  /** One line for the session-start text, saying the tool is present and what that changes. */
+  sessionNote?(root: string): string | undefined;
+}
+
+export const TOOL_ADAPTERS: ToolAdapter[] = [codeKitAdapter];
+
+export function toolAdapters(root: string): ToolAdapter[] {
+  return TOOL_ADAPTERS.filter((a) => a.detect(root));
+}
+
+/** Every active adapter's facts about a file, merged. */
+export function factsFor(root: string, path: string): FileFacts {
+  const out: FileFacts = { lines: [], requirements: [] };
+  for (const a of toolAdapters(root)) {
+    const f = a.fileFacts(root, path);
+    if (!f) continue;
+    out.lines.push(...f.lines);
+    for (const r of f.requirements) if (!out.requirements.includes(r)) out.requirements.push(r);
+  }
+  return out;
+}
