@@ -10,7 +10,9 @@ export const INSTRUCTION_HEADING = '## Context Graph';
 
 export const INSTRUCTION_BLOCK = `${INSTRUCTION_HEADING}
 
-Before working in a module you have not read this session, call the \`hydrate\` MCP tool with the file or module id (shell: \`ctx hydrate <scope>\`). It returns the rules in force with their history, the callers with the lines that use the file, and what this session already holds. Before editing a file through the shell, run \`ctx slice <path>\` first. When a turn ends owing a decision, record it with the \`record\` tool: what you did and why, pointing at the rule or concept it serves.
+Before working in a module you have not read this session, call the \`hydrate\` MCP tool with the file or module id (shell: \`ctx hydrate <scope>\`). It returns each file's card (why the file exists), the rules in force with their history, the callers with the lines that use the file, and what this session already holds. Before editing a file through the shell, run \`ctx slice <path>\` first.
+
+Before you edit a file, understand it: through its fresh card, or by reading it in full along with what it imports (and, when you change its exports, what imports it). An edit without that is refused with the list of what to read. After the edit, write or update the file's card with the \`card\` tool (shell: \`ctx card <path> --text "..."\`): what it is for, what it relies on, who relies on it, what it must keep true. When a turn ends owing a decision, record it with the \`record\` tool: what you did and why, pointing at the rule or concept it serves.
 `;
 
 const CANDIDATES = ['AGENTS.md', 'CLAUDE.md'];

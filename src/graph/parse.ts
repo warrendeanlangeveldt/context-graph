@@ -1,6 +1,6 @@
 import type {
   ARecord, CRecord, ConstraintMode, DRecord, ERecord, GraphRecord, KRecord, LRecord, MRecord,
-  RRecord, Relation, SRecord, ZRecord,
+  RRecord, Relation, SRecord, ZRecord, FRecord,
 } from './records.js';
 
 export class ParseError extends Error {
@@ -125,6 +125,20 @@ export function parseLine(raw: string, line: number, file?: string): GraphRecord
       const role = rest[0]!;
       if (!/^\{[^}]+\}$/.test(role)) fail(`pack role must be written as {role}, got ${role}`);
       const r: RRecord = { kind: 'R', role, heuristic: rest.slice(1).join(' '), ...base };
+      return r;
+    }
+    case 'F': {
+      need(5, '<path> <hash> <date> <who> <text>');
+      const [path, hash, date, who] = rest as [string, string, string, string];
+      if (!/^[0-9a-f]{8,64}$/.test(hash)) fail(`file card hash must be hex, got ${hash}`);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) fail(`file card date must be YYYY-MM-DD, got ${date}`);
+      const words = rest.slice(4);
+      const last = words[words.length - 1];
+      const req = last?.startsWith('req:') ? words.pop()!.slice(4).split(',').filter(Boolean) : undefined;
+      const text = words.join(' ');
+      if (!text) fail('file card text is required');
+      const r: FRecord = { kind: 'F', path, hash, date, who, text, ...base };
+      if (req?.length) r.req = req;
       return r;
     }
     default:

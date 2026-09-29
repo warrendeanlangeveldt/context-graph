@@ -1,9 +1,10 @@
 # Context Graph
 
-A standalone plugin for AI coding harnesses that does two things a session cannot do for itself:
+A standalone plugin for AI coding harnesses that does three things a session cannot do for itself:
 
 1. **Observes** what context the agent actually built before each change: which files it read in full, which it saw only through grep, which it edited on the strength of a name alone, and which of the edited file's callers were ever in context.
 2. **Anchors** the engineering context that should have applied, in a small graph kept in git, and injects the applicable slice at the moment the agent is about to edit a file. Before a turn ends, it asks for one decision per constrained file: what changed, and why, pointing at the constraint or concept the change honours.
+3. **Closes the loop** around every edit. Before it, the file must be understood: either through its **card** (the file's why, kept current with a content hash), or by reading it in full with what it imports. An edit without that is refused, with the list of what to read. After it, the card is written or brought up to date. Understanding then builds up per file, so the next agent starts from the why instead of rediscovering it.
 
 The design specification is in `docs/design-spec.md`. This README covers what is built and how to run it.
 
@@ -26,8 +27,10 @@ Every delivery step of the specification has an implementation:
 | 11 | Synapse view: Three.js force graph, 2D mode, coverage table, scrubber, evolution | `view/` |
 | 12 | Embeddings: provider, symbol-boundary chunker, SQLite vector store, hints in the slice | `src/embed/` |
 | 13 | Hosted mode: token, forwarding, provisional decisions, cross-branch findings, monitor tail | `src/overlay/` |
+| 14 | The context loop: file cards with content-hash freshness, read before edit (the file, its imports, its importers on an export change), cards owed after an edit, per-agent observation and state | `src/cards/`, `src/enforce/`, `src/adapters/core.ts` |
+| 15 | Tool adapters: facts from other tools that share the repository; code-kit (spec requirements, lane, layer rules) | `src/tool-adapters/` |
 
-Also: commit provenance linking (`ctx provenance`, and a post-commit hook installer), and a real graph for this repository under `.ctx/`.
+Also: commit provenance resolved from git (`ctx provenance`), and a real graph for this repository under `.ctx/`.
 
 ## Install
 
@@ -114,6 +117,45 @@ ctx install codex      # user-level hooks.json and the MCP server entry; then tr
 
 The Codex plugin directory is `adapters/codex/` for marketplace distribution. Edits arrive as `apply_patch` and reads as shell, so the shell observer is the only read path there.
 
+## The context loop
+
+For every edit of a file:
+
+```
+1. is the file understood by this agent?
+     its card is fresh (the file is unchanged since the card)        → yes; the card is shown with the slice
+     otherwise: read in full this session, and what it imports too   → yes (an import with a fresh card counts)
+     and if the edit changes what the file exports: its importers     → read, or their fresh cards (at most max_importers)
+   no → the edit is refused, naming each file to read and why
+2. the edit
+3. the card is owed: what the file is for, what it relies on, who relies on it, what it must keep true
+   asked for on the next tool call; the turn (or a subagent's hand-back) does not end until it matches the file
+```
+
+A **card** is an `F` record in `.ctx/cards.ctx`, written with the `card` MCP tool or `ctx card <path> --text "..."`. It carries the file's content hash, so it is fresh only while the file is unchanged; the latest card for a path is the one in force. The first time an agent reads a file, it is shown the card (or told there is none and that it must read the file in full before editing). `hydrate` and `why` show it too.
+
+Each agent's context is its own. A subagent's reads count for that subagent only, since it has its own context window; it is shown its own cards and histories, and owes its own decisions and cards when it stops (SubagentStop). A subagent isolated in a git worktree maps its paths through its worktree, reads its own branch's files, and records into its own branch's `.ctx/`: with an absolute path, the MCP `card` and `record` tools write to the worktree the path is in.
+
+Reads are recorded as the tool call starts, so a read followed at once by an edit is never refused while the asynchronous completion hook is still running. An edit that another hook refuses owes nothing: it is only noted as provisional until its call completes.
+
+```toml
+[enforce]
+read_before_edit = "block"   # off | nudge | block
+dependencies     = "block"   # imports on a miss; importers when an edit changes exports
+cards            = "block"   # off | nudge (a finding) | block (held like a decision)
+max_importers    = 5
+
+[cards]
+exclude = [".ctx/**", ".claude/**", "**/*.md", "**/*.lock", "**/generated/**"]   # the defaults are longer; see src/core/context.ts
+```
+
+## Working alongside code-kit
+
+[code-kit](https://github.com/warrendeanlangeveldt/code-kit) enforces lanes, layers, specs and proof-before-finish in the same repositories. Each knows the other through an adapter, and neither imports the other's code.
+
+- **ctx's tool adapter** (`src/tool-adapters/code-kit.ts`) switches on when `.claude/code-kit.json` exists. It asks `code-kit trace <path> --json` what a file is for: the spec requirements it delivers, its lane, its layer, and what that layer may import. It finds code-kit through `CODE_KIT_CLI`, or through the plugin Claude Code has installed. Cards and slices then say `spec BOOK-4 Cancel a booking (docs/specs/03-booking.md; ST-4)` and `code-kit lane web; layer domain, may import schemas`, and a card's `req:` is filled in from the trace. code-kit refuses writes outside a lane or across a layer; ctx makes it rare that an agent tries. With code-kit layers present, `ctx init` keeps pack import rules as guidance rather than a second machine check.
+- **code-kit's adapter for ctx** switches on when `.ctx/` exists. It lets every agent write `decisions.ctx` and `cards.ctx`, makes `graph.ctx` and `config.toml` the lead's protected files, blocks agents from writing a `Ctx-Ratified-By` trailer, and has init add `merge=union` for the decision and card files.
+
 ## Hydrate before you work
 
 The slice is the floor: what applies to one file, in 300 tokens. Hydrate is the briefing an agent never assembles on its own. One call, one scope, one bounded text:
@@ -149,22 +191,25 @@ One line per link in the chain: the graph and its ratifiers, the instruction blo
 ```sh
 ctx record --node <path> --serves <constraint-or-concept> --text "<why>" [--overrides <constraint>]
 ctx why <node>              ctx history <node> [--timeline]     # a path or module gives its own decisions; a rule id gives every decision that serves or overrides it
+ctx card <path> --text "<why the file exists, what it relies on, what it must keep true>" [--req ID,ID]
 ctx pending                 ctx coverage [--session <id>]
-ctx provenance              # after committing: link provisional decisions to the commit
-ctx install git-hooks       # do that automatically on every commit
+ctx provenance              # which of this branch's decisions are committed, and in which commit
+ctx install git-hooks       # post-commit: refresh the embedding index when enabled
 ```
+
+A decision's commit is read from git (`git blame` on `decisions.ctx`) when it is shown, never written into the file after a commit, so committing leaves the working tree clean. Decision ids are random (`d-3fa91c`), so decisions recorded on parallel branches never collide; order comes from date and file position. Add `.ctx/decisions.ctx merge=union` and `.ctx/cards.ctx merge=union` to `.gitattributes` so merges keep every record.
 
 ## Keep the graph honest
 
 ```sh
-ctx gate --base origin/main [--run-tests]   # in CI: opposed arrows, double supersession, stale basis, context moved, ratification
+ctx gate --base origin/main [--run-tests]   # in CI: opposed arrows, double supersession, stale basis, context moved, ratification, cards
 ctx hygiene                                 # proposals from evidence; never retires
 ctx retire <id> --reason "<why>" [--succ <id>]
 ctx gc                                      # archive inactive records older than the threshold
 ctx check --conformance                     # violations of rule-bearing constraints, minus recorded legacy exceptions
 ```
 
-Concepts and enforced constraints need a commit trailer `Ctx-Ratified-By: <person>` from an identity listed under `[repo] ratifiers`; the gate checks it.
+Concepts and enforced constraints need a commit trailer `Ctx-Ratified-By: <person>` from an identity listed under `[repo] ratifiers`; the gate checks it. The gate also reports each file the branch changed that has no card matching its content (`[gate] cards = "warn"`, or `"fail"`, or `"off"`), so the loop holds for changes made outside a session too.
 
 ## See what was observed
 
@@ -226,6 +271,7 @@ S <new-d-id> <old-d-id>                                 supersession
 Z <k-id|c-id> <date> <who> [succ:<id>] <reason>         retirement
 A <alias> <node>                                        alias
 R <{role}> <heuristic>                                  pack roles: dir:<name>|<name>, file:<glob>, root
+F <path> <hash> <date> <who> <text> [req:<id>,<id>]     file card (cards.ctx); fresh while the file's hash matches
 ```
 
 Rules a constraint can carry: `noimport:<A>:<B>` and `public-entry:<A>`, evaluated against the import graph. Test files are excluded unless the rule ends in `+tests`.

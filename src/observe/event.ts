@@ -15,6 +15,8 @@ export interface Touch {
   agent?: string;
   /** The observer could not classify the command; the path was inferred from an argument. */
   unparsed?: boolean;
+  /** The tool call that made it: reads are recorded when the call starts, and marked failed if it does not complete. */
+  toolUseId?: string;
 }
 
 export type EnvelopeType =

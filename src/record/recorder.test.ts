@@ -98,13 +98,14 @@ describe('Recorder', () => {
     const { g, r } = setup();
     r.notePending(walk(g, 'api/src/core/orch/bb.ts'));
     const res = r.record({ node: 'api/src/core/orch/bb.ts', serves: 'orch.events', text: 'purge  guard\nadded', who: 'w/c', branch: 'feature/x' });
-    expect(res.decision).toMatchObject({ id: 'd-0001', serves: 'orch.events', sha: '-', branch: 'feature/x', text: 'purge guard added' });
+    expect(res.decision).toMatchObject({ serves: 'orch.events', sha: '-', branch: 'feature/x', text: 'purge guard added' });
+    expect(res.decision.id).toMatch(/^d-[0-9a-f]{6}$/);
     expect(res.outsideApplicable).toBe(false);
-    expect(readFileSync(join(dir, 'decisions.ctx'), 'utf8')).toContain('D d-0001');
+    expect(readFileSync(join(dir, 'decisions.ctx'), 'utf8')).toContain(`D ${res.decision.id} `);
     expect(r.pending()).toEqual([]);
     const again = Graph.load(dir);
-    expect(again.decisionsOn(['api/src/core/orch/bb.ts'])[0]?.id).toBe('d-0001');
-    expect(again.nextDecisionId()).toBe('d-0002');
+    expect(again.decisionsOn(['api/src/core/orch/bb.ts'])[0]?.id).toBe(res.decision.id);
+    expect(again.decisions.has(again.nextDecisionId())).toBe(false);
   });
 
   it('accepts a concept target without its prefix', () => {

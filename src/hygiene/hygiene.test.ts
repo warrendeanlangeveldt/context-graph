@@ -47,6 +47,7 @@ describe('hygiene', () => {
     delete process.env.CLAUDE_PROJECT_DIR;
     execFileSync('git', ['init', '-q'], { cwd: repo });
     execFileSync('git', ['config', 'user.email', 'w@example.com'], { cwd: repo });
+    execFileSync('git', ['config', 'user.name', 'W'], { cwd: repo });
     mkdirSync(join(repo, 'src/core'), { recursive: true });
     mkdirSync(join(repo, 'docs/adr'), { recursive: true });
     mkdirSync(join(repo, '.ctx'));

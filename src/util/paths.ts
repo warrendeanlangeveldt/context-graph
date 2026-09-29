@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
@@ -19,8 +19,44 @@ export function ctxHome(): string {
   return process.env.CTX_HOME ?? join(homedir(), '.ctx');
 }
 
-/** Stable short identifier for a repository, derived from its absolute root path. */
+/**
+ * The main checkout of a repository, from any of its worktrees. A linked worktree's `.git` is a file
+ * naming `<main>/.git/worktrees/<name>`; anything else (a main checkout, a submodule, no repository)
+ * is its own main checkout.
+ */
+export function mainCheckout(root: string): string {
+  const self = realPath(root);
+  try {
+    const dotGit = join(self, '.git');
+    if (!statSync(dotGit).isFile()) return self;
+    const gitdir = /^gitdir:\s*(.+)$/m.exec(readFileSync(dotGit, 'utf8'))?.[1]?.trim();
+    const m = gitdir ? /^(.*)[\\/]\.git[\\/]worktrees[\\/][^\\/]+[\\/]?$/.exec(realPath(resolve(self, gitdir))) : null;
+    return m ? m[1]! : self;
+  } catch {
+    return self;
+  }
+}
+
+/** A path with symlinks resolved (macOS /var is /private/var), or as given when it doesn't exist. */
+function realPath(p: string): string {
+  try { return realpathSync(resolve(p)); } catch { return resolve(p); }
+}
+
+/** Whether `root` is a linked worktree of another checkout (an agent's or a lane's). */
+export function isLinkedWorktree(root: string): boolean {
+  return mainCheckout(root) !== realPath(root);
+}
+
+/**
+ * Stable short identifier for a repository. Every worktree of one repository shares it, so a session's
+ * observations, state, linked graph and overlay identity are the same whichever checkout an agent is in.
+ */
 export function repoHash(root: string): string {
+  return createHash('sha1').update(mainCheckout(root)).digest('hex').slice(0, 12);
+}
+
+/** Identifier for one checkout, for caches derived from its files (a worktree is on its own branch). */
+export function checkoutHash(root: string): string {
   return createHash('sha1').update(resolve(root)).digest('hex').slice(0, 12);
 }
 
@@ -44,6 +80,12 @@ export function toRepoRelative(root: string, p: string, cwd?: string): string {
   const rel = relative(root, abs);
   if (rel.startsWith('..') || isAbsolute(rel)) return abs.split(sep).join('/');
   return rel.split(sep).join('/');
+}
+
+/** A repository file's text, or undefined when it doesn't exist or can't be read. */
+export function readRepoText(root: string, repoRelative: string): string | undefined {
+  const abs = toAbsolute(root, repoRelative);
+  try { return statSync(abs).isFile() ? readFileSync(abs, 'utf8') : undefined; } catch { return undefined; }
 }
 
 export function toAbsolute(root: string, repoRelative: string): string {

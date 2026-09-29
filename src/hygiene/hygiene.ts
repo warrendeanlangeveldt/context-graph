@@ -227,18 +227,29 @@ export function timeline(ctx: RepoContext, node: string): TimelineRow[] {
   const archive = loadArchive(ctx.graphDir);
   const rows: TimelineRow[] = [];
   const decisions = new Map<string, { d: DRecord; archived: boolean }>();
-  for (const d of g.decisions.values()) if (d.node === node) decisions.set(d.id, { d, archived: false });
+  // Archived first: they are the older records, and position is the order within a day.
   for (const r of archive) if (r.kind === 'D' && r.node === node) decisions.set(r.id, { d: r, archived: true });
-  for (const { d, archived } of decisions.values()) rows.push({ date: d.date, kind: 'decision', id: d.id, text: `${d.who} ->${d.serves}${d.overrides ? ` !${d.overrides}` : ''}  ${d.text}`, archived });
+  for (const d of g.decisions.values()) if (d.node === node && !decisions.has(d.id)) decisions.set(d.id, { d, archived: false });
+  // Position in file order: a supersession sits right after the decision it retires, since ids carry no order.
+  const seq = new Map<string, number>();
+  const order = new Map<TimelineRow, number>();
+  for (const { d, archived } of decisions.values()) {
+    seq.set(d.id, seq.size);
+    const row: TimelineRow = { date: d.date, kind: 'decision', id: d.id, text: `${d.who} ->${d.serves}${d.overrides ? ` !${d.overrides}` : ''}  ${d.text}`, archived };
+    order.set(row, seq.size);
+    rows.push(row);
+  }
   const sup: SRecord[] = [...g.supersessions, ...archive.filter((r): r is SRecord => r.kind === 'S')];
   for (const s of sup) {
     if (!decisions.has(s.oldId)) continue;
     const newer = g.decisions.get(s.newId) ?? archive.find((r): r is DRecord => r.kind === 'D' && r.id === s.newId);
-    rows.push({ date: newer?.date ?? '', kind: 'superseded', id: s.oldId, text: `superseded by ${s.newId}`, archived: !g.decisions.has(s.oldId) });
+    const row: TimelineRow = { date: newer?.date ?? '', kind: 'superseded', id: s.oldId, text: `superseded by ${s.newId}`, archived: !g.decisions.has(s.oldId) };
+    order.set(row, (seq.get(s.oldId) ?? 0) + 1.5);
+    rows.push(row);
   }
   const attached = new Set([...g.constraints.values(), ...archive.filter((r): r is KRecord => r.kind === 'K')].filter((k) => k.attachedTo === node).map((k) => k.id));
   for (const z of [...g.retirements, ...archive.filter((r): r is ZRecord => r.kind === 'Z')]) if (attached.has(z.target)) rows.push({ date: z.date, kind: 'retired', id: z.target, text: `${z.who} ${z.reason}${z.succ ? ` -> ${z.succ}` : ''}`, archived: !g.constraints.has(z.target) });
-  return rows.sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
+  return rows.sort((a, b) => a.date.localeCompare(b.date) || (order.get(a) ?? Infinity) - (order.get(b) ?? Infinity));
 }
 
 function findAdr(root: string, num: string): { file: string; text: string } | undefined {

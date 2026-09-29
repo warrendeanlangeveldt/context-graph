@@ -11,6 +11,7 @@
  *   Z <k-id|c-id> <date> <who> [succ:<id>] <reason>
  *   A <alias> <node>
  *   R <{role}> <detection heuristic>
+ *   F <path> <hash> <date> <who> <text> [req:<id>,<id>]
  */
 
 export type ConstraintMode = 'E' | 'G' | 'R' | 'G?';
@@ -55,9 +56,16 @@ export interface SRecord extends Base { kind: 'S'; newId: string; oldId: string 
 export interface ZRecord extends Base { kind: 'Z'; target: string; date: string; who: string; succ?: string; reason: string }
 export interface ARecord extends Base { kind: 'A'; alias: string; node: string }
 export interface RRecord extends Base { kind: 'R'; role: string; heuristic: string }
+/**
+ * A file card: what a file is for, what it relies on, who relies on it, the invariants it keeps.
+ * Decisions hold the why of each change; a card holds the why of the file. `hash` is the file's content
+ * hash when the card was written, so a card is fresh only while the file is unchanged. The latest card
+ * for a path is the one in force. `req` names requirements the file delivers, from a spec tool.
+ */
+export interface FRecord extends Base { kind: 'F'; path: string; hash: string; date: string; who: string; text: string; req?: string[] }
 
 export type GraphRecord =
-  | MRecord | LRecord | CRecord | ERecord | KRecord | DRecord | SRecord | ZRecord | ARecord | RRecord;
+  | MRecord | LRecord | CRecord | ERecord | KRecord | DRecord | SRecord | ZRecord | ARecord | RRecord | FRecord;
 
 export const isLogicalId = (id: string): boolean => id.startsWith('L:');
 export const isConceptId = (id: string): boolean => id.startsWith('C:');

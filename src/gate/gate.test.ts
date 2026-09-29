@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -45,7 +45,7 @@ describe('merge gate', () => {
   });
   afterEach(() => { for (const [k, v] of Object.entries(prev)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; } });
 
-  it('finds opposed arrows, double supersession, stale basis, context moved, unratified concepts, and unlinked provenance', () => {
+  it('finds opposed arrows, double supersession, stale basis, context moved, unratified concepts, and decisions not yet committed', () => {
     // Branch work.
     g(['checkout', '-q', '-b', 'feature/x']);
     writeFileSync(join(repo, 'api/src/core/orch/bb.ts'), 'a2');
@@ -78,8 +78,12 @@ describe('merge gate', () => {
     expect(rules).toContain('warn:stale-basis');
     expect(rules).toContain('warn:context-moved');
     expect(rules).toContain('fail:unratified');
-    expect(rules).toContain('warn:unlinked-provenance');
+    // Every branch decision is committed, so none is reported as missing from the pull request.
+    expect(rules).not.toContain('warn:uncommitted-decisions');
     expect(report.ok).toBe(false);
+    appendFileSync(join(repo, '.ctx/decisions.ctx'), 'D d-7c1e04 2026-08-14 w/c - feature/x api/src/core/x.ts ->K core.reuse recorded but not committed\n');
+    const again = runGate(openRepo({ repo }), { base: 'main' });
+    expect(again.findings.find((f) => f.rule === 'uncommitted-decisions')?.lines).toEqual(['d-7c1e04 api/src/core/x.ts']);
 
     const opposed = report.findings.find((f) => f.rule === 'opposed-arrows')!;
     expect(opposed.title).toContain('orch.envelope');

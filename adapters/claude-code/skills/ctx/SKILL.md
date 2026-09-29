@@ -1,7 +1,7 @@
 ---
 name: ctx
-description: Ask the Context Graph why a file or module is the way it is, what constraints apply to it, its decision history, or the coverage of the current session. Use when the user asks "why is this like this", "what rules apply here", "what was decided about", or wants to record a decision.
-argument-hint: "[hydrate|why|history|applies|coverage|check] [node or scope]"
+description: Ask the Context Graph why a file or module is the way it is, what constraints apply to it, its decision history, or the coverage of the current session; and write a file's card after editing it. Use when the user asks "why is this like this", "what rules apply here", "what was decided about", wants to record a decision, or when an edit was refused or a card is owed.
+argument-hint: "[hydrate|why|history|applies|coverage|check|card] [node or scope]"
 allowed-tools: "mcp__plugin_context-graph_ctx__*, Bash(ctx *)"
 ---
 
@@ -14,5 +14,8 @@ Use the `ctx` MCP tools rather than reading the graph files directly:
 - `coverage` summarises the current session's edits: whether a slice was injected, how many callers were in context, and which applicable files stayed dark.
 - `check` validates the graph and reports findings.
 - `record` writes a decision. It needs `node`, `serves` (the constraint or concept the change honours), and `text` (the why). Add `overrides` only when the change deliberately breaks a guided constraint.
+- `card` writes or updates a file's card: `path` and `text` (what the file is for, what it relies on, who relies on it, what it must keep true), or several at once with `cards`. Write it after editing a file, while the file is in your context. In a worktree, pass absolute paths so the card lands on your branch.
+
+The loop: before editing a file, understand it. A fresh card counts (it is shown when you first read the file); otherwise read the file in full, no offset or limit, along with what it imports, and what imports it when you change its exports. An edit without that is refused with the exact list. After the edit, the card is owed until it matches the file.
 
 Arguments: $ARGUMENTS

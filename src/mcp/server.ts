@@ -3,8 +3,10 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { existsSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
 import { z } from 'zod';
+import { writeCard } from '../cards/cards.js';
 import { openRepo, type RepoContext } from '../core/context.js';
-import { toRepoRelative } from '../util/paths.js';
+import { factsFor } from '../tool-adapters/index.js';
+import { findRepoRoot, isLinkedWorktree, mainCheckout, toRepoRelative } from '../util/paths.js';
 import { resolveSession } from '../observe/session.js';
 import { hydrate } from '../hydrate/hydrate.js';
 import type { Graph } from '../graph/graph.js';
@@ -12,6 +14,7 @@ import type { CoverageRecord } from '../observe/coverage.js';
 import { envelope, type ReachPayload } from '../observe/event.js';
 import { parsePatchText } from '../observe/patch.js';
 import { ObservationStore, SessionState } from '../observe/store.js';
+import { commitOf } from '../record/provenance.js';
 import { RecordError, Recorder } from '../record/recorder.js';
 import { currentBranch, gitPerson } from '../util/git.js';
 import { renderSlice } from '../walker/slice.js';
@@ -34,6 +37,18 @@ export async function startMcpServer(opts: { agent: string; repo?: string; graph
   };
 
   const open = (): RepoContext => openRepo({ ...(opts.repo ? { repo: opts.repo } : {}), ...(opts.graph ? { graph: opts.graph } : {}) });
+  /**
+   * The checkout a path belongs to. This server runs in the main checkout, but an agent isolated in a
+   * worktree edits (and must record into) its own checkout, so the record lands on its branch. An absolute
+   * path inside a linked worktree of this repository opens that worktree.
+   */
+  const openFor = (path: string): RepoContext => {
+    const main = open();
+    if (!isAbsolute(path) || opts.graph) return main;
+    const here = findRepoRoot(resolve(path, '..'));
+    if (here !== main.root && isLinkedWorktree(here) && mainCheckout(here) === mainCheckout(main.root)) return openRepo({ repo: here });
+    return main;
+  };
   const need = (ctx: RepoContext): Graph => {
     if (!ctx.graph) throw new Error(`no graph for ${ctx.root}; add .ctx/graph.ctx or run ctx link`);
     return ctx.graph;
@@ -126,7 +141,7 @@ export async function startMcpServer(opts: { agent: string; repo?: string; graph
       const lines = [id];
       for (const k of w.constraints) lines.push(`  [${k.mode}] ${k.id}  ${k.text}${k.test ? `  test:${k.test}` : ''}`);
       if (!w.decisions.length) lines.push('  (no active decisions)');
-      for (const d of w.decisions) lines.push(`  ${d.id} ${d.date} ${d.who} ${d.sha} ${d.branch}  ->${d.serves}${d.overrides ? ` !${d.overrides}` : ''}  ${d.text}`);
+      for (const d of w.decisions) lines.push(`  ${d.id} ${d.date} ${d.who} ${commitOf(g, ctx.root, d)} ${d.branch}  ->${d.serves}${d.overrides ? ` !${d.overrides}` : ''}  ${d.text}`);
       return text(lines.join('\n'));
     },
   );
@@ -141,7 +156,7 @@ export async function startMcpServer(opts: { agent: string; repo?: string; graph
       reach(ctx, 'history', [id]);
       const all = g.allDecisionsOn(id).slice(-(limit ?? 50));
       if (!all.length) return text(`${id}: no decisions`);
-      return text(all.map((d) => `${d.id} ${d.date} ${d.who} ${d.sha} ${d.branch}  ->${d.serves}${d.overrides ? ` !${d.overrides}` : ''}  ${d.text}${g.superseded.has(d.id) ? '  (superseded)' : ''}`).join('\n'));
+      return text(all.map((d) => `${d.id} ${d.date} ${d.who} ${commitOf(g, ctx.root, d)} ${d.branch}  ->${d.serves}${d.overrides ? ` !${d.overrides}` : ''}  ${d.text}${g.superseded.has(d.id) ? '  (superseded)' : ''}`).join('\n'));
     },
   );
 
@@ -152,7 +167,7 @@ export async function startMcpServer(opts: { agent: string; repo?: string; graph
       inputSchema: { node: z.string(), serves: z.string(), text: z.string(), overrides: z.string().optional() },
     },
     async ({ node, serves, text: why, overrides }) => {
-      const ctx = open();
+      const ctx = openFor(node);
       const g = need(ctx);
       const session = sessionFor(ctx);
       const state = new SessionState(ctx.root, session);
@@ -168,6 +183,38 @@ export async function startMcpServer(opts: { agent: string; repo?: string; graph
         if (e instanceof RecordError) return text(`rejected: ${e.message}${e.applicable.length ? `\napplicable: ${e.applicable.join(', ')}` : ''}`);
         throw e;
       }
+    },
+  );
+
+  server.registerTool(
+    'card',
+    {
+      description: 'Write or update the card of a file you edited, while it is in your context: what the file is for, what it relies on, who relies on it, and what it must keep true. The next agent reads this before editing the file instead of rediscovering it. Pass several with `cards`. Use absolute paths when you work in a worktree.',
+      inputSchema: {
+        path: z.string().optional(),
+        text: z.string().optional(),
+        req: z.array(z.string()).optional(),
+        cards: z.array(z.object({ path: z.string(), text: z.string(), req: z.array(z.string()).optional() })).optional(),
+      },
+    },
+    async ({ path, text: body, req, cards }) => {
+      const items = cards ?? (path && body ? [{ path, text: body, ...(req ? { req } : {}) }] : []);
+      if (!items.length) return text('rejected: give path and text, or cards');
+      const out: string[] = [];
+      for (const item of items) {
+        const ctx = openFor(item.path);
+        const g = need(ctx);
+        const rel = norm(ctx, item.path);
+        const who = `${gitPerson(ctx.root)}/${opts.agent}`;
+        try {
+          const requirements = item.req ?? factsFor(ctx.root, rel).requirements;
+          const c = writeCard(g, ctx.root, { path: rel, text: item.text, who, date: today(), ...(requirements.length ? { req: requirements } : {}) });
+          out.push(`card ${c.path} @ ${c.hash}${c.req?.length ? `  [${c.req.join(', ')}]` : ''}`);
+        } catch (e) {
+          out.push(`rejected ${rel}: ${(e as Error).message}`);
+        }
+      }
+      return text(out.join('\n'));
     },
   );
 
@@ -197,4 +244,9 @@ export async function startMcpServer(opts: { agent: string; repo?: string; graph
   );
 
   await server.connect(new StdioServerTransport());
+}
+
+function today(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
