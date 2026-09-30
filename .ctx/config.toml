@@ -34,4 +34,4 @@ in_process_hooks = false  # hints in hooks come from a running ctx serve; set tr
 packs = ["auto"]
 
 [cards]
-exclude = ["adapters/*/ctx.mjs", "src/generated/**", "view/dist/**"]   # generated; adds to the defaults
+exclude = ["adapters/*/ctx.mjs", "src/generated/**", "view/dist/**", "examples/**", "docs/**"]   # generated, example snapshots, documentation; adds to the defaults

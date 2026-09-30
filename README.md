@@ -200,10 +200,10 @@ exclude = ["src/generated/**"]   # adds to the defaults: lockfiles, docs, config
 The slice is the floor: what applies to one file, in 300 tokens. Hydrate is the briefing an agent never assembles on its own. One call, one scope, one bounded text:
 
 ```sh
-ctx hydrate src/services/booking-service.ts   # a file
-ctx hydrate L:orchestration                                              # a module: its most connected files
-ctx hydrate C:engine-pure                                                # a concept: the modules that implement it
-ctx hydrate "why does the sla monitor write the workspace key directly"  # a task: the files it names, or whose names match
+ctx hydrate src/services/booking-service.ts                            # a file
+ctx hydrate L:services                                                   # a module: its most connected files
+ctx hydrate C:event-log                                                  # a concept: the modules that implement it
+ctx hydrate "why are staff never charged a cancellation fee"              # a task: the files it names, or whose names match
 ctx hydrate <scope> --budget 800 --no-record
 ```
 
@@ -321,7 +321,7 @@ Every delivery step of the specification has an implementation:
 | 16 | Context through imports: the rules and decisions of what a file imports, in its slice; a card doesn't excuse an import that carries context | `src/walker/depends.ts` |
 | 17 | Guidance: `ctx next` (the step to take, from the repository's state), `ctx cards`, and the `next`, `init`, `cards`, `curate` and `status` skills for both harnesses | `src/cli/guide.ts`, `adapters/*/skills/` |
 
-Also: commit provenance resolved from git (`ctx provenance`), and a real graph for this repository under `.ctx/`.
+Also: commit provenance resolved from git (`ctx provenance`), and a worked example under `examples/booking-service/`: a booking service built by an agent under the context loop, with its graph, decisions and cards.
 
 ## The graph grammar, in one screen
 
@@ -341,4 +341,4 @@ F <path> <hash> <date> <who> <text> [req:<id>,<id>]     file card (cards.ctx); f
 
 Rules a constraint can carry: `noimport:<A>:<B>` and `public-entry:<A>`, evaluated against the import graph. Test files are excluded unless the rule ends in `+tests`.
 
-See `.ctx/graph.ctx` for a complete, real example and `packs/` for the style packs.
+See `examples/booking-service/` for a complete example: the code, and the graph, decisions and cards an agent built around it (its README says how to try it). `packs/` holds the style packs.
