@@ -1,0 +1,46 @@
+# Context Graph for the booking service (v2).
+M src/domain/**   L:domain
+M src/ports/**    L:ports
+M src/services/** L:services
+M src/adapters/** L:adapters
+M src/api/**      L:api
+M src/app.ts      L:app
+M tests/**        L:tests
+M docs/**         L:docs
+M **              L:repo
+
+L L:repo     Booking service
+L L:domain   Domain: bookings, customers, slots, pricing, money, events
+L L:ports    Ports the services depend on
+L L:services Use cases
+L L:adapters Adapters behind the ports
+L L:api      HTTP handlers
+L L:app      Composition root
+L L:tests    Tests
+L L:docs     Specs, plan, architecture
+
+E L:domain in L:repo
+E L:ports in L:repo
+E L:services in L:repo
+E L:adapters in L:repo
+E L:api in L:repo
+E L:app in L:repo
+E L:tests in L:repo
+E L:docs in L:repo
+
+C C:ledger Money reconciles against a ledger that rounds half to even
+C C:event-log Billing, reports and notifications read only the event log
+C C:ops-policy Customer policies agreed with Operations, Finance and the fraud team
+C C:client-contract What API clients rely on
+
+E L:domain impl C:ledger
+E L:domain impl C:event-log
+E L:domain impl C:ops-policy
+E L:api impl C:client-contract
+
+K G money.half-even L:domain every percentage of money goes through percentOf, which rounds half to even; never Math.round
+K G events.every-change L:domain every booking state change records a DomainEvent in the EventLog, in the same operation, carrying the amounts downstream needs
+K G status.transition L:domain status changes only through transition(); nothing sets status directly
+K G services.ports L:services services depend on ports, never on adapters; app.ts wires adapters
+K G api.error-shape L:api errors leave as { error: { code, message } } with the DomainError code verbatim
+K G app.composition L:app only app.ts constructs adapters
