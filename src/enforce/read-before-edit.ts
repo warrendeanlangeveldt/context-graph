@@ -5,6 +5,7 @@ import { changedExports } from '../index/exports.js';
 import { callersOf, type ImportIndex } from '../index/imports.js';
 import type { Envelope, Touch } from '../observe/event.js';
 import { readRepoText } from '../util/paths.js';
+import { carriesContext, dependencyContext } from '../walker/depends.js';
 
 /**
  * Read before edit: the loop's gate. Before an agent edits a file, the file must be understood, either
@@ -79,8 +80,13 @@ export function checkEdit(opts: {
   const index = opts.index;
   if (!index) return out;
   const deps: { path: string; why: string }[] = [];
-  if (!hit) {
-    for (const imp of index.imports[path] ?? []) deps.push({ path: imp, why: `imported by ${path}` });
+  // On a miss, everything it imports. On a hit, the card stands in for the file, but not for an import that
+  // carries context the card cannot vouch for: that import's own decisions, or rules this file does not see.
+  const imports = index.imports[path] ?? [];
+  const carried = hit ? dependencyContext(graph, path, imports) : undefined;
+  for (const imp of imports) {
+    if (!hit) deps.push({ path: imp, why: `imported by ${path}` });
+    else if (carried && carriesContext(carried, imp)) deps.push({ path: imp, why: `imported by ${path}, and it carries decisions or rules this file's card does not` });
   }
   const changed = opts.after !== undefined ? changedExports(before, opts.after) : [];
   if (changed.length) {
