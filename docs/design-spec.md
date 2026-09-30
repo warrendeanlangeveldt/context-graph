@@ -292,6 +292,16 @@ Budget: `slice.max_tokens` (default 300). When the budget is exceeded, drop hint
 
 When the harness supplies a line range with the edit (most do), the walker looks up the enclosing exported symbol via a language-aware parser and includes constraints and decisions attached to `path#symbol`. Symbol-level nodes are a refinement; file level must work on its own.
 
+### 7.4 Context through imports
+
+The walk follows containment: a file sees the rules of its own module and of the modules above it. But a rule is often obeyed somewhere other than where it is written: the rule about what an event must carry sits on the module that defines events, and it is kept or broken in the service that records them. So before an edit, each file the edited file imports contributes, under `from what it imports` in the slice:
+- its own decisions, the newest two;
+- the ratified rules of its module that the edited file does not already see.
+
+This is one hop, rules before decisions, and six lines at most. The same set decides the read-before-edit exception (§9.5). A fresh card stands in for its file, but not for an import that carries context: such an import must be read in full, or have a fresh card of its own.
+
+The first benchmark (`ctx-bench-lab`, 2026-09-30) showed why. Every arm, including this one, missed a rule that lives on the event module and applies in the service. The service's slice showed only service rules, and its fresh card, which left the rule out, excused reading `events.ts`, where the rule's decision was recorded.
+
 ## 8. Observation stream
 
 Every touch an agent makes is normalised to one event:
@@ -397,7 +407,7 @@ A decision holds the why of a change. A **card** holds the why of a file: what i
 
 The loop, for every edit:
 
-1. **Before.** The file must be understood by the editing agent: its card is fresh (and shown with the slice), or the agent read it in full this session. On a miss, so must each file it imports (a fresh card counts). When the edit removes or alters an export declaration, so must its importers, those without fresh cards first, at most `max_importers`. Otherwise the edit is refused (PreToolUse deny) with each file to read and why. A new file has nothing to read.
+1. **Before.** The file must be understood by the editing agent: its card is fresh (and shown with the slice), or the agent read it in full this session. On a miss, so must each file it imports (a fresh card counts). On a hit, so must each import that carries context the card cannot vouch for (§7.4). When the edit removes or alters an export declaration, so must its importers, those without fresh cards first, at most `max_importers`. Otherwise the edit is refused (PreToolUse deny) with each file to read and why. A new file has nothing to read.
 2. **After.** The file owes its card until a card matches its new content: asked on the next tool call, and held at turn end like a decision. An unwritten card is never invented to end a turn; it becomes a finding, and the next agent to edit the file reads it in full because no fresh card exists.
 3. **On read.** The first time an agent reads a file, it is shown the card and what tool adapters know of the file, before its decision history; or told there is no card and that it must read the file in full before editing it.
 

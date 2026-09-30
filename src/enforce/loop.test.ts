@@ -238,6 +238,34 @@ describe('the context loop', () => {
     expect(g.cards.get('api/src/core/helper.ts')?.hash).toBe(contentHash(readFileSync(join(repo, 'api/src/core/helper.ts'), 'utf8')));
   });
 
+  it('brings the rules and decisions of what a file imports into its slice', async () => {
+    // caller.ts (L:core) imports bb.ts (L:orch): the orch rule and bb.ts's decision are not in caller's own chain.
+    writeFileSync(join(repo, '.ctx/decisions.ctx'), 'D d-0001 2026-09-08 w/claude - main api/src/core/orch/bb.ts ->K orch.events applyEvent takes the event, never the workspace\n');
+    card('api/src/core/caller.ts', 'wires the blackboard into the engine');
+    const caller = join(repo, 'api/src/core/caller.ts');
+    await read(caller);
+    await read(bb());
+    const out = pre(await edit(caller, 'new Blackboard();', 'new Blackboard(); // x'));
+    const ctx = out.hookSpecificOutput.additionalContext!;
+    expect(ctx).toContain('from what it imports');
+    expect(ctx).toContain('via    api/src/core/orch/bb.ts: must state via events only  [G orch.events]');
+    expect(ctx).toContain('via    api/src/core/orch/bb.ts: decided applyEvent takes the event, never the workspace  (d-0001)');
+  });
+
+  it("does not let a file's fresh card excuse an import that carries decisions or rules", async () => {
+    writeFileSync(join(repo, '.ctx/decisions.ctx'), 'D d-0001 2026-09-08 w/claude - main api/src/core/orch/bb.ts ->K orch.events applyEvent takes the event, never the workspace\n');
+    card('api/src/core/caller.ts', 'wires the blackboard into the engine');
+    const caller = join(repo, 'api/src/core/caller.ts');
+    const refused = pre(await edit(caller, 'new Blackboard();', 'new Blackboard(); // x'));
+    expect(refused.hookSpecificOutput.permissionDecision).toBe('deny');
+    expect(refused.hookSpecificOutput.permissionDecisionReason).toContain('api/src/core/orch/bb.ts: imported by api/src/core/caller.ts, and it carries decisions or rules');
+    await read(bb());
+    expect(pre(await edit(caller, 'new Blackboard();', 'new Blackboard(); // x')).hookSpecificOutput.permissionDecision).toBeUndefined();
+    // An import that carries nothing is still excused by the card.
+    card('api/src/core/orch/bb.ts', 'applies events to the blackboard');
+    expect(pre(await edit(bb(), 'helper(e);', 'helper(e); // x', { session_id: 's3' })).hookSpecificOutput.permissionDecision).toBeUndefined();
+  });
+
   it('refuses in the Codex response shape too', async () => {
     const patch = '*** Begin Patch\n*** Update File: api/src/core/orch/bb.ts\n@@\n-    helper(e);\n+    helper(e); // x\n*** End Patch\n';
     const out = await runCodexHook({ session_id: 'c1', cwd: repo, hook_event_name: 'PreToolUse', tool_name: 'apply_patch', tool_input: { command: patch } });

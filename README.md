@@ -125,12 +125,15 @@ For every edit of a file:
 1. is the file understood by this agent?
      its card is fresh (the file is unchanged since the card)        → yes; the card is shown with the slice
      otherwise: read in full this session, and what it imports too   → yes (an import with a fresh card counts)
+     even with a fresh card: an import carrying decisions or rules   → read, or its own fresh card
      and if the edit changes what the file exports: its importers     → read, or their fresh cards (at most max_importers)
    no → the edit is refused, naming each file to read and why
 2. the edit
 3. the card is owed: what the file is for, what it relies on, who relies on it, what it must keep true
    asked for on the next tool call; the turn (or a subagent's hand-back) does not end until it matches the file
 ```
+
+The slice before an edit also carries what reaches the file **through its imports**. For each imported file, it shows that file's own decisions and the rules of its module that the edited file doesn't already see. A rule is often obeyed away from where it's written: an event's shape is defined in one module and recorded in another.
 
 A **card** is an `F` record in `.ctx/cards.ctx`, written with the `card` MCP tool or `ctx card <path> --text "..."`. It carries the file's content hash, so it is fresh only while the file is unchanged; the latest card for a path is the one in force. The first time an agent reads a file, it is shown the card (or told there is none and that it must read the file in full before editing). `hydrate` and `why` show it too.
 

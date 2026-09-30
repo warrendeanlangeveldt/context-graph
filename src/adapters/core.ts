@@ -5,6 +5,7 @@ import { callersOf, loadOrBuildImportIndex } from '../index/imports.js';
 import { enclosingSymbol, lineRangeOf } from '../index/symbols.js';
 import { cardState, exemptFromCards, renderFileCard } from '../cards/cards.js';
 import { checkEdit, describeMissing, type Requirement } from '../enforce/read-before-edit.js';
+import { dependencyContext, renderDependencyContext } from '../walker/depends.js';
 import { computeCoverage } from '../observe/coverage.js';
 import { envelope, isEditMode, type AccessMode, type CardPayload, type CompactPayload, type HistoryPayload, type SessionPayload, type SlicePayload, type Touch } from '../observe/event.js';
 import { parseShell } from '../observe/shell.js';
@@ -291,11 +292,16 @@ export async function runHook(input: HookInput, profile: HarnessProfile): Promis
       }
     }
 
+    const codeTargets = targets.filter((t) => /\.(ts|tsx|js|jsx|mts|cts|mjs|cjs)$/.test(t.path));
+    const depIndex = codeTargets.length ? loadOrBuildImportIndex(root) : undefined;
     for (const t of targets) {
       const s = await sliceFor(t.path, t.range, intent);
       const card = renderFileCard(t.path, cardState(g, root, t.path), factsFor(root, t.path).lines);
       if (card) slices.push(card.text);
-      if (s) { slices.push(s.text); recorder.notePending(s.walk, input.tool_use_id, { provisional: true }); if (s.walk.chain[0]) announced.add(s.walk.chain[0]); }
+      // What reaches this file through its imports: the rules and decisions it has to keep but cannot see
+      // from its own module.
+      const deps = depIndex ? renderDependencyContext(g, dependencyContext(g, t.path, depIndex.imports[t.path] ?? [])) : undefined;
+      if (s) { slices.push(deps ? `${s.text}\n${deps}` : s.text); recorder.notePending(s.walk, input.tool_use_id, { provisional: true }); if (s.walk.chain[0]) announced.add(s.walk.chain[0]); }
     }
     // The decision history: the first time this session reads a file that carries decisions, say what was
     // decided there and why, before its text is in context. A wrong model is built by reading, not writing,

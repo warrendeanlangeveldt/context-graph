@@ -3597,6 +3597,95 @@ var init_cards = __esm({
   }
 });
 
+// src/walker/walk.ts
+function walk(graph, pathIn, opts = {}) {
+  const resolved = graph.resolve(pathIn);
+  const { path, symbol: inlineSymbol } = splitSymbol(resolved);
+  const symbol = opts.symbol ?? inlineSymbol;
+  const mapping = graph.mapPath(path);
+  const chain = [];
+  if (mapping) {
+    const queue = [mapping.logical];
+    const seen = /* @__PURE__ */ new Set();
+    while (queue.length) {
+      const n = queue.shift();
+      if (seen.has(n)) continue;
+      seen.add(n);
+      chain.push(n);
+      queue.push(...graph.parentsOf(n));
+    }
+  }
+  const concepts = [];
+  for (const n of chain) for (const c of graph.conceptsOf(n)) if (!concepts.includes(c)) concepts.push(c);
+  const nodes = [];
+  if (symbol) nodes.push(`${path}#${symbol}`);
+  nodes.push(path, ...chain, ...concepts);
+  const constraints = [];
+  for (const n of nodes) constraints.push(...graph.constraintsOn(n));
+  const decisions = graph.decisionsOn(nodes).slice(0, opts.maxDecisions ?? 4);
+  const applicable = [...nodes, ...constraints.map((k) => k.id), ...decisions.map((d) => d.id)];
+  const result = { path, chain, concepts, constraints, decisions, nodes, applicable, mapped: Boolean(mapping) };
+  if (symbol) result.symbol = symbol;
+  return result;
+}
+function demandsDecision(w, graph) {
+  if (isTestPath(w.path) && !w.constraints.some((k) => k.test && k.mode !== "G?" && k.test === w.path.split("#")[0])) return false;
+  const catchAll = graph && graph.logicals.size > 1 ? graph.mappings.find((m) => m.glob === "**")?.logical : void 0;
+  const root = catchAll ?? (w.chain.length > 1 ? w.chain[w.chain.length - 1] : void 0);
+  return w.constraints.some((k) => isActiveMode(k) || k.mode === "G?" && k.attachedTo !== root);
+}
+function isTestPath(p) {
+  return /\.(test|spec)\.[cm]?[jt]sx?$|(^|\/)(__tests__|tests?)\//.test(p.split("#")[0]);
+}
+var init_walk = __esm({
+  "src/walker/walk.ts"() {
+    "use strict";
+    init_records();
+  }
+});
+
+// src/walker/depends.ts
+function dependencyContext(graph, path, imports, opts = {}) {
+  const own = walk(graph, path);
+  const seen = new Set(own.constraints.map((k) => k.id));
+  const byImport = [];
+  for (const imp of imports) {
+    if (imp === path) continue;
+    const w = walk(graph, imp);
+    const local = new Set([imp, w.chain[0]].filter(Boolean));
+    const rules = w.constraints.filter((k) => local.has(k.attachedTo) && isActiveMode(k) && !seen.has(k.id));
+    for (const k of rules) seen.add(k.id);
+    const decisions = graph.decisionsOn([imp]).filter((d) => !d.node.includes("#") || d.node.startsWith(`${imp}#`)).slice(0, opts.maxDecisionsPerImport ?? 2);
+    if (rules.length || decisions.length) byImport.push({ path: imp, rules, decisions });
+  }
+  return { byImport };
+}
+function carriesContext(ctx, imp) {
+  return ctx.byImport.some((b) => b.path === imp);
+}
+function renderDependencyContext(graph, ctx, opts = {}) {
+  if (!ctx.byImport.length) return void 0;
+  const max = opts.maxLines ?? 6;
+  const rules = [];
+  const decisions = [];
+  for (const b of ctx.byImport) {
+    const name = graph.aliasFor(b.path) ?? b.path;
+    for (const k of b.rules) rules.push(`  via    ${name}: must ${k.text}  [${k.mode} ${k.id}]`);
+    for (const d of b.decisions) decisions.push(`  via    ${name}: decided ${d.text}  (${d.id})`);
+  }
+  const lines = [...rules, ...decisions];
+  const shown = lines.slice(0, max);
+  if (lines.length > shown.length) shown.push(`  via    and ${lines.length - shown.length} more from what it imports: ctx hydrate <file>`);
+  return ["from what it imports", ...shown].join("\n");
+}
+var init_depends = __esm({
+  "src/walker/depends.ts"() {
+    "use strict";
+    init_records();
+    init_walk();
+  }
+});
+
 // src/enforce/read-before-edit.ts
 function heldInFull(events, agent) {
   let lastCompact = -1;
@@ -3631,8 +3720,11 @@ function checkEdit(opts) {
   const index = opts.index;
   if (!index) return out;
   const deps = [];
-  if (!hit) {
-    for (const imp of index.imports[path] ?? []) deps.push({ path: imp, why: `imported by ${path}` });
+  const imports = index.imports[path] ?? [];
+  const carried = hit ? dependencyContext(graph, path, imports) : void 0;
+  for (const imp of imports) {
+    if (!hit) deps.push({ path: imp, why: `imported by ${path}` });
+    else if (carried && carriesContext(carried, imp)) deps.push({ path: imp, why: `imported by ${path}, and it carries decisions or rules this file's card does not` });
   }
   const changed = opts.after !== void 0 ? changedExports(before, opts.after) : [];
   if (changed.length) {
@@ -3676,6 +3768,7 @@ var init_read_before_edit = __esm({
     init_exports();
     init_imports();
     init_paths();
+    init_depends();
   }
 });
 
@@ -3884,53 +3977,6 @@ var init_store = __esm({
         writeFileSync2(this.file, JSON.stringify(this.data, null, 2), "utf8");
       }
     };
-  }
-});
-
-// src/walker/walk.ts
-function walk(graph, pathIn, opts = {}) {
-  const resolved = graph.resolve(pathIn);
-  const { path, symbol: inlineSymbol } = splitSymbol(resolved);
-  const symbol = opts.symbol ?? inlineSymbol;
-  const mapping = graph.mapPath(path);
-  const chain = [];
-  if (mapping) {
-    const queue = [mapping.logical];
-    const seen = /* @__PURE__ */ new Set();
-    while (queue.length) {
-      const n = queue.shift();
-      if (seen.has(n)) continue;
-      seen.add(n);
-      chain.push(n);
-      queue.push(...graph.parentsOf(n));
-    }
-  }
-  const concepts = [];
-  for (const n of chain) for (const c of graph.conceptsOf(n)) if (!concepts.includes(c)) concepts.push(c);
-  const nodes = [];
-  if (symbol) nodes.push(`${path}#${symbol}`);
-  nodes.push(path, ...chain, ...concepts);
-  const constraints = [];
-  for (const n of nodes) constraints.push(...graph.constraintsOn(n));
-  const decisions = graph.decisionsOn(nodes).slice(0, opts.maxDecisions ?? 4);
-  const applicable = [...nodes, ...constraints.map((k) => k.id), ...decisions.map((d) => d.id)];
-  const result = { path, chain, concepts, constraints, decisions, nodes, applicable, mapped: Boolean(mapping) };
-  if (symbol) result.symbol = symbol;
-  return result;
-}
-function demandsDecision(w, graph) {
-  if (isTestPath(w.path) && !w.constraints.some((k) => k.test && k.mode !== "G?" && k.test === w.path.split("#")[0])) return false;
-  const catchAll = graph && graph.logicals.size > 1 ? graph.mappings.find((m) => m.glob === "**")?.logical : void 0;
-  const root = catchAll ?? (w.chain.length > 1 ? w.chain[w.chain.length - 1] : void 0);
-  return w.constraints.some((k) => isActiveMode(k) || k.mode === "G?" && k.attachedTo !== root);
-}
-function isTestPath(p) {
-  return /\.(test|spec)\.[cm]?[jt]sx?$|(^|\/)(__tests__|tests?)\//.test(p.split("#")[0]);
-}
-var init_walk = __esm({
-  "src/walker/walk.ts"() {
-    "use strict";
-    init_records();
   }
 });
 
@@ -5668,12 +5714,16 @@ ${sessionContext(ctx, injecting, false)}` : void 0;
         }
       }
     }
+    const codeTargets = targets.filter((t) => /\.(ts|tsx|js|jsx|mts|cts|mjs|cjs)$/.test(t.path));
+    const depIndex = codeTargets.length ? loadOrBuildImportIndex(root) : void 0;
     for (const t of targets) {
       const s = await sliceFor(t.path, t.range, intent);
       const card = renderFileCard(t.path, cardState(g, root, t.path), factsFor(root, t.path).lines);
       if (card) slices.push(card.text);
+      const deps = depIndex ? renderDependencyContext(g, dependencyContext(g, t.path, depIndex.imports[t.path] ?? [])) : void 0;
       if (s) {
-        slices.push(s.text);
+        slices.push(deps ? `${s.text}
+${deps}` : s.text);
         recorder.notePending(s.walk, input.tool_use_id, { provisional: true });
         if (s.walk.chain[0]) announced.add(s.walk.chain[0]);
       }
@@ -5923,6 +5973,7 @@ var init_core = __esm({
     init_symbols();
     init_cards();
     init_read_before_edit();
+    init_depends();
     init_coverage();
     init_event();
     init_shell();
