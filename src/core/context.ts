@@ -59,7 +59,7 @@ export interface Config {
   packs: string[];
   packBindings: Record<string, string>;
   enforce: EnforceConfig;
-  /** Globs that owe no card and need no read before an edit. */
+  /** Globs that owe no card and need no read before an edit. A config's `[cards] exclude` adds to the defaults. */
   cardsExclude: string[];
 }
 
@@ -96,6 +96,8 @@ export function defaultConfig(): Config {
       '.ctx/**', '.claude/**', '.git/**', '.github/**', '**/node_modules/**', '**/dist/**', '**/build/**', '**/generated/**',
       '**/*.lock', '**/package-lock.json', '**/pnpm-lock.yaml', '**/yarn.lock', '**/*.min.js', '**/*.map',
       '**/*.md', '**/*.{png,jpg,jpeg,gif,svg,ico,webp,pdf,woff,woff2,ttf}',
+      // Configuration and manifests: settings, not code whose why gets lost.
+      '**/.*', '**/*.json', '**/*.{yml,yaml,toml,ini,cfg}', '**/*.snap', '**/LICENSE*',
     ],
   };
 }
@@ -188,7 +190,8 @@ export function loadConfig(graphDir: string | undefined): Config {
     cfg.enforce.dependencies = mode(tomlGet<TomlValue>(t, 'enforce', 'dependencies', cfg.enforce.dependencies), cfg.enforce.dependencies);
     cfg.enforce.cards = mode(tomlGet<TomlValue>(t, 'enforce', 'cards', cfg.enforce.cards), cfg.enforce.cards);
     cfg.enforce.maxImporters = tomlGet(t, 'enforce', 'max_importers', cfg.enforce.maxImporters);
-    cfg.cardsExclude = tomlGet(t, 'cards', 'exclude', cfg.cardsExclude);
+    // A project's exclusions add to the defaults: listing one generated folder should not drop the rest.
+    for (const g of tomlGet<string[]>(t, 'cards', 'exclude', [])) if (!cfg.cardsExclude.includes(g)) cfg.cardsExclude.push(g);
     const bindings = t['init.packs'];
     if (bindings) for (const [k, v] of Object.entries(bindings)) if (typeof v === 'string') cfg.packBindings[k] = v;
   };

@@ -32,6 +32,10 @@ import { formatDoctor, runDoctor } from './doctor.js';
 
 const USAGE = `ctx — Context Graph
 
+Start here
+  ctx next [--json]                                the one thing to do now, and the skill that does it
+  ctx cards [--changed] [--missing|--stale]        which files have a card matching them
+
 Graph
   ctx slice <path> [--symbol name]                 slice injected before an edit
   ctx hydrate <scope> [--budget n] [--no-record]  one briefing: slices, callers with usage lines, rules with history, session state

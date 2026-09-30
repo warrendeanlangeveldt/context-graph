@@ -76,12 +76,12 @@ function scriptTouches(body, lang, opts = {}) {
   }
   const assign = lang === "python" ? /(?:^|[;\n])\s*([A-Za-z_]\w*)\s*=\s*(?:Path\(\s*)?(['"])([^'"\n]+)\2/g : /(?:^|[;\n])\s*(?:const|let|var)?\s*([A-Za-z_$][\w$]*)\s*=\s*(['"`])([^'"`\n]+)\2/g;
   for (const m of body.matchAll(assign)) if (isPathLike(m[3])) vars.set(m[1], m[3]);
-  const resolve14 = (arg) => {
+  const resolve15 = (arg) => {
     const t = arg.trim();
     const lit = /^(['"`])(.*)\1$/.exec(t);
     if (lit) return isPathLike(lit[2]) ? lit[2] : void 0;
     const inner = /^Path\(\s*(.+?)\s*\)$/.exec(t);
-    if (inner) return resolve14(inner[1]);
+    if (inner) return resolve15(inner[1]);
     return vars.get(t);
   };
   const ARG = String.raw`(Path\(\s*(?:['"\`][^'"\`\n]+['"\`]|[A-Za-z_$][\w$.]*)\s*\)|['"\`][^'"\`\n]+['"\`]|[A-Za-z_$][\w$.]*)`;
@@ -107,7 +107,7 @@ function scriptTouches(body, lang, opts = {}) {
   const deletes = /* @__PURE__ */ new Set();
   for (const { re, mode: mode2 } of patterns) {
     for (const m of body.matchAll(re)) {
-      const p = resolve14(m[1]);
+      const p = resolve15(m[1]);
       if (!p) continue;
       (mode2 === "read" ? reads : mode2 === "write" ? writes : deletes).add(p);
     }
@@ -2997,8 +2997,8 @@ var init_graph = __esm({
       }
       provenanceCache;
       /** Commits of decisions whose line still carries `-`, resolved once per load by the given resolver. */
-      provenance(resolve14) {
-        return this.provenanceCache ??= resolve14();
+      provenance(resolve15) {
+        return this.provenanceCache ??= resolve15();
       }
       /** Add a decision to the active set, as the newest. */
       addDecision(d) {
@@ -3184,7 +3184,13 @@ function defaultConfig() {
       "**/*.min.js",
       "**/*.map",
       "**/*.md",
-      "**/*.{png,jpg,jpeg,gif,svg,ico,webp,pdf,woff,woff2,ttf}"
+      "**/*.{png,jpg,jpeg,gif,svg,ico,webp,pdf,woff,woff2,ttf}",
+      // Configuration and manifests: settings, not code whose why gets lost.
+      "**/.*",
+      "**/*.json",
+      "**/*.{yml,yaml,toml,ini,cfg}",
+      "**/*.snap",
+      "**/LICENSE*"
     ]
   };
 }
@@ -3265,7 +3271,7 @@ function loadConfig(graphDir) {
     cfg.enforce.dependencies = mode(tomlGet(t, "enforce", "dependencies", cfg.enforce.dependencies), cfg.enforce.dependencies);
     cfg.enforce.cards = mode(tomlGet(t, "enforce", "cards", cfg.enforce.cards), cfg.enforce.cards);
     cfg.enforce.maxImporters = tomlGet(t, "enforce", "max_importers", cfg.enforce.maxImporters);
-    cfg.cardsExclude = tomlGet(t, "cards", "exclude", cfg.cardsExclude);
+    for (const g of tomlGet(t, "cards", "exclude", [])) if (!cfg.cardsExclude.includes(g)) cfg.cardsExclude.push(g);
     const bindings = t["init.packs"];
     if (bindings) {
       for (const [k, v] of Object.entries(bindings)) if (typeof v === "string") cfg.packBindings[k] = v;
@@ -5080,11 +5086,11 @@ function snippet(text) {
   return one.length > 90 ? one.slice(0, 87) + "..." : one;
 }
 function withTimeout(p, ms) {
-  return new Promise((resolve14, reject) => {
+  return new Promise((resolve15, reject) => {
     const t = setTimeout(() => reject(new Error("timeout")), ms);
     p.then((v) => {
       clearTimeout(t);
-      resolve14(v);
+      resolve15(v);
     }, (e) => {
       clearTimeout(t);
       reject(e);
@@ -6406,7 +6412,7 @@ var init_instructions = __esm({
 
 Before working in a module you have not read this session, call the \`hydrate\` MCP tool with the file or module id (shell: \`ctx hydrate <scope>\`). It returns each file's card (why the file exists), the rules in force with their history, the callers with the lines that use the file, and what this session already holds. Before editing a file through the shell, run \`ctx slice <path>\` first.
 
-Before you edit a file, understand it: through its fresh card, or by reading it in full along with what it imports (and, when you change its exports, what imports it). An edit without that is refused with the list of what to read. After the edit, write or update the file's card with the \`card\` tool (shell: \`ctx card <path> --text "..."\`): what it is for, what it relies on, who relies on it, what it must keep true. When a turn ends owing a decision, record it with the \`record\` tool: what you did and why, pointing at the rule or concept it serves.
+Before you edit a file, understand it: through its fresh card, or by reading it in full along with what it imports (and, when you change its exports, what imports it). An edit without that is refused with the list of what to read. After the edit, write or update the file's card with the \`card\` tool (shell: \`ctx card <path> --text "..."\`): what it is for, what it relies on, who relies on it, what it must keep true. When a turn ends owing a decision, record it with the \`record\` tool: what you did and why, pointing at the rule or concept it serves. When unsure what Context Graph needs next, run \`ctx next\`.
 `;
     CANDIDATES = ["AGENTS.md", "CLAUDE.md"];
   }
@@ -19187,7 +19193,7 @@ var init_protocol = __esm({
               return;
             }
             const pollInterval = task2.pollInterval ?? this._options?.defaultTaskPollInterval ?? 1e3;
-            await new Promise((resolve14) => setTimeout(resolve14, pollInterval));
+            await new Promise((resolve15) => setTimeout(resolve15, pollInterval));
             options?.signal?.throwIfAborted();
           }
         } catch (error2) {
@@ -19204,7 +19210,7 @@ var init_protocol = __esm({
        */
       request(request2, resultSchema, options) {
         const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
-        return new Promise((resolve14, reject) => {
+        return new Promise((resolve15, reject) => {
           const earlyReject = (error2) => {
             reject(error2);
           };
@@ -19282,7 +19288,7 @@ var init_protocol = __esm({
               if (!parseResult.success) {
                 reject(parseResult.error);
               } else {
-                resolve14(parseResult.data);
+                resolve15(parseResult.data);
               }
             } catch (error2) {
               reject(error2);
@@ -19543,12 +19549,12 @@ var init_protocol = __esm({
           }
         } catch {
         }
-        return new Promise((resolve14, reject) => {
+        return new Promise((resolve15, reject) => {
           if (signal.aborted) {
             reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
             return;
           }
-          const timeoutId = setTimeout(resolve14, interval);
+          const timeoutId = setTimeout(resolve15, interval);
           signal.addEventListener("abort", () => {
             clearTimeout(timeoutId);
             reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
@@ -22575,7 +22581,7 @@ var require_compile = __commonJS({
       const schOrFunc = root.refs[ref];
       if (schOrFunc)
         return schOrFunc;
-      let _sch = resolve14.call(this, root, ref);
+      let _sch = resolve15.call(this, root, ref);
       if (_sch === void 0) {
         const schema = (_a = root.localRefs) === null || _a === void 0 ? void 0 : _a[ref];
         const { schemaId } = this.opts;
@@ -22602,7 +22608,7 @@ var require_compile = __commonJS({
     function sameSchemaEnv(s1, s2) {
       return s1.schema === s2.schema && s1.root === s2.root && s1.baseId === s2.baseId;
     }
-    function resolve14(root, ref) {
+    function resolve15(root, ref) {
       let sch;
       while (typeof (sch = this.refs[ref]) == "string")
         ref = sch;
@@ -23432,7 +23438,7 @@ var require_fast_uri = __commonJS({
       }
       return uri;
     }
-    function resolve14(baseURI, relativeURI, options) {
+    function resolve15(baseURI, relativeURI, options) {
       const schemelessOptions = options ? Object.assign({ scheme: "null" }, options) : { scheme: "null" };
       const {
         parsed: baseParsed,
@@ -23800,7 +23806,7 @@ var require_fast_uri = __commonJS({
     var fastUri = {
       SCHEMES,
       normalize,
-      resolve: resolve14,
+      resolve: resolve15,
       resolveComponent,
       equal,
       serialize,
@@ -27918,7 +27924,7 @@ var init_mcp = __esm({
         let task = createTaskResult.task;
         const pollInterval = task.pollInterval ?? 5e3;
         while (task.status !== "completed" && task.status !== "failed" && task.status !== "cancelled") {
-          await new Promise((resolve14) => setTimeout(resolve14, pollInterval));
+          await new Promise((resolve15) => setTimeout(resolve15, pollInterval));
           const updatedTask = await extra.taskStore.getTask(taskId);
           if (!updatedTask) {
             throw new McpError(ErrorCode.InternalError, `Task ${taskId} not found during polling`);
@@ -28527,12 +28533,12 @@ var init_stdio2 = __esm({
         this.onclose?.();
       }
       send(message) {
-        return new Promise((resolve14) => {
+        return new Promise((resolve15) => {
           const json = serializeMessage(message);
           if (this._stdout.write(json)) {
-            resolve14();
+            resolve15();
           } else {
-            this._stdout.once("drain", resolve14);
+            this._stdout.once("drain", resolve15);
           }
         });
       }
@@ -29890,7 +29896,7 @@ function runGate(ctx, opts) {
   const atBase = loadAt(root, graphRel, mergeBase);
   const atMain = loadAt(root, graphRel, opts.base);
   const atHead = opts.head ? loadAt(root, graphRel, opts.head) : Graph.load(ctx.graphDir);
-  const changedFiles = (git(root, ["diff", "--name-only", `${mergeBase}`, ...opts.head ? [opts.head] : []]) ?? "").split("\n").filter(Boolean);
+  const changedFiles2 = (git(root, ["diff", "--name-only", `${mergeBase}`, ...opts.head ? [opts.head] : []]) ?? "").split("\n").filter(Boolean);
   const commitMessages = git(root, ["log", "--format=%B%n--end--", `${mergeBase}..${head}`]) ?? "";
   const findings = [];
   for (const f of atHead.validate(root)) {
@@ -29939,7 +29945,7 @@ function runGate(ctx, opts) {
       suggest: "re-affirm the decision against the current basis, re-point it, or withdraw it"
     });
   }
-  for (const f of changedFiles) {
+  for (const f of changedFiles2) {
     if (f.startsWith(graphRel + "/")) continue;
     const before = new Set(walk(atBase, f, { maxDecisions: 0 }).constraints.map((k) => k.id));
     const now = new Set(walk(atMain, f, { maxDecisions: 0 }).constraints.map((k) => k.id));
@@ -30001,11 +30007,11 @@ function runGate(ctx, opts) {
   }
   for (const f of atHead.validate(root)) if (f.rule === "orphaned-basis") findings.push({ level: "warn", rule: "orphaned-basis", title: f.message, lines: [] });
   const decided = new Set(branchDecisions.map((d) => d.node.split("#")[0]));
-  const dark = darkEdits(root, changedFiles.filter((f) => !decided.has(f)));
+  const dark = darkEdits(root, changedFiles2.filter((f) => !decided.has(f)));
   for (const [path, c] of dark) findings.push({ level: "warn", rule: "coverage", title: path, lines: [`edited with ${c.callers_loaded}/${c.callers_total} callers in context and no decision recorded`] });
   if (ctx.config.gate.cards !== "off") {
     const stale = [];
-    for (const f of changedFiles) {
+    for (const f of changedFiles2) {
       if (exemptFromCards(f, ctx.config.cardsExclude)) continue;
       const text = opts.head ? git(root, ["show", `${opts.head}:${f}`]) : readFileIfFile(join21(root, f));
       if (text === void 0) continue;
@@ -30015,7 +30021,7 @@ function runGate(ctx, opts) {
     if (stale.length) findings.push({ level: ctx.config.gate.cards, rule: "cards", title: `${stale.length} changed file(s) without a current card`, lines: stale, suggest: 'ctx card <path> --text "<what it is for, what it relies on, who relies on it, what it must keep true>"' });
   }
   const ok = !findings.some((f) => f.level === "fail");
-  return { base: opts.base, head, mergeBase, changedFiles, findings, ok };
+  return { base: opts.base, head, mergeBase, changedFiles: changedFiles2, findings, ok };
 }
 function graphRelativeDir(ctx) {
   if (!ctx.graphDir) throw new Error("no graph: the gate needs .ctx/ tracked in the repository");
@@ -34938,17 +34944,17 @@ async function runBench(ctx, tasks, opts) {
   mkdirSync8(wtRoot, { recursive: true });
   for (const task of selected) {
     for (const arm of opts.arms) {
-      for (let run6 = 1; run6 <= opts.runs; run6++) {
-        const label = `${task.id} ${arm} #${run6}`;
-        const wt = join24(wtRoot, `${task.id}-${arm}-${run6}`);
+      for (let run7 = 1; run7 <= opts.runs; run7++) {
+        const label = `${task.id} ${arm} #${run7}`;
+        const wt = join24(wtRoot, `${task.id}-${arm}-${run7}`);
         rmWorktree(root, wt);
         log(`${label}: worktree at ${task.base}`);
         execFileSync4("git", ["worktree", "add", "--detach", "-f", wt, task.base], { cwd: root, stdio: "ignore" });
         const started = Date.now();
-        const rec = { task: task.id, stratum: task.stratum, arm, harness: opts.harness, run: run6, startedAt: new Date(started).toISOString(), durationMs: 0, passed: null, checkExit: null, tokensIn: null, tokensOut: null, turns: null, toolCalls: 0, reads: 0, edits: 0, rework: 0, testFailures: 0, slicesInjected: 0, callersLoaded: 0, callersTotal: 0, darkTotal: 0, reach: 0, decisions: [], session: null, harnessError: null };
+        const rec = { task: task.id, stratum: task.stratum, arm, harness: opts.harness, run: run7, startedAt: new Date(started).toISOString(), durationMs: 0, passed: null, checkExit: null, tokensIn: null, tokensOut: null, turns: null, toolCalls: 0, reads: 0, edits: 0, rework: 0, testFailures: 0, slicesInjected: 0, callersLoaded: 0, callersTotal: 0, darkTotal: 0, reach: 0, decisions: [], session: null, harnessError: null };
         try {
           const env = prepareArm(ctx, task, arm, wt, opts.harness);
-          const session = `bench-${task.id}-${arm}-${run6}-${stamp}`;
+          const session = `bench-${task.id}-${arm}-${run7}-${stamp}`;
           env.CTX_SESSION = session;
           const h = runHarness(opts, task, wt, env, session, log);
           rec.session = h.session;
@@ -34959,7 +34965,7 @@ async function runBench(ctx, tasks, opts) {
           const check2 = spawnSync2("sh", ["-c", task.check], { cwd: wt, encoding: "utf8", timeout: opts.timeoutMs ?? 10 * 6e4, env: { ...process.env, CI: "1" } });
           rec.checkExit = check2.status;
           rec.passed = check2.status === 0;
-          writeFileSync10(join24(dir, `${task.id}-${arm}-${run6}.check.log`), `${check2.stdout ?? ""}
+          writeFileSync10(join24(dir, `${task.id}-${arm}-${run7}.check.log`), `${check2.stdout ?? ""}
 ${check2.stderr ?? ""}`);
           if (h.session) collectMetrics(rec, new ObservationStore(wt, h.session).readAll().length ? new ObservationStore(wt, h.session) : new ObservationStore(root, h.session));
         } catch (e) {
@@ -35231,34 +35237,6 @@ ctx bench report [--dir <results dir>]`;
   }
 });
 
-// src/cli/commands.ts
-async function extraCommands(args, env) {
-  switch (args.cmd) {
-    case "init":
-    case "ratify":
-    case "pack":
-      return (await Promise.resolve().then(() => (init_cli(), cli_exports))).run(args, env);
-    case "gate":
-      return (await Promise.resolve().then(() => (init_cli2(), cli_exports2))).run(args, env);
-    case "hygiene":
-    case "gc":
-    case "retire":
-      return (await Promise.resolve().then(() => (init_cli3(), cli_exports3))).run(args, env);
-    case "serve":
-    case "overlay":
-      return (await Promise.resolve().then(() => (init_cli4(), cli_exports4))).run(args, env);
-    case "bench":
-      return (await Promise.resolve().then(() => (init_cli5(), cli_exports5))).run(args, env);
-    default:
-      return void 0;
-  }
-}
-var init_commands = __esm({
-  "src/cli/commands.ts"() {
-    "use strict";
-  }
-});
-
 // src/cli/doctor.ts
 import { execFileSync as execFileSync5 } from "node:child_process";
 import { existsSync as existsSync28, readFileSync as readFileSync26, readdirSync as readdirSync8, statSync as statSync7 } from "node:fs";
@@ -35390,9 +35368,160 @@ var init_doctor = __esm({
   }
 });
 
-// src/cli/main.ts
-import { copyFileSync as copyFileSync2, existsSync as existsSync29, lstatSync as lstatSync2, mkdirSync as mkdirSync10, readdirSync as readdirSync9, readFileSync as readFileSync27, symlinkSync, unlinkSync as unlinkSync2 } from "node:fs";
+// src/cli/guide.ts
+var guide_exports = {};
+__export(guide_exports, {
+  cardsReport: () => cardsReport,
+  changedFiles: () => changedFiles,
+  nextStep: () => nextStep,
+  run: () => run6
+});
+import { existsSync as existsSync29, readFileSync as readFileSync27 } from "node:fs";
 import { join as join27, resolve as resolve13 } from "node:path";
+function changedFiles(ctx) {
+  const root = ctx.root;
+  const branch = git(root, ["branch", "--show-current"]) ?? "";
+  const base = branch && branch !== ctx.config.defaultBranch ? git(root, ["merge-base", ctx.config.defaultBranch, "HEAD"]) : void 0;
+  const out = /* @__PURE__ */ new Set();
+  for (const list of [base ? git(root, ["diff", "--name-only", base]) : void 0, git(root, ["diff", "--name-only", "HEAD"]), git(root, ["ls-files", "--others", "--exclude-standard"])]) {
+    for (const f of (list ?? "").split("\n").filter(Boolean)) out.add(f);
+  }
+  return [...out].filter((f) => existsSync29(join27(root, f)));
+}
+function cardsReport(ctx, opts = {}) {
+  const g = ctx.graph;
+  const report = { fresh: [], stale: [], missing: [], scope: opts.changed ? "changed" : "all" };
+  if (!g) return report;
+  const files = opts.changed ? changedFiles(ctx) : (git(ctx.root, ["ls-files", "--cached", "--others", "--exclude-standard"]) ?? "").split("\n").filter(Boolean);
+  for (const f of files.sort()) {
+    if (exemptFromCards(f, ctx.config.cardsExclude)) continue;
+    const s = cardState(g, ctx.root, f);
+    if (s.hash === void 0) continue;
+    (s.fresh ? report.fresh : s.card ? report.stale : report.missing).push(f);
+  }
+  return report;
+}
+function nextStep(ctx, opts = {}) {
+  const attention = [];
+  const summary = [];
+  const result = (step, why, extra = {}) => ({ step, why, attention, summary, ...extra });
+  const isRepo = git(ctx.root, ["rev-parse", "--is-inside-work-tree"]) === "true";
+  if (!isRepo) attention.push("This folder is not a git repository: decisions and cards are meant to travel with the code in git.");
+  const g = ctx.graph;
+  if (!g) return result("init", "There is no graph for this repository yet, so nothing is injected and nothing is recorded. init proposes one from the tree, the tests, the instruction files and ADRs.");
+  const errors = g.validate(ctx.root).filter((f) => f.level === "error");
+  if (errors.length) return result("status", `The graph has ${errors.length} error(s) (first: ${errors[0].message}); hooks read a broken graph. Fix it before anything else.`, { command: "ctx check" });
+  if (opts.doctor !== false) {
+    const fails = runDoctor(ctx).filter((l) => l.level === "fail");
+    if (fails.length) return result("status", `Setup problem: ${fails[0].text}`, { command: "ctx doctor" });
+  }
+  if (ctx.graphDir && !resolve13(ctx.graphDir).startsWith(resolve13(ctx.root) + "/")) attention.push("The graph is linked from outside the repository: ctx adopt moves it in, so teammates and other checkouts get it.");
+  const session = ObservationStore.sessions(ctx.root)[0]?.session;
+  if (session) {
+    const r = new Recorder(g, new SessionState(ctx.root, session), ctx.root);
+    const decisions = r.pending().map((p) => p.path);
+    const cards = r.cardsOwed();
+    if (decisions.length || cards.length) {
+      return result("cards", `The last session (${session}) still owes ${[decisions.length ? `${decisions.length} decision(s) (${decisions.slice(0, 3).join(", ")})` : "", cards.length ? `${cards.length} card(s) (${cards.slice(0, 3).join(", ")})` : ""].filter(Boolean).join(" and ")}.`);
+    }
+  }
+  const ins = ["AGENTS.md", "CLAUDE.md"].find((f) => existsSync29(join27(ctx.root, f)));
+  if (ins && !readFileSync27(join27(ctx.root, ins), "utf8").includes(INSTRUCTION_HEADING)) {
+    return result("init", `${ins} has no Context Graph block, so agents are never told to hydrate before they read, or how the loop works.`, { command: "ctx install instructions" });
+  }
+  const changed = cardsReport(ctx, { changed: true });
+  if (changed.missing.length || changed.stale.length) {
+    const n = changed.missing.length + changed.stale.length;
+    return result("cards", `${n} file(s) this branch changed have no card matching them (${[...changed.stale, ...changed.missing].slice(0, 3).join(", ")}${n > 3 ? ", \u2026" : ""}). The gate reports them, and the next agent to edit them has to read them in full.`, { command: "ctx cards --changed" });
+  }
+  const proposals = [...g.constraints.values()].filter((k) => k.mode === "G?").length + [...g.concepts.values()].filter((c) => c.proposed).length;
+  const hygiene = hygieneReport(ctx).filter((f) => f.level === "propose");
+  if (proposals || hygiene.length) {
+    return result("curate", [proposals ? `${proposals} proposed rule(s) or concept(s) wait for a person to ratify or drop` : "", hygiene.length ? `${hygiene.length} hygiene finding(s) propose a change` : ""].filter(Boolean).join("; ") + ".", { command: proposals ? "ctx check" : "ctx hygiene" });
+  }
+  const all = cardsReport(ctx);
+  summary.push(`${g.logicals.size} modules, ${g.constraints.size} rules, ${g.decisions.size} decisions`);
+  summary.push(`cards: ${all.fresh.length} current, ${all.stale.length} stale, ${all.missing.length} missing, of ${all.fresh.length + all.stale.length + all.missing.length} files`);
+  return result("done", "The graph is valid, nothing is owed, this branch's changed files all have current cards, and nothing waits for ratification.");
+}
+async function run6(args, env) {
+  const ctx = openFromArgs(args);
+  if (args.cmd === "cards") {
+    const r = cardsReport(ctx, { changed: args.flags.changed === true });
+    if (!ctx.graph) {
+      console.error("no graph for this repository: ctx init");
+      return 1;
+    }
+    const pick2 = args.flags.missing === true ? { missing: r.missing } : args.flags.stale === true ? { stale: r.stale } : r;
+    if (env.json) {
+      console.log(JSON.stringify(pick2, null, 2));
+      return 0;
+    }
+    const total = r.fresh.length + r.stale.length + r.missing.length;
+    console.log(`${r.scope === "changed" ? "changed files" : "files"}: ${r.fresh.length} with a current card, ${r.stale.length} stale, ${r.missing.length} missing, of ${total}`);
+    if (args.flags.missing !== true) for (const f of r.stale) console.log(`  stale    ${f}`);
+    if (args.flags.stale !== true) for (const f of r.missing) console.log(`  missing  ${f}`);
+    return 0;
+  }
+  const n = nextStep(ctx, { doctor: args.flags["no-doctor"] !== true });
+  if (env.json) {
+    console.log(JSON.stringify(n, null, 2));
+    return 0;
+  }
+  console.log(n.step === "done" ? "Next: nothing needs doing" : `Next: /context-graph:${n.step}${n.command ? `  (or: ${n.command})` : ""}`);
+  console.log(`Why: ${n.why}`);
+  for (const a of n.attention) console.log(`Note: ${a}`);
+  for (const s of n.summary) console.log(`  ${s}`);
+  return 0;
+}
+var init_guide = __esm({
+  "src/cli/guide.ts"() {
+    "use strict";
+    init_cards();
+    init_hygiene();
+    init_instructions();
+    init_store();
+    init_recorder();
+    init_git();
+    init_doctor();
+    init_main();
+  }
+});
+
+// src/cli/commands.ts
+async function extraCommands(args, env) {
+  switch (args.cmd) {
+    case "init":
+    case "ratify":
+    case "pack":
+      return (await Promise.resolve().then(() => (init_cli(), cli_exports))).run(args, env);
+    case "gate":
+      return (await Promise.resolve().then(() => (init_cli2(), cli_exports2))).run(args, env);
+    case "hygiene":
+    case "gc":
+    case "retire":
+      return (await Promise.resolve().then(() => (init_cli3(), cli_exports3))).run(args, env);
+    case "serve":
+    case "overlay":
+      return (await Promise.resolve().then(() => (init_cli4(), cli_exports4))).run(args, env);
+    case "bench":
+      return (await Promise.resolve().then(() => (init_cli5(), cli_exports5))).run(args, env);
+    case "next":
+    case "cards":
+      return (await Promise.resolve().then(() => (init_guide(), guide_exports))).run(args, env);
+    default:
+      return void 0;
+  }
+}
+var init_commands = __esm({
+  "src/cli/commands.ts"() {
+    "use strict";
+  }
+});
+
+// src/cli/main.ts
+import { copyFileSync as copyFileSync2, existsSync as existsSync30, lstatSync as lstatSync2, mkdirSync as mkdirSync10, readdirSync as readdirSync9, readFileSync as readFileSync28, symlinkSync, unlinkSync as unlinkSync2 } from "node:fs";
+import { join as join28, resolve as resolve14 } from "node:path";
 function parseArgs(argv) {
   const positional = [];
   const flags = {};
@@ -35417,8 +35546,8 @@ function str(v) {
   return typeof v === "string" ? v : void 0;
 }
 function readInput(arg) {
-  if (!arg || arg === "-") return readFileSync27(0, "utf8");
-  return readFileSync27(arg, "utf8");
+  if (!arg || arg === "-") return readFileSync28(0, "utf8");
+  return readFileSync28(arg, "utf8");
 }
 function latestSession(root) {
   return ObservationStore.sessions(root)[0]?.session;
@@ -35646,7 +35775,7 @@ async function main() {
     case "replay": {
       const file = args.positional[0];
       if (!file) throw new Error("ctx replay <transcript.jsonl> [--harness auto|claude-code|codex]");
-      const r = await replayTranscript(resolve13(file), { ...str(args.flags.repo) ? { repo: str(args.flags.repo) } : {}, ...str(args.flags.graph) ? { graph: str(args.flags.graph) } : {}, ...str(args.flags.harness) ? { harness: str(args.flags.harness) } : {} });
+      const r = await replayTranscript(resolve14(file), { ...str(args.flags.repo) ? { repo: str(args.flags.repo) } : {}, ...str(args.flags.graph) ? { graph: str(args.flags.graph) } : {}, ...str(args.flags.harness) ? { harness: str(args.flags.harness) } : {} });
       if (json) console.log(JSON.stringify(r, null, 2));
       else {
         console.log(`${r.harness} session ${r.session}: ${r.events} events, ${r.edits} edits, ${r.coverage} coverage records${r.cliVersion ? `, cli ${r.cliVersion}` : ""}
@@ -35670,20 +35799,20 @@ async function main() {
       const ctx = openFromArgs(args);
       const g = needGraph(ctx);
       const from = ctx.graphDir;
-      const dest = join27(ctx.root, ".ctx");
-      if (resolve13(from) === resolve13(dest)) {
+      const dest = join28(ctx.root, ".ctx");
+      if (resolve14(from) === resolve14(dest)) {
         console.log(`the graph already lives in ${dest}`);
         return 0;
       }
-      if (existsSync29(dest) && readdirSync9(dest).length && args.flags.force !== true) throw new Error(`${dest} already exists; pass --force to overwrite it with the linked graph`);
+      if (existsSync30(dest) && readdirSync9(dest).length && args.flags.force !== true) throw new Error(`${dest} already exists; pass --force to overwrite it with the linked graph`);
       mkdirSync10(dest, { recursive: true });
       const copied = [];
       for (const f of readdirSync9(from)) {
-        if (!lstatSync2(join27(from, f)).isFile()) continue;
-        copyFileSync2(join27(from, f), join27(dest, f));
+        if (!lstatSync2(join28(from, f)).isFile()) continue;
+        copyFileSync2(join28(from, f), join28(dest, f));
         copied.push(f);
       }
-      const link = join27(ctxHome(), "graphs", repoHash(ctx.root));
+      const link = join28(ctxHome(), "graphs", repoHash(ctx.root));
       if (isSymlink(link)) unlinkSync2(link);
       console.log(`moved the graph into ${dest} (${copied.join(", ")}): ${g.logicals.size} modules, ${g.constraints.size} rules, ${g.decisions.size} decisions`);
       console.log(`${from} is no longer read for this repository. Commit .ctx so every checkout and teammate carries it:
@@ -35694,12 +35823,12 @@ async function main() {
       const graph = str(args.flags.graph);
       if (!graph) throw new Error("ctx link --graph <dir> [--repo <dir>]");
       const ctx = openRepo({ ...str(args.flags.repo) ? { repo: str(args.flags.repo) } : {} });
-      const target = resolve13(graph);
-      if (!existsSync29(join27(target, "graph.ctx"))) throw new Error(`${target} has no graph.ctx`);
-      const linkDir = join27(ctxHome(), "graphs");
+      const target = resolve14(graph);
+      if (!existsSync30(join28(target, "graph.ctx"))) throw new Error(`${target} has no graph.ctx`);
+      const linkDir = join28(ctxHome(), "graphs");
       mkdirSync10(linkDir, { recursive: true });
-      const link = join27(linkDir, repoHash(ctx.root));
-      if (existsSync29(link) || isSymlink(link)) unlinkSync2(link);
+      const link = join28(linkDir, repoHash(ctx.root));
+      if (existsSync30(link) || isSymlink(link)) unlinkSync2(link);
       symlinkSync(target, link);
       console.log(`${ctx.root}
   -> ${target}
@@ -35829,6 +35958,10 @@ var init_main = __esm({
     init_commands();
     init_doctor();
     USAGE2 = `ctx \u2014 Context Graph
+
+Start here
+  ctx next [--json]                                the one thing to do now, and the skill that does it
+  ctx cards [--changed] [--missing|--stale]        which files have a card matching them
 
 Graph
   ctx slice <path> [--symbol name]                 slice injected before an edit

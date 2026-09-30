@@ -1,6 +1,6 @@
 ---
 name: ctx
-description: Ask the Context Graph why a file or module is the way it is, what constraints apply to it, its decision history, or the coverage of the current session; and write a file's card after editing it. Use when the user asks "why is this like this", "what rules apply here", "what was decided about", wants to record a decision, or when an edit was refused or a card is owed.
+description: Ask the Context Graph why a file or module is the way it is (for setup, cards, curation or what to do next, see the next, init, cards, curate and status skills), what constraints apply to it, its decision history, or the coverage of the current session; and write a file's card after editing it. Use when the user asks "why is this like this", "what rules apply here", "what was decided about", wants to record a decision, or when an edit was refused or a card is owed.
 argument-hint: "[hydrate|why|history|applies|coverage|check|card] [node or scope]"
 allowed-tools: "mcp__plugin_context-graph_ctx__*, Bash(ctx *)"
 ---

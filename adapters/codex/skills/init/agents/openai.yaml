@@ -1,0 +1,9 @@
+interface:
+  display_name: Context Graph init
+  short_description: Set up Context Graph in this repository
+policy:
+  allow_implicit_invocation: true
+dependencies:
+  tools:
+    - type: mcp
+      value: ctx
