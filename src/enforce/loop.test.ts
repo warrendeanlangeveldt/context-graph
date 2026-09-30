@@ -248,7 +248,7 @@ describe('the context loop', () => {
     const out = pre(await edit(caller, 'new Blackboard();', 'new Blackboard(); // x'));
     const ctx = out.hookSpecificOutput.additionalContext!;
     expect(ctx).toContain('from what it imports');
-    expect(ctx).toContain('via    api/src/core/orch/bb.ts: must state via events only  [G orch.events]');
+    expect(ctx).toContain('via    L:orch: must state via events only  [G orch.events]');
     expect(ctx).toContain('via    api/src/core/orch/bb.ts: decided applyEvent takes the event, never the workspace  (d-0001)');
   });
 

@@ -3645,7 +3645,7 @@ var init_walk = __esm({
 });
 
 // src/walker/depends.ts
-function dependencyContext(graph, path, imports, opts = {}) {
+function dependencyContext(graph, path, imports) {
   const own = walk(graph, path);
   const seen = new Set(own.constraints.map((k) => k.id));
   const byImport = [];
@@ -3655,7 +3655,7 @@ function dependencyContext(graph, path, imports, opts = {}) {
     const local = new Set([imp, w.chain[0]].filter(Boolean));
     const rules = w.constraints.filter((k) => local.has(k.attachedTo) && isActiveMode(k) && !seen.has(k.id));
     for (const k of rules) seen.add(k.id);
-    const decisions = graph.decisionsOn([imp]).filter((d) => !d.node.includes("#") || d.node.startsWith(`${imp}#`)).slice(0, opts.maxDecisionsPerImport ?? 2);
+    const decisions = [...graph.decisions.values()].filter((d) => (d.node === imp || d.node.startsWith(`${imp}#`)) && graph.isActiveDecision(d));
     if (rules.length || decisions.length) byImport.push({ path: imp, rules, decisions });
   }
   return { byImport };
@@ -3665,18 +3665,20 @@ function carriesContext(ctx, imp) {
 }
 function renderDependencyContext(graph, ctx, opts = {}) {
   if (!ctx.byImport.length) return void 0;
-  const max = opts.maxLines ?? 6;
+  const maxRules = opts.maxRules ?? 4;
+  const maxDecisions = opts.maxDecisions ?? 8;
   const rules = [];
-  const decisions = [];
   for (const b of ctx.byImport) {
-    const name = graph.aliasFor(b.path) ?? b.path;
-    for (const k of b.rules) rules.push(`  via    ${name}: must ${k.text}  [${k.mode} ${k.id}]`);
-    for (const d of b.decisions) decisions.push(`  via    ${name}: decided ${d.text}  (${d.id})`);
+    for (const k of b.rules) {
+      const where = k.attachedTo.startsWith("L:") ? k.attachedTo : graph.aliasFor(b.path) ?? b.path;
+      rules.push(`  via    ${where}: must ${k.text}  [${k.mode} ${k.id}]`);
+    }
   }
-  const lines = [...rules, ...decisions];
-  const shown = lines.slice(0, max);
-  if (lines.length > shown.length) shown.push(`  via    and ${lines.length - shown.length} more from what it imports: ctx hydrate <file>`);
-  return ["from what it imports", ...shown].join("\n");
+  const decisions = ctx.byImport.flatMap((b) => b.decisions.map((d) => ({ d, name: graph.aliasFor(b.path) ?? b.path }))).sort((a, b) => graph.newestFirst(a.d, b.d)).map(({ d, name }) => `  via    ${name}: decided ${d.text}  (${d.id})`);
+  const lines = [...rules.slice(0, maxRules), ...decisions.slice(0, maxDecisions)];
+  const hidden = Math.max(0, rules.length - maxRules) + Math.max(0, decisions.length - maxDecisions);
+  if (hidden) lines.push(`  via    and ${hidden} more from what it imports: ctx hydrate <file>`);
+  return ["from what it imports", ...lines].join("\n");
 }
 var init_depends = __esm({
   "src/walker/depends.ts"() {

@@ -295,10 +295,10 @@ When the harness supplies a line range with the edit (most do), the walker looks
 ### 7.4 Context through imports
 
 The walk follows containment: a file sees the rules of its own module and of the modules above it. But a rule is often obeyed somewhere other than where it is written: the rule about what an event must carry sits on the module that defines events, and it is kept or broken in the service that records them. So before an edit, each file the edited file imports contributes, under `from what it imports` in the slice:
-- its own decisions, the newest two;
-- the ratified rules of its module that the edited file does not already see.
+- its own decisions;
+- the ratified rules of its module that the edited file does not already see, grouped under that module.
 
-This is one hop, rules before decisions, and six lines at most. The same set decides the read-before-edit exception (§9.5). A fresh card stands in for its file, but not for an import that carries context: such an import must be read in full, or have a fresh card of its own.
+This is one hop. It shows up to four rules, then up to eight decisions, newest first across all imports. A decision is the one thing the code cannot show, so none is cut to make room for rule text, and no file's decisions are cut below another's. The same set decides the read-before-edit exception (§9.5). A fresh card stands in for its file, but not for an import that carries context: such an import must be read in full, or have a fresh card of its own.
 
 The first benchmark (`ctx-bench-lab`, 2026-09-30) showed why. Every arm, including this one, missed a rule that lives on the event module and applies in the service. The service's slice showed only service rules, and its fresh card, which left the rule out, excused reading `events.ts`, where the rule's decision was recorded.
 
