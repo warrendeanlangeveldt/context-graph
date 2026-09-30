@@ -6,31 +6,57 @@ A standalone plugin for AI coding harnesses that does three things a session can
 2. **Anchors** the engineering context that should have applied, in a small graph kept in git, and injects the applicable slice at the moment the agent is about to edit a file. Before a turn ends, it asks for one decision per constrained file: what changed, and why, pointing at the constraint or concept the change honours.
 3. **Closes the loop** around every edit. Before it, the file must be understood: either through its **card** (the file's why, kept current with a content hash), or by reading it in full with what it imports. An edit without that is refused, with the list of what to read. After it, the card is written or brought up to date. Understanding then builds up per file, so the next agent starts from the why instead of rediscovering it.
 
-The design specification is in `docs/design-spec.md`. This README covers what is built and how to run it.
+The design specification is in `docs/design-spec.md`. This README covers why and when to use Context Graph, how to start, and how each part works.
 
-## What is built
+## Why
 
-Every delivery step of the specification has an implementation:
+An agent works out "what good looks like" from whatever it happens to read in a session. That understanding is local, invisible, and lost when the session ends. Two failures follow:
+- **Locally right, contextually wrong.** A change can be correct line by line and still wrong for its module or domain, because the agent never found out what those require. The rule was in a file it didn't open. The reason was in someone's head, or in a pull request from last year.
+- **Rediscovered every time.** The next session rebuilds the same understanding from scratch, and may land somewhere different. The codebase piles up decisions that are each defensible and jointly inconsistent, and nothing records that a decision was ever made.
 
-| Step | Capability | Where |
-|---|---|---|
-| 1 | The `.ctx` line grammar: parser, validator, writer | `src/graph/` |
-| 2 | Shell and patch observers | `src/observe/shell.ts`, `src/observe/patch.ts` |
-| 3 | Claude Code adapter: hooks, MCP pull surface, plugin packaging, observe-only mode | `src/adapters/`, `adapters/claude-code/` |
-| 4 | Replay benchmark: corpus from history, three arms, temporal cut, paired report | `src/bench/` |
-| 5 | Codex adapter and user-level installer | `src/adapters/codex/`, `adapters/codex/`, `ctx install codex` |
-| 6 | Transcript replay for Claude Code JSONL, Codex rollouts, and `codex exec --json` | `src/observe/replay.ts` |
-| 7 | Merge gate: three-way semantic diff, ratification trailers, enforced tests | `src/gate/` |
-| 8 | Bootstrap with conformance counts, style packs, ratification, pack export | `src/init/`, `packs/` |
-| 9 | Retirement, hygiene report, archival, timeline | `src/hygiene/` |
-| 10 | Event server: ingest, tail, stream, live queries, graph snapshot | `src/overlay/server.ts` |
-| 11 | Synapse view: Three.js force graph, 2D mode, coverage table, scrubber, evolution | `view/` |
-| 12 | Embeddings: provider, symbol-boundary chunker, SQLite vector store, hints in the slice | `src/embed/` |
-| 13 | Hosted mode: token, forwarding, provisional decisions, cross-branch findings, monitor tail | `src/overlay/` |
-| 14 | The context loop: file cards with content-hash freshness, read before edit (the file, its imports, its importers on an export change), cards owed after an edit, per-agent observation and state | `src/cards/`, `src/enforce/`, `src/adapters/core.ts` |
-| 15 | Tool adapters: facts from other tools that share the repository; code-kit (spec requirements, lane, layer rules) | `src/tool-adapters/` |
+Context Graph keeps that understanding outside any session, next to the code in git. It puts the part that applies in front of the agent at the moment it's about to change something, and makes it add what it learned before it moves on. A benchmark (`ctx-bench-lab`) measured the effect: rules that existed only as recorded decisions were applied 78% of the time with Context Graph, against 17% without, and earlier features broke less often.
 
-Also: commit provenance resolved from git (`ctx provenance`), and a real graph for this repository under `.ctx/`.
+## When to use it
+
+Use it when:
+- **The codebase has rules the code doesn't state:** money rounding, what an event must carry, which module may call which. These rules are broken by people who never saw them.
+- **Decisions get lost:** "why is it like this?" has no answer but a person's memory, or the answer is spread across old pull requests.
+- **Several agents or sessions work on the same code** and should build on each other's understanding, not start from zero.
+- **You want evidence of how an agent worked:** which files it read in full, what it edited blind, which callers it never opened.
+
+It costs something. Enforced reading and writing cards took about 2.5 times the time and tokens in the benchmark. For a throwaway script or a one-off spike, leave it observe-only (`[slice] enabled = false`) or don't give the repository a graph.
+
+## Where it runs
+
+- **In Claude Code and in Codex,** as a plugin: hooks, an MCP server named `ctx`, and skills. With no graph in the repository, it only observes.
+- **In the repository:** `.ctx/` holds the graph (modules, rules, concepts), decisions and file cards as plain text, committed with the code. Observation data stays on your machine, in `~/.ctx`.
+- **In CI:** `ctx gate` checks a branch's graph changes, ratification, and whether changed files have current cards.
+- **Next to code-kit,** when both are installed. See [Working alongside code-kit](#working-alongside-code-kit).
+
+## Start: `/context-graph:next`
+
+Not sure what to do? Run `/context-graph:next`, in a new repository or at any point after. It reads where the repository stands and runs the right skill. It carries on until something needs you: a proposal to ratify, a commit to make, or nothing left to do.
+
+| The repository has | `next` runs |
+| --- | --- |
+| No graph | `init`: propose one from the tree, tests, instruction files and ADRs, and review it with you |
+| A broken graph or setup | `status`: what's wrong and how to fix it |
+| Cards or decisions owed by the last session | `cards` |
+| No Context Graph block in AGENTS.md or CLAUDE.md | `ctx install instructions` |
+| Files this branch changed without a current card | `cards` |
+| Proposed rules, or hygiene findings, waiting for a person | `curate` |
+| None of that | nothing: a summary of the graph and its cards |
+
+`ctx next` on the command line shows the same decision without running anything, and `ctx cards` shows which files have a current card.
+
+| Skill | What it's for |
+| --- | --- |
+| `/context-graph:next` | The next step, from the repository's state |
+| `/context-graph:init` | Set up a graph, ratifiers, the loop's settings and the instruction block |
+| `/context-graph:cards` | Write the cards and decisions the work owes, from a full read |
+| `/context-graph:curate` | Ratify, reword, retire and tidy the graph, with you deciding |
+| `/context-graph:status` | Is it working, is the graph valid, what it holds, what the last session did |
+| `/context-graph:ctx` | Ask why a file is the way it is, what applies, what was decided |
 
 ## Install
 
@@ -107,7 +133,17 @@ What a bootstrap finds, in order of how much it is worth: the repository's own r
 claude --plugin-dir ~/workspace/context-graph/adapters/claude-code
 ```
 
-or, without the plugin directory, `ctx install claude-code` writes the hooks into your user settings and prints the MCP registration command. The plugin registers the hooks and the `ctx` MCP server. On session start it prints the aliases, modules, and concepts, and tells the agent to call `hydrate` before working on a file, module, or task it has not read. The first time a session reads a file that carries decisions, it injects that file's recorded history: what was decided there, by whom, and why, newest first, capped at three. A wrong mental model is built by reading, not by writing, and a decision is the one thing grep cannot show, so this is the read-time half of the pair. A file with no decisions produces nothing, and each file is answered once per session. The first time a session reads or greps under a module it injects that module's card: the module, its place in the chain, the rules attached to that module with enforced ones first, the rules it inherits as ids, the latest decision in it, and a pointer to `hydrate`. The newest decision on a file is never dropped from its slice, whatever the budget: a file with enough rules to exhaust the budget is exactly the one whose history the next agent cannot reconstruct from the code. In a slice, a proposed rule on the file's own module appears in full and inherited proposals as one line of ids, because proposals crowded next to ratified rules get skimmed and the ids keep them one `ctx why` away; `hydrate` shows every proposal in full. Once per module per session, so the cost is bounded by the module count. Before each edit it injects the slice. After each tool call it records what was touched. When a file carrying rules has been edited and no decision recorded, the next tool call carries the ask, which costs a few tokens and interrupts nothing; most decisions are recorded from there. Only a turn that ends still owing one is held open, and Claude Code renders any blocking Stop hook as an error, so the message says plainly that it is the demand rather than a failure. Set `demand = false` under `[record]` to record the gap as a finding and never hold a turn.
+Or, without the plugin directory, `ctx install claude-code` writes the hooks into your user settings and prints the MCP registration command. The plugin registers the hooks, the `ctx` MCP server and the skills. What a session then sees:
+
+- **At session start:** the aliases, modules and concepts, how the context loop works, and an instruction to call `hydrate` before working on a file, module or task it hasn't read.
+- **On the first read of a file:** its card, what tool adapters know of it (with code-kit, the spec requirement and layer rules), and its recorded decisions: what was decided there, by whom and why, newest first, three at most. A wrong mental model is built by reading, not writing, and a decision is the one thing grep can't show. A file with nothing recorded gets nothing, and each file is answered once per agent.
+- **On the first read or grep under a module:** that module's card. That's the module and its place in the chain, its rules (enforced first), the rules it inherits as ids, its latest decision, and a pointer to `hydrate`. Once per module per agent, so the cost is bounded by the number of modules.
+- **Before each edit:** the slice. It carries the file's rules, the newest decisions, and what reaches the file through its imports.
+  - The newest decision on a file is never dropped, whatever the budget: a file with enough rules to fill the budget is exactly the one whose history the next agent can't reconstruct.
+  - A proposed rule on the file's own module appears in full. Inherited proposals appear as one line of ids, since proposals crowded next to ratified rules get skimmed. `hydrate` shows them all.
+  - If the file isn't understood yet, the edit is refused instead (see [The context loop](#the-context-loop)).
+- **After each tool call:** what was touched is recorded.
+- **When something is owed:** an edited file that carries rules owes a decision, and every edited file owes its card. The next tool call carries the ask, which costs a few tokens and interrupts nothing; most are recorded from there. Only a turn that ends still owing one is held open. Claude Code shows any blocking Stop hook as an error, so the message says plainly that it's the demand, not a failure. Set `demand = false` under `[record]` to record the gap as a finding and never hold a turn.
 
 ## Use it in Codex
 
@@ -149,7 +185,7 @@ cards            = "block"   # off | nudge (a finding) | block (held like a deci
 max_importers    = 5
 
 [cards]
-exclude = [".ctx/**", ".claude/**", "**/*.md", "**/*.lock", "**/generated/**"]   # the defaults are longer; see src/core/context.ts
+exclude = ["src/generated/**"]   # adds to the defaults: lockfiles, docs, config, dotfiles, build output, the graph itself
 ```
 
 ## Working alongside code-kit
@@ -260,6 +296,32 @@ docker build -t context-graph .
 docker run -p 7400:7400 -e CTX_OVERLAY_TOKEN=change-me -v ctx-data:/data context-graph
 # or: CTX_OVERLAY_TOKEN=change-me docker compose up -d
 ```
+
+## What is built
+
+Every delivery step of the specification has an implementation:
+
+| Step | Capability | Where |
+|---|---|---|
+| 1 | The `.ctx` line grammar: parser, validator, writer | `src/graph/` |
+| 2 | Shell and patch observers | `src/observe/shell.ts`, `src/observe/patch.ts` |
+| 3 | Claude Code adapter: hooks, MCP pull surface, plugin packaging, observe-only mode | `src/adapters/`, `adapters/claude-code/` |
+| 4 | Replay benchmark: corpus from history, three arms, temporal cut, paired report | `src/bench/` |
+| 5 | Codex adapter and user-level installer | `src/adapters/codex/`, `adapters/codex/`, `ctx install codex` |
+| 6 | Transcript replay for Claude Code JSONL, Codex rollouts, and `codex exec --json` | `src/observe/replay.ts` |
+| 7 | Merge gate: three-way semantic diff, ratification trailers, enforced tests | `src/gate/` |
+| 8 | Bootstrap with conformance counts, style packs, ratification, pack export | `src/init/`, `packs/` |
+| 9 | Retirement, hygiene report, archival, timeline | `src/hygiene/` |
+| 10 | Event server: ingest, tail, stream, live queries, graph snapshot | `src/overlay/server.ts` |
+| 11 | Synapse view: Three.js force graph, 2D mode, coverage table, scrubber, evolution | `view/` |
+| 12 | Embeddings: provider, symbol-boundary chunker, SQLite vector store, hints in the slice | `src/embed/` |
+| 13 | Hosted mode: token, forwarding, provisional decisions, cross-branch findings, monitor tail | `src/overlay/` |
+| 14 | The context loop: file cards with content-hash freshness, read before edit (the file, its imports, its importers on an export change), cards owed after an edit, per-agent observation and state | `src/cards/`, `src/enforce/`, `src/adapters/core.ts` |
+| 15 | Tool adapters: facts from other tools that share the repository; code-kit (spec requirements, lane, layer rules) | `src/tool-adapters/` |
+| 16 | Context through imports: the rules and decisions of what a file imports, in its slice; a card doesn't excuse an import that carries context | `src/walker/depends.ts` |
+| 17 | Guidance: `ctx next` (the step to take, from the repository's state), `ctx cards`, and the `next`, `init`, `cards`, `curate` and `status` skills for both harnesses | `src/cli/guide.ts`, `adapters/*/skills/` |
+
+Also: commit provenance resolved from git (`ctx provenance`), and a real graph for this repository under `.ctx/`.
 
 ## The graph grammar, in one screen
 

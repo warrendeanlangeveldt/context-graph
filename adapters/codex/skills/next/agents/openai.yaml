@@ -1,0 +1,9 @@
+interface:
+  display_name: Context Graph next
+  short_description: What to do next with Context Graph, and doing it
+policy:
+  allow_implicit_invocation: true
+dependencies:
+  tools:
+    - type: mcp
+      value: ctx

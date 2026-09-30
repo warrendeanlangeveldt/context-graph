@@ -1,0 +1,9 @@
+interface:
+  display_name: Context Graph curate
+  short_description: Ratify, reword, retire and tidy the graph with the person
+policy:
+  allow_implicit_invocation: true
+dependencies:
+  tools:
+    - type: mcp
+      value: ctx

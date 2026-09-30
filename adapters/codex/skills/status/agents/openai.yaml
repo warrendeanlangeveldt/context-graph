@@ -1,0 +1,9 @@
+interface:
+  display_name: Context Graph status
+  short_description: Is Context Graph working here, and what does it hold
+policy:
+  allow_implicit_invocation: true
+dependencies:
+  tools:
+    - type: mcp
+      value: ctx
