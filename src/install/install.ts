@@ -1,6 +1,6 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join, resolve } from 'node:path';
 import { packageRoot } from '../util/root.js';
 
 /**
@@ -107,4 +107,44 @@ export function installGitHooks(root: string): InstallResult {
   writeFileSync(file, content, 'utf8');
   chmodSync(file, 0o755);
   return { changed: [file], notes: ['post-commit: embedding refresh (when enabled); provenance is read from git, never written after a commit'] };
+}
+
+/**
+ * A `ctx` command on the PATH, for a plugin install (which has none). It is a small launcher, not a copy:
+ * when installed from the plugin, it runs the newest Context Graph plugin Claude Code has installed, so
+ * plugin updates are picked up; installed from a clone or an npm install, it runs that copy.
+ */
+export function installCli(opts: { binDir?: string; script?: string; home?: string } = {}): InstallResult {
+  const home = opts.home ?? homedir();
+  const binDir = opts.binDir ?? process.env.CTX_BIN_DIR ?? join(home, '.local', 'bin');
+  const script = resolve(opts.script ?? process.argv[1] ?? '');
+  const fromPluginCache = script.includes(`${join('.claude', 'plugins', 'cache')}`);
+  mkdirSync(binDir, { recursive: true });
+  const file = join(binDir, 'ctx');
+  const launcher = `#!/usr/bin/env node
+// ${MARK}: the ctx command, written by \`ctx install cli\`. Remove this file to uninstall.
+import { spawnSync } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+
+let target = ${JSON.stringify(script)};
+${fromPluginCache ? `// Installed from the plugin: follow plugin updates.
+try {
+  const registry = join(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude'), 'plugins', 'installed_plugins.json');
+  const installs = Object.entries(JSON.parse(readFileSync(registry, 'utf8')).plugins ?? {})
+    .filter(([k]) => k.startsWith('context-graph@')).flatMap(([, v]) => v)
+    .sort((a, b) => String(b.lastUpdated ?? '').localeCompare(String(a.lastUpdated ?? '')));
+  for (const i of installs) { const f = join(i.installPath ?? '', 'ctx.mjs'); if (existsSync(f)) { target = f; break; } }
+} catch { /* no registry: keep the copy this was installed from */ }
+` : ''}if (!existsSync(target)) { console.error('ctx: ' + target + ' is gone; run ctx install cli again from a current install'); process.exit(1); }
+const r = spawnSync(process.execPath, [target, ...process.argv.slice(2)], { stdio: 'inherit' });
+process.exit(r.status ?? 1);
+`;
+  writeFileSync(file, launcher, 'utf8');
+  chmodSync(file, 0o755);
+  const onPath = (process.env.PATH ?? '').split(delimiter).some((d) => resolve(d) === resolve(binDir));
+  const notes = [`ctx runs ${fromPluginCache ? 'the newest installed Context Graph plugin' : script}`];
+  if (!onPath) notes.push(`${binDir} is not on your PATH; add it (for example: export PATH="${binDir}:$PATH" in your shell profile)`);
+  return { changed: [file], notes };
 }

@@ -41,7 +41,7 @@ function onnx(model: string, id: string): EmbeddingProvider {
         try {
           mod = (await import('@huggingface/transformers')) as unknown as typeof mod;
         } catch {
-          throw new Error('in-process embeddings need the @huggingface/transformers package; install the context-graph npm package (it is a dependency there), or choose local:<model> or openai:<model> in [embed] provider');
+          throw new Error('in-process embeddings need the @huggingface/transformers package; install it next to ctx (npm i -g @huggingface/transformers, about 350MB), or choose local:<model> or openai:<model> in [embed] provider');
         }
         mod.env.cacheDir = join(ctxHome(), 'models');
         mod.env.allowLocalModels = true;
