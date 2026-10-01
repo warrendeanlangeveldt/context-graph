@@ -8,7 +8,7 @@
       "name": "context-graph",
       "source": "./adapters/claude-code",
       "description": "File cards and decision history before reads, read-before-edit, context slices before edits, cards and decisions recorded after, and context observation for any repository",
-      "version": "0.2.3",
+      "version": "0.2.4",
       "category": "development",
       "tags": [
         "context",

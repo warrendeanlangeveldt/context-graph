@@ -37,7 +37,7 @@ export function runDoctor(ctx: RepoContext, opts: { now?: number; claudeDir?: st
 
   // 1b. The ctx command. Hooks write commands so they run without it, but the instruction block in
   // AGENTS.md or CLAUDE.md names plain `ctx`, and so do people.
-  if (!isOnPath('ctx')) out.push({ level: 'warn', text: `the ctx command is not on the PATH: the instruction block tells agents to run ctx commands; install it with ${scriptCommand()} install cli, or npm i -g context-graph` });
+  if (!isOnPath('ctx')) out.push({ level: 'warn', text: `the ctx command is not on the PATH: the instruction block tells agents to run ctx commands; install it with ${scriptCommand()} install cli, or npm i -g @warren-dean/context-graph` });
 
   // 2. Instruction block.
   const ins = ['AGENTS.md', 'CLAUDE.md'].find((f) => existsSync(join(ctx.root, f)));
