@@ -7,5 +7,16 @@
   },
   "license": "MIT",
   "repository": "https://github.com/warrendeanlangeveldt/context-graph",
-  "homepage": "https://github.com/warrendeanlangeveldt/context-graph#readme"
+  "homepage": "https://github.com/warrendeanlangeveldt/context-graph#readme",
+  "keywords": [
+    "context-engineering",
+    "architecture-decision-records",
+    "knowledge-graph",
+    "mcp",
+    "claude-code",
+    "codex",
+    "ai-agents",
+    "code-review",
+    "observability"
+  ]
 }

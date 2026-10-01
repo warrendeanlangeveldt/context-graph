@@ -97,7 +97,7 @@ export function defaultConfig(): Config {
       '**/*.lock', '**/package-lock.json', '**/pnpm-lock.yaml', '**/yarn.lock', '**/*.min.js', '**/*.map',
       '**/*.md', '**/*.{png,jpg,jpeg,gif,svg,ico,webp,pdf,woff,woff2,ttf}',
       // Configuration and manifests: settings, not code whose why gets lost.
-      '**/.*', '**/*.json', '**/*.{yml,yaml,toml,ini,cfg}', '**/*.snap', '**/LICENSE*',
+      '**/.*', '**/*.json', '**/*.{yml,yaml,toml,ini,cfg}', '**/*.snap', '**/LICENSE*', '**/*.txt',
     ],
   };
 }

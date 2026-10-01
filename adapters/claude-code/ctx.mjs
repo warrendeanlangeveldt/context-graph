@@ -3190,7 +3190,8 @@ function defaultConfig() {
       "**/*.json",
       "**/*.{yml,yaml,toml,ini,cfg}",
       "**/*.snap",
-      "**/LICENSE*"
+      "**/LICENSE*",
+      "**/*.txt"
     ]
   };
 }
