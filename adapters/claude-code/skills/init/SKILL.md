@@ -65,6 +65,10 @@ node "${CLAUDE_PLUGIN_ROOT}/ctx.mjs" install instructions
 
 This appends the Context Graph block to AGENTS.md or CLAUDE.md. Agents re-read that every turn, so it's what makes them hydrate before reading, and follow the loop.
 
+## 5. The `ctx` command
+
+If `ctx` isn't on the PATH (`command -v ctx` finds nothing), offer to install it: `node "${CLAUDE_PLUGIN_ROOT}/ctx.mjs" install cli`. It writes a small `ctx` launcher into `~/.local/bin`, which follows plugin updates. The instruction block names plain `ctx` commands, and people use them too. Without it, the hooks still write their commands so they run, so this is a convenience, not a requirement.
+
 Then the person commits `.ctx/`, `.gitattributes` and the instruction file, with `Ctx-Ratified-By: <name>` as a commit trailer when they ratified anything. They run that commit themselves; an agent never writes that trailer.
 
 Report what was set up, what's enforced from now on, and what's still only proposed. Suggest `/context-graph:cards` to start writing cards for the files people work in most.

@@ -8,7 +8,7 @@ import { openRepo, type RepoContext } from '../core/context.js';
 import { buildEmbedIndex, openStore } from '../embed/index.js';
 import { makeProvider } from '../embed/provider.js';
 import { hydrate } from '../hydrate/hydrate.js';
-import { installClaudeUser, installCodexUser, installGitHooks } from '../install/install.js';
+import { installClaudeUser, installCli, installCodexUser, installGitHooks } from '../install/install.js';
 import { INSTRUCTION_BLOCK, appendInstructionBlock } from '../init/instructions.js';
 import { startMcpServer } from '../mcp/server.js';
 import type { CoverageRecord } from '../observe/coverage.js';
@@ -71,7 +71,7 @@ Lifecycle
 Runtime
   ctx serve [--hosted] [--port <n>] [--token <t>]  event server, stream, and the synapse view
   ctx overlay tail                                 one line per live finding, for harness monitors
-  ctx install codex|claude-code|git-hooks|instructions   write harness or repository hooks, or the agent-instruction block
+  ctx install cli|codex|claude-code|git-hooks|instructions   the ctx command on the PATH, harness or repository hooks, or the agent-instruction block
   ctx adopt [--force]                              move a linked graph into the repository's .ctx, where git carries it
   ctx link --graph <dir> [--repo <dir>]            use a graph kept outside the repository
   ctx info
@@ -394,8 +394,9 @@ async function main(): Promise<number> {
       const r = target === 'codex' ? installCodexUser()
         : target === 'claude-code' ? installClaudeUser()
         : target === 'git-hooks' ? installGitHooks(openFromArgs(args).root)
+        : target === 'cli' ? installCli()
         : undefined;
-      if (!r) throw new Error('ctx install codex|claude-code|git-hooks|instructions');
+      if (!r) throw new Error('ctx install cli|codex|claude-code|git-hooks|instructions');
       for (const c of r.changed) console.log(`wrote ${c}`);
       for (const n of r.notes) console.log(`note: ${n}`);
       return 0;

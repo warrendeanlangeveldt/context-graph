@@ -7,6 +7,7 @@ import { INSTRUCTION_HEADING } from '../init/instructions.js';
 import { localServer } from '../overlay/client.js';
 import { ctxHome, repoHash } from '../util/paths.js';
 import { packageRoot } from '../util/root.js';
+import { isOnPath, scriptCommand } from '../util/cli.js';
 
 /**
  * `ctx doctor`: is Context Graph actually working here, and if not, which link is missing. Every
@@ -33,6 +34,10 @@ export function runDoctor(ctx: RepoContext, opts: { now?: number; claudeDir?: st
     if (!ctx.config.ratifiers.length) out.push({ level: 'warn', text: 'ratifiers is empty in config.toml, so nothing proposed can ever be ratified; add your git identity' });
     if (ks.length && proposed === ks.length && !g.decisions.size) out.push({ level: 'warn', text: 'every rule is still proposed and no decision has been recorded: the graph has not started earning its content yet' });
   }
+
+  // 1b. The ctx command. Hooks write commands so they run without it, but the instruction block in
+  // AGENTS.md or CLAUDE.md names plain `ctx`, and so do people.
+  if (!isOnPath('ctx')) out.push({ level: 'warn', text: `the ctx command is not on the PATH: the instruction block tells agents to run ctx commands; install it with ${scriptCommand()} install cli, or npm i -g context-graph` });
 
   // 2. Instruction block.
   const ins = ['AGENTS.md', 'CLAUDE.md'].find((f) => existsSync(join(ctx.root, f)));

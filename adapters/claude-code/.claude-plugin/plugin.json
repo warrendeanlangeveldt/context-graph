@@ -1,8 +1,11 @@
 {
   "name": "context-graph",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "File cards and decision history before reads, read-before-edit, context slices before edits, cards and decisions recorded after, and context observation for any repository",
   "author": {
     "name": "Warren Langeveldt"
-  }
+  },
+  "license": "MIT",
+  "repository": "https://github.com/warrendeanlangeveldt/context-graph",
+  "homepage": "https://github.com/warrendeanlangeveldt/context-graph#readme"
 }

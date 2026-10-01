@@ -23,6 +23,7 @@ import { liveLinesFor, notifyOverlay } from '../overlay/client.js';
 import { hintsFor } from '../embed/hints.js';
 import { hydrate } from '../hydrate/hydrate.js';
 import { factsFor, toolAdapters } from '../tool-adapters/index.js';
+import { ctxCommand, localiseCommands } from '../util/cli.js';
 import type { Envelope } from '../observe/event.js';
 
 /**
@@ -91,7 +92,16 @@ export interface HarnessProfile {
   formatPromptContext(context: string): string;
 }
 
+/**
+ * Every message an agent sees leaves through here. Commands in it (`ctx card …`) are rewritten to run
+ * where this ctx actually is when `ctx` isn't on the PATH, as with a plugin install.
+ */
 export async function runHook(input: HookInput, profile: HarnessProfile): Promise<HookOutput> {
+  const out = await handleHook(input, profile);
+  return out.stdout ? { ...out, stdout: localiseCommands(out.stdout) } : out;
+}
+
+async function handleHook(input: HookInput, profile: HarnessProfile): Promise<HookOutput> {
   const ctx = openRepo({ cwd: input.cwd });
   const root = ctx.root;
   const session = input.session_id || 'unknown';
@@ -552,6 +562,8 @@ export function sessionContext(ctx: RepoContext, injecting: boolean, afterCompac
       : 'Context Graph: observe-only for this session. Reads and edits are recorded; nothing is injected and no decisions are demanded.',
   );
   for (const a of toolAdapters(ctx.root)) { const note = a.sessionNote?.(ctx.root); if (note) lines.push(note); }
+  const cli = ctxCommand();
+  if (!cli.onPath) lines.push(`The ctx command is not installed on this machine, so shell commands here are written as \`${cli.command} …\`. The MCP tools (hydrate, record, card) work either way. To install ctx: ${cli.command} install cli`);
   const aliases = [...g.aliases.values()];
   if (aliases.length) lines.push('Aliases: ' + aliases.map((a) => `${a.alias} = ${a.node}`).join('; '));
   const modules = [...g.logicals.values()].slice(0, 24).map((l) => `${l.id} (${l.name})`);

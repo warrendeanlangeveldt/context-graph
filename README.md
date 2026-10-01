@@ -8,6 +8,18 @@ A standalone plugin for AI coding harnesses that does three things a session can
 
 The design specification is in `docs/design-spec.md`. This README covers why and when to use Context Graph, how to start, and how each part works.
 
+## Quick start
+
+In Claude Code:
+
+```text
+/plugin marketplace add warrendeanlangeveldt/context-graph
+/plugin install context-graph@context-graph
+/context-graph:next
+```
+
+`/context-graph:next` looks at the repository and takes you through the next step. With no graph yet, that means proposing one from your tree, tests and docs, and reviewing it with you. Nothing is enforced until a graph exists. Want to see one first? `examples/booking-service/` is a real one, built by an agent.
+
 ## Why
 
 An agent works out "what good looks like" from whatever it happens to read in a session. That understanding is local, invisible, and lost when the session ends. Two failures follow:
@@ -60,39 +72,40 @@ Not sure what to do? Run `/context-graph:next`, in a new repository or at any po
 
 ## Install
 
-Three ways, none of which point at a particular machine.
+**Requirements:** Node 22.5 or later, and git. Claude Code, or Codex.
 
-**As a Claude Code plugin, from the marketplace in this repository.** The plugin directory carries its own bundled CLI, so nothing has to be built:
+**Claude Code plugin**, from this repository's marketplace. It carries its own bundled CLI, so nothing has to be built:
 
-```
-/plugin marketplace add <owner>/context-graph
+```text
+/plugin marketplace add warrendeanlangeveldt/context-graph
 /plugin install context-graph@context-graph
 ```
 
-A team pins it in the repository's `.claude/settings.json` so everyone gets the same version:
+To update, run `/plugin marketplace update context-graph`, then restart Claude Code: sessions started before an update keep the old hooks. To pin it for a whole team, add it to the repository's `.claude/settings.json`:
 
 ```json
-{ "extraKnownMarketplaces": { "context-graph": { "source": { "source": "github", "repo": "<owner>/context-graph" } } },
-  "enabledPlugins": { "context-graph@context-graph": true } }
+{
+  "extraKnownMarketplaces": { "context-graph": { "source": { "source": "github", "repo": "warrendeanlangeveldt/context-graph" } } },
+  "enabledPlugins": { "context-graph@context-graph": true }
+}
 ```
 
-**As a Codex plugin.** The same repository is a Codex marketplace through `.agents/plugins/marketplace.json`:
+**Codex plugin.** The same repository is a Codex marketplace, through `.agents/plugins/marketplace.json`:
 
 ```sh
-codex plugin marketplace add <owner>/context-graph
+codex plugin marketplace add warrendeanlangeveldt/context-graph
 ```
 
-Codex requires hooks to be trusted once, with `/hooks` inside a session. Plugins do not reach the Codex IDE extension; `ctx install codex` writes user-level hooks for that case.
+Codex asks you to trust hooks once, with `/hooks` inside a session. Plugins don't reach the Codex IDE extension; `ctx install codex` writes user-level hooks for that case.
 
-**As an npm package**, for the `ctx` command line, CI, the server, and the view:
+**The `ctx` command.** A plugin install doesn't put `ctx` on your PATH. The hooks cope: they write every command they give an agent so it runs anyway. To have `ctx` for yourself, and for the plain `ctx` commands the instruction block names, use one of:
 
 ```sh
-npm pack                            # a tarball with dist/, adapters/, packs/, and the built view
-npm install -g ./context-graph-0.1.0.tgz
-ctx --help
+npm i -g context-graph                    # from npm (in-process embeddings are a separate install: npm i -g @huggingface/transformers)
+node <plugin dir>/ctx.mjs install cli     # or a launcher in ~/.local/bin that follows plugin updates
 ```
 
-The package is marked private until a registry and scope are chosen; remove that flag to publish.
+`/context-graph:init` offers the second, and `ctx doctor` tells you when `ctx` is missing.
 
 ## Build from a clone
 
@@ -103,7 +116,7 @@ npm run bundle                      # the single-file CLI each adapter directory
 cd view && npm install && npm run build   # the synapse view, served by ctx serve
 ```
 
-Node 22.5 or later, for the built-in SQLite the vector store uses. Installing pulls the ONNX runtime for in-process embeddings, which is about 200MB on disk; hooks never load it unless embeddings are enabled.
+Node 22.5 or later, for the built-in SQLite the vector store uses. The ONNX runtime for in-process embeddings (about 350MB on disk) is an optional peer dependency, installed only when you want it; hooks never load it unless embeddings are enabled.
 
 ## Give a repository a graph
 
@@ -130,7 +143,7 @@ What a bootstrap finds, in order of how much it is worth: the repository's own r
 ## Use it in Claude Code
 
 ```sh
-claude --plugin-dir ~/workspace/context-graph/adapters/claude-code
+claude --plugin-dir <clone>/adapters/claude-code     # straight from a clone, without the marketplace
 ```
 
 Or, without the plugin directory, `ctx install claude-code` writes the hooks into your user settings and prints the MCP registration command. The plugin registers the hooks, the `ctx` MCP server and the skills. What a session then sees:
@@ -342,3 +355,7 @@ F <path> <hash> <date> <who> <text> [req:<id>,<id>]     file card (cards.ctx); f
 Rules a constraint can carry: `noimport:<A>:<B>` and `public-entry:<A>`, evaluated against the import graph. Test files are excluded unless the rule ends in `+tests`.
 
 See `examples/booking-service/` for a complete example: the code, and the graph, decisions and cards an agent built around it (its README says how to try it). `packs/` holds the style packs.
+
+## Licence
+
+MIT. See [LICENSE](LICENSE). To report a security problem, see [SECURITY.md](SECURITY.md).

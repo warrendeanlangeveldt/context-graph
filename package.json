@@ -1,10 +1,25 @@
 {
   "name": "context-graph",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Per-edit context slices, decision recording, and context observation for any repository and any AI coding harness",
+  "license": "MIT",
+  "author": "Warren Langeveldt",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/warrendeanlangeveldt/context-graph.git"
+  },
+  "homepage": "https://github.com/warrendeanlangeveldt/context-graph#readme",
+  "bugs": "https://github.com/warrendeanlangeveldt/context-graph/issues",
+  "keywords": [
+    "claude-code",
+    "claude-code-plugin",
+    "codex",
+    "ai-agents",
+    "context",
+    "architecture-decision-records",
+    "mcp"
+  ],
   "type": "module",
-  "license": "UNLICENSED",
-  "private": true,
   "contextGraph": true,
   "bin": {
     "ctx": "./dist/cli/main.js"
@@ -15,7 +30,9 @@
     "packs",
     "view/dist",
     "README.md",
-    "docs/design-spec.md"
+    "docs/design-spec.md",
+    "LICENSE",
+    "SECURITY.md"
   ],
   "engines": {
     "node": ">=22.5"
@@ -34,18 +51,26 @@
     "ctx": "node dist/cli/main.js"
   },
   "dependencies": {
-    "@huggingface/transformers": "^3.0.0",
     "@modelcontextprotocol/sdk": "^1.12.0",
     "picomatch": "^4.0.2",
     "ws": "^8.21.3",
     "zod": "^3.24.0"
   },
   "devDependencies": {
+    "@huggingface/transformers": "^3.0.0",
     "@types/node": "^22.15.0",
     "@types/picomatch": "^3.0.2",
     "@types/ws": "^8.18.1",
     "esbuild": "^0.25.0",
     "typescript": "^5.8.0",
     "vitest": "^3.1.0"
+  },
+  "peerDependencies": {
+    "@huggingface/transformers": "^3.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@huggingface/transformers": {
+      "optional": true
+    }
   }
 }

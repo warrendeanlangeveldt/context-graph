@@ -23,6 +23,7 @@ Lead with the answer, in a few lines:
    - the instruction block is missing: `ctx install instructions`;
    - the hooks aren't firing: sessions started before the plugin was installed or updated never loaded them. Trust them with `/hooks`, then start a new session;
    - the plugin is older than the source: update it.
+   - `ctx` isn't on the PATH: `ctx install cli`, or `npm i -g context-graph`.
 2. **Validity.** For any `check` errors, say what each means and how to fix it.
 3. **What it holds:** modules, rules (how many still proposed), decisions, and cards (current, stale, missing).
 4. **The last session:**
