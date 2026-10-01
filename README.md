@@ -1,6 +1,6 @@
 # Context Graph
 
-A standalone plugin for AI coding harnesses that does three things a session cannot do for itself:
+A plugin for Claude Code and Codex that gives AI coding agents the why behind a codebase, and makes them keep it. It does three things a session cannot do for itself:
 
 1. **Observes** what context the agent actually built before each change: which files it read in full, which it saw only through grep, which it edited on the strength of a name alone, and which of the edited file's callers were ever in context.
 2. **Anchors** the engineering context that should have applied, in a small graph kept in git, and injects the applicable slice at the moment the agent is about to edit a file. Before a turn ends, it asks for one decision per constrained file: what changed, and why, pointing at the constraint or concept the change honours.
