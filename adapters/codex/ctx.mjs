@@ -35336,7 +35336,7 @@ function runDoctor(ctx, opts = {}) {
     if (!ctx.config.ratifiers.length) out.push({ level: "warn", text: "ratifiers is empty in config.toml, so nothing proposed can ever be ratified; add your git identity" });
     if (ks.length && proposed === ks.length && !g.decisions.size) out.push({ level: "warn", text: "every rule is still proposed and no decision has been recorded: the graph has not started earning its content yet" });
   }
-  if (!isOnPath("ctx")) out.push({ level: "warn", text: `the ctx command is not on the PATH: the instruction block tells agents to run ctx commands; install it with ${scriptCommand()} install cli, or npm i -g context-graph` });
+  if (!isOnPath("ctx")) out.push({ level: "warn", text: `the ctx command is not on the PATH: the instruction block tells agents to run ctx commands; install it with ${scriptCommand()} install cli, or npm i -g @warren-dean/context-graph` });
   const ins = ["AGENTS.md", "CLAUDE.md"].find((f) => existsSync28(join27(ctx.root, f)));
   if (!ins) out.push({ level: "warn", text: "no AGENTS.md or CLAUDE.md: the agent is never told to hydrate before reading; ctx install instructions writes the block once one exists" });
   else if (!readFileSync26(join27(ctx.root, ins), "utf8").includes(INSTRUCTION_HEADING)) out.push({ level: "warn", text: `${ins} lacks the Context Graph block: run ctx install instructions` });
