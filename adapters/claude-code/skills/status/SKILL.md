@@ -23,7 +23,7 @@ Lead with the answer, in a few lines:
    - the instruction block is missing: `ctx install instructions`;
    - the hooks aren't firing: sessions started before the plugin was installed or updated never loaded them. Exit and resume with `claude --resume`;
    - the plugin is older than the source: update it.
-   - `ctx` isn't on the PATH: `node "${CLAUDE_PLUGIN_ROOT}/ctx.mjs" install cli`, or `npm i -g context-graph`.
+   - `ctx` isn't on the PATH: `node "${CLAUDE_PLUGIN_ROOT}/ctx.mjs" install cli`, or `npm i -g @warren-dean/context-graph`.
 2. **Validity.** For any `check` errors, say what each means and how to fix it.
 3. **What it holds:** modules, rules (how many still proposed), decisions, and cards (current, stale, missing).
 4. **The last session:**

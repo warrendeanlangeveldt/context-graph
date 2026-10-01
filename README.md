@@ -101,7 +101,7 @@ Codex asks you to trust hooks once, with `/hooks` inside a session. Plugins don'
 **The `ctx` command.** A plugin install doesn't put `ctx` on your PATH. The hooks cope: they write every command they give an agent so it runs anyway. To have `ctx` for yourself, and for the plain `ctx` commands the instruction block names, use one of:
 
 ```sh
-npm i -g context-graph                    # from npm (in-process embeddings are a separate install: npm i -g @huggingface/transformers)
+npm i -g @warren-dean/context-graph                    # from npm (in-process embeddings are a separate install: npm i -g @huggingface/transformers)
 node <plugin dir>/ctx.mjs install cli     # or a launcher in ~/.local/bin that follows plugin updates
 ```
 
