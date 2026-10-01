@@ -1,0 +1,28 @@
+# Context Graph
+
+> A plugin for Claude Code and Codex that gives coding agents the context a codebase's code doesn't state, and makes them keep it. It holds the "why" outside any session, in a small graph committed with the code: modules, rules, concepts, decisions, and file cards. Before an edit, it puts the part that applies in front of the agent, including rules and decisions on the files the edited file imports. It refuses an edit until the file is understood, through its current card or a full read. After the edit, it asks for the card and decision. It also records what each agent actually read. MIT licensed.
+
+Install in Claude Code with `/plugin marketplace add warrendeanlangeveldt/context-graph`, then `/plugin install context-graph@context-graph`. Start with `/context-graph:next`. In Codex: `codex plugin marketplace add warrendeanlangeveldt/context-graph`. Requires Node 22.5 or later, and git. With no `.ctx/` graph in a repository, it only observes.
+
+Measured effect (ctx-bench-lab, Claude Haiku 4.5, 3 runs): rules that existed only as recorded decisions were applied 78% of the time with Context Graph against 17% without; earlier features still passed 88% against 73%; at about 2.5 times the tokens and time.
+
+## Docs
+
+- [README](https://raw.githubusercontent.com/warrendeanlangeveldt/context-graph/main/README.md): why, when to use it, the context loop, every skill and command, the graph grammar
+- [Design specification](https://raw.githubusercontent.com/warrendeanlangeveldt/context-graph/main/docs/design-spec.md): principles, graph format, walker, observation, decisions, cards (§9.5), context through imports (§7.4), the merge gate, harness and tool adapters
+- [Example](https://raw.githubusercontent.com/warrendeanlangeveldt/context-graph/main/examples/booking-service/README.md): a booking service an agent built under the context loop, with its graph, decisions and cards
+
+## Skills
+
+- [next](https://raw.githubusercontent.com/warrendeanlangeveldt/context-graph/main/adapters/claude-code/skills/next/SKILL.md): the one command; picks and runs the next step
+- [init](https://raw.githubusercontent.com/warrendeanlangeveldt/context-graph/main/adapters/claude-code/skills/init/SKILL.md): propose a graph from the tree, tests, instruction files and ADRs, and review it with the person
+- [cards](https://raw.githubusercontent.com/warrendeanlangeveldt/context-graph/main/adapters/claude-code/skills/cards/SKILL.md): write the file cards and decisions the work owes, from a full read
+- [curate](https://raw.githubusercontent.com/warrendeanlangeveldt/context-graph/main/adapters/claude-code/skills/curate/SKILL.md): ratify, reword, retire and archive, with the person deciding
+- [status](https://raw.githubusercontent.com/warrendeanlangeveldt/context-graph/main/adapters/claude-code/skills/status/SKILL.md): is it working, what it holds, what the last session did
+- [ctx](https://raw.githubusercontent.com/warrendeanlangeveldt/context-graph/main/adapters/claude-code/skills/ctx/SKILL.md): why a file is the way it is, what applies, what was decided
+
+## Optional
+
+- [MCP tools](https://raw.githubusercontent.com/warrendeanlangeveldt/context-graph/main/src/mcp/server.ts): hydrate, applies, why, history, record, card, coverage, check
+- [Security policy](https://raw.githubusercontent.com/warrendeanlangeveldt/context-graph/main/SECURITY.md)
+- [code-kit](https://github.com/warrendeanlangeveldt/code-kit): the companion plugin for lanes, layers, specs and CI; each has an adapter for the other

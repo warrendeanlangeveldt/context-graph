@@ -14,8 +14,13 @@
         "context",
         "architecture",
         "decisions",
-        "observability"
-      ]
+        "observability",
+        "context-engineering",
+        "adr",
+        "mcp"
+      ],
+      "license": "MIT"
     }
-  ]
+  ],
+  "description": "Context Graph: the why behind a codebase, kept in git and delivered to coding agents before they edit"
 }
