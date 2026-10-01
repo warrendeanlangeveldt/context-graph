@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.png">
-    <img src="assets/logo.png" alt="Context Graph" width="380">
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/warrendeanlangeveldt/context-graph/main/assets/logo-dark.png">
+    <img src="https://raw.githubusercontent.com/warrendeanlangeveldt/context-graph/main/assets/logo.png" alt="Context Graph" width="380">
   </picture>
 </p>
 
@@ -14,7 +14,7 @@ A plugin for Claude Code and Codex that gives AI coding agents the why behind a 
 3. **Closes the loop** around every edit. Before it, the file must be understood: either through its **card** (the file's why, kept current with a content hash), or by reading it in full with what it imports. An edit without that is refused, with the list of what to read. After it, the card is written or brought up to date. Understanding then builds up per file, so the next agent starts from the why instead of rediscovering it.
 
 <p align="center">
-  <img src="assets/loop.svg" alt="How Context Graph works: context kept in git (modules and concepts, rules and constraints, decision history, file cards) is delivered to the agent; before an edit the file needs a fresh card or sufficient reading, and an edit with missing context is refused until the agent reads the file and its dependencies; the agent makes the change, then refreshes the card and records the decisions required, back into git. Reads, searches and edits are observed for each agent." width="820">
+  <img src="https://raw.githubusercontent.com/warrendeanlangeveldt/context-graph/main/assets/loop.svg" alt="How Context Graph works: context kept in git (modules and concepts, rules and constraints, decision history, file cards) is delivered to the agent; before an edit the file needs a fresh card or sufficient reading, and an edit with missing context is refused until the agent reads the file and its dependencies; the agent makes the change, then refreshes the card and records the decisions required, back into git. Reads, searches and edits are observed for each agent." width="820">
 </p>
 
 The design specification is in `docs/design-spec.md`. This README covers why and when to use Context Graph, how to start, and how each part works.
