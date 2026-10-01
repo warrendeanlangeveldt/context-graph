@@ -1,7 +1,7 @@
 {
   "name": "@warren-dean/context-graph",
-  "version": "0.2.4",
-  "description": "Per-edit context slices, decision recording, and context observation for any repository and any AI coding harness",
+  "version": "0.2.5",
+  "description": "Gives AI coding agents the why behind your code, and makes them keep it: file cards, rules and decisions kept in git and delivered before every edit, for Claude Code and Codex",
   "license": "MIT",
   "author": "Warren Langeveldt",
   "repository": {
