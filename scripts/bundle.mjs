@@ -37,7 +37,7 @@ await build({
   external: ['@huggingface/transformers', 'onnxruntime-node', 'bufferutil', 'utf-8-validate', 'sharp'],
   legalComments: 'none',
   logLevel: 'warning',
-  define: { 'process.env.CTX_BUNDLED': '"1"' },
+  define: { 'process.env.CTX_BUNDLED': '"1"', __CTX_VERSION__: JSON.stringify(version) },
 });
 
 if (check) {

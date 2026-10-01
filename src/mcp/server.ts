@@ -17,6 +17,7 @@ import { ObservationStore, SessionState } from '../observe/store.js';
 import { commitOf } from '../record/provenance.js';
 import { RecordError, Recorder } from '../record/recorder.js';
 import { currentBranch, gitPerson } from '../util/git.js';
+import { ctxVersion } from '../util/version.js';
 import { renderSlice } from '../walker/slice.js';
 import { walk } from '../walker/walk.js';
 
@@ -26,7 +27,12 @@ import { walk } from '../walker/walk.js';
  * pushed and what the agent went and found stays visible.
  */
 export async function startMcpServer(opts: { agent: string; repo?: string; graph?: string }): Promise<void> {
-  const server = new McpServer({ name: 'ctx', version: '0.1.0' });
+  await createMcpServer(opts).connect(new StdioServerTransport());
+}
+
+/** The server with every tool registered, not yet connected (tests connect it in memory). */
+export function createMcpServer(opts: { agent: string; repo?: string; graph?: string }): McpServer {
+  const server = new McpServer({ name: 'ctx', version: ctxVersion() });
   // The harness does not tell an MCP server which session it serves; the hooks' recorded ancestry does.
   let resolved: string | undefined;
   const sessionFor = (ctx: RepoContext): string => {
@@ -243,7 +249,7 @@ export async function startMcpServer(opts: { agent: string; repo?: string; graph
     },
   );
 
-  await server.connect(new StdioServerTransport());
+  return server;
 }
 
 function today(): string {
