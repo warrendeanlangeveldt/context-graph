@@ -29,6 +29,7 @@ import { renderSlice } from '../walker/slice.js';
 import { walk } from '../walker/walk.js';
 import { extraCommands } from './commands.js';
 import { formatDoctor, runDoctor } from './doctor.js';
+import { ctxVersion } from '../util/version.js';
 
 const USAGE = `ctx — Context Graph
 
@@ -77,6 +78,7 @@ Runtime
   ctx info
   ctx hook --harness claude-code|codex [--agent <name>]
   ctx mcp [--agent <name>]
+  ctx version | --version                          the installed version
 
 Global: --repo <dir>  --graph <dir>  --json`;
 
@@ -125,7 +127,12 @@ async function main(): Promise<number> {
     case '':
     case 'help':
     case '--help':
+      if (args.flags.version === true) { console.log(ctxVersion()); return 0; }
       console.log(USAGE);
+      return 0;
+
+    case 'version':
+      console.log(ctxVersion());
       return 0;
 
     case 'info': {
