@@ -1,0 +1,102 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 920" width="1280" height="920" role="img" aria-labelledby="title desc">
+  <title id="title">How Context Graph works</title>
+  <desc id="desc">Context is kept in git: modules and concepts, rules and constraints, decision history and file cards. 1: the relevant rules, cards and previous decisions are delivered to the agent. 2: before an edit, the file needs a fresh card or sufficient reading; when context is missing, the edit is refused until the agent has read the file and its relevant dependencies. 3: the agent makes the change. 4: it refreshes the card and records the decisions required, back into git. Reads, searches and edits are observed separately for each agent.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#5b6470"/>
+    </marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; fill: #1f2933; }
+      .title { font-size: 54px; font-weight: 800; fill: #111827; }
+      .subtitle { font-size: 25px; font-weight: 600; fill: #3f4752; }
+      .head { font-size: 25px; font-weight: 700; }
+      .body { font-size: 19px; fill: #3f4752; }
+      .small { font-size: 18px; font-weight: 600; }
+      .note { font-size: 16px; fill: #3f4752; }
+      .num { font-size: 26px; font-weight: 700; fill: #1f4f45; }
+      .item { font-size: 19px; fill: #2c343d; }
+      .caption { font-size: 20px; fill: #4b5563; }
+      .box { fill: #f5f9f8; stroke: #8fa3a6; stroke-width: 1.8; }
+      .git { fill: #e5f3ef; stroke: #8cc1b2; stroke-width: 2; }
+      .pill { fill: #ffffff; stroke: #c6ded7; stroke-width: 1.5; }
+      .badge { fill: #c8e8df; }
+      .line { fill: none; stroke: #5b6470; stroke-width: 2.2; }
+    </style>
+  </defs>
+  <rect width="1280" height="920" rx="24" fill="#ffffff"/>
+
+  <text class="title" x="640" y="78" text-anchor="middle">Context Graph</text>
+  <text class="subtitle" x="640" y="122" text-anchor="middle">Delivers engineering context and preserves what agents learn</text>
+
+  <!-- 1. deliver -->
+  <rect class="box" x="400" y="164" width="440" height="108" rx="10"/>
+  <circle class="badge" cx="452" cy="218" r="26"/>
+  <text class="num" x="452" y="227" text-anchor="middle">1</text>
+  <text class="head" x="494" y="208">Deliver relevant context</text>
+  <text class="body" x="494" y="242">Rules, cards and previous decisions</text>
+
+  <!-- the store -->
+  <rect class="git" x="486" y="338" width="268" height="262" rx="12"/>
+  <text class="head" x="620" y="378" text-anchor="middle">Context kept in git</text>
+  <rect class="pill" x="503" y="396" width="234" height="40" rx="7"/>
+  <text class="item" x="620" y="423" text-anchor="middle">Modules &amp; concepts</text>
+  <rect class="pill" x="503" y="444" width="234" height="40" rx="7"/>
+  <text class="item" x="620" y="471" text-anchor="middle">Rules &amp; constraints</text>
+  <rect class="pill" x="503" y="492" width="234" height="40" rx="7"/>
+  <text class="item" x="620" y="519" text-anchor="middle">Decision history</text>
+  <rect class="pill" x="503" y="540" width="234" height="40" rx="7"/>
+  <text class="item" x="620" y="567" text-anchor="middle">File cards</text>
+  <path class="line" d="M620 338 V278" marker-end="url(#arrow)"/>
+
+  <!-- 2. check -->
+  <rect class="box" x="850" y="392" width="390" height="108" rx="10"/>
+  <circle class="badge" cx="902" cy="446" r="26"/>
+  <text class="num" x="902" y="455" text-anchor="middle">2</text>
+  <text class="head" x="944" y="436">Check before editing</text>
+  <text class="body" x="944" y="470">Fresh card or sufficient reading</text>
+  <path class="line" d="M840 218 H848 Q862 218 862 232 V386" marker-end="url(#arrow)"/>
+  <path class="line" d="M754 446 H844" marker-end="url(#arrow)"/>
+
+  <!-- missing context: read, then try again -->
+  <path class="line" d="M945 392 V292" marker-end="url(#arrow)"/>
+  <rect class="box" x="880" y="196" width="130" height="90" rx="10"/>
+  <text class="small" x="945" y="236" text-anchor="middle">Missing</text>
+  <text class="small" x="945" y="260" text-anchor="middle">context?</text>
+  <path class="line" d="M1010 241 H1070" marker-end="url(#arrow)"/>
+  <rect class="box" x="1076" y="186" width="164" height="110" rx="10"/>
+  <text class="small" x="1158" y="226" text-anchor="middle">Read file &amp;</text>
+  <text class="small" x="1158" y="250" text-anchor="middle">relevant</text>
+  <text class="small" x="1158" y="274" text-anchor="middle">dependencies</text>
+  <path class="line" d="M1158 296 V340 Q1158 352 1146 352 H1112 Q1100 352 1100 364 V386" marker-end="url(#arrow)"/>
+  <text class="note" x="1038" y="322" text-anchor="middle">Refuse edit until</text>
+  <text class="note" x="1038" y="341" text-anchor="middle">sufficient reading</text>
+
+  <!-- 3. change -->
+  <rect class="box" x="420" y="648" width="420" height="84" rx="10"/>
+  <circle class="badge" cx="472" cy="690" r="26"/>
+  <text class="num" x="472" y="699" text-anchor="middle">3</text>
+  <text class="head" x="514" y="699">Agent makes the change</text>
+  <path class="line" d="M960 500 V650 Q960 690 920 690 H846" marker-end="url(#arrow)"/>
+
+  <!-- 4. preserve -->
+  <rect class="box" x="24" y="392" width="432" height="118" rx="10"/>
+  <circle class="badge" cx="72" cy="446" r="26"/>
+  <text class="num" x="72" y="455" text-anchor="middle">4</text>
+  <text class="head" x="112" y="436">Preserve the understanding</text>
+  <text class="body" x="112" y="468">Refresh the card; record the</text>
+  <text class="body" x="112" y="494">decisions required</text>
+  <path class="line" d="M420 690 H275 Q235 690 235 650 V516" marker-end="url(#arrow)"/>
+  <path class="line" d="M456 446 H480" marker-end="url(#arrow)"/>
+
+  <!-- observation -->
+  <rect class="git" x="150" y="772" width="980" height="62" rx="10"/>
+  <g transform="translate(290 787)" fill="none" stroke="#2c343d" stroke-width="2" stroke-linejoin="round">
+    <path d="M0 0 H18 L26 8 V32 H0 z"/>
+    <path d="M18 0 V8 H26"/>
+    <path d="M6 16 H20 M6 22 H20 M6 28 H14"/>
+  </g>
+  <text class="head" x="336" y="812" style="font-size:22px">Observe reads, searches &amp; edits separately for each agent</text>
+  <path class="line" d="M1100 772 V506" marker-end="url(#arrow)"/>
+
+  <text class="caption" x="640" y="890" text-anchor="middle">Understanding carries forward across stories and sessions.</text>
+</svg>
