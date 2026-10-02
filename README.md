@@ -13,6 +13,8 @@ A plugin for Claude Code and Codex that gives AI coding agents the why behind a 
 2. **Anchors** the engineering context that should have applied, in a small graph kept in git, and injects the applicable slice at the moment the agent is about to edit a file. Before a turn ends, it asks for one decision per constrained file: what changed, and why, pointing at the constraint or concept the change honours.
 3. **Closes the loop** around every edit. Before it, the file must be understood: either through its **card** (the file's why, kept current with a content hash), or by reading it in full with what it imports. An edit without that is refused, with the list of what to read. After it, the card is written or brought up to date. Understanding then builds up per file, so the next agent starts from the why instead of rediscovering it.
 
+**Pairs with [code-kit](https://github.com/warrendeanlangeveldt/code-kit).** Context Graph explains why a file is the way it is; code-kit decides who may change it, and what has to be proved. code-kit gives each lane agent its own paths, layer rules and a spec-check before code, enforced by hooks and in CI. Each detects the other: with both, a file's card and slice carry its spec requirement and layer rule. See [Working alongside code-kit](#working-alongside-code-kit).
+
 <p align="center">
   <img src="https://raw.githubusercontent.com/warrendeanlangeveldt/context-graph/main/assets/loop.svg" alt="How Context Graph works: context kept in git (modules and concepts, rules and constraints, decision history, file cards) is delivered to the agent; before an edit the file needs a fresh card or sufficient reading, and an edit with missing context is refused until the agent reads the file and its dependencies; the agent makes the change, then refreshes the card and records the decisions required, back into git. Reads, searches and edits are observed for each agent." width="820">
 </p>
@@ -117,6 +119,13 @@ node <plugin dir>/ctx.mjs install cli     # or a launcher in ~/.local/bin that f
 ```
 
 `/context-graph:init` offers the second, and `ctx doctor` tells you when `ctx` is missing.
+
+**Its companion, [code-kit](https://github.com/warrendeanlangeveldt/code-kit)** (Claude Code), installs the same way. Nothing needs configuring between the two:
+
+```text
+/plugin marketplace add warrendeanlangeveldt/code-kit
+/plugin install code-kit@code-kit
+```
 
 ## Build from a clone
 
