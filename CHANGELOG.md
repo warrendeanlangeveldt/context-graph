@@ -2,6 +2,10 @@
 
 What changed in each release of Context Graph, newest first. Versions follow the plugin manifests and the npm package `@warren-dean/context-graph`. Each release is also on [GitHub Releases](https://github.com/warrendeanlangeveldt/context-graph/releases).
 
+## 0.2.10 (2026-10-04)
+
+- **Changelog:** `CHANGELOG.md` now ships in the npm package, covering every release, and the README links to it.
+
 ## 0.2.9 (2026-10-04)
 
 - **Delegated ratification:** a repository's `.ctx/config.toml` can name a delegated ratifier, and the kinds it may ratify (`[delegate] ratifier`, `may_ratify`). This is for a lead that runs without a person watching.
