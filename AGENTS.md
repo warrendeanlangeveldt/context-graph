@@ -31,6 +31,7 @@ After any change under `src/`, run `npm run bundle` and commit the rebuilt `adap
 - Every behaviour change gets a test, end to end where it touches hooks (`src/enforce/loop.test.ts` and `src/adapters/*/hook.test.ts`).
 - Refusals and asks say why, and what to do instead, in sentences an agent can act on.
 - Keep the README's commands and the design spec in step with the code.
+- Every release adds an entry at the top of `CHANGELOG.md`: the version, the date, and what changed for someone using Context Graph, in plain sentences. The GitHub Release notes use the same text.
 
 ## Context Graph
 

@@ -390,6 +390,10 @@ Rules a constraint can carry: `noimport:<A>:<B>` and `public-entry:<A>`, evaluat
 
 See `examples/booking-service/` for a complete example: the code, and the graph, decisions and cards an agent built around it (its README says how to try it). `packs/` holds the style packs.
 
+## Changes
+
+What changed in each release is in [CHANGELOG.md](https://github.com/warrendeanlangeveldt/context-graph/blob/main/CHANGELOG.md), and on [GitHub Releases](https://github.com/warrendeanlangeveldt/context-graph/releases).
+
 ## Licence
 
 MIT. See [LICENSE](LICENSE). To report a security problem, see [SECURITY.md](SECURITY.md).
