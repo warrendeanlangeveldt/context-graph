@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { RepoContext } from '../core/context.js';
+import type { DelegateKind, RepoContext } from '../core/context.js';
 import { DECISIONS_FILE, GRAPH_FILE, Graph, PROPOSALS_FILE } from '../graph/graph.js';
 import { parseLine } from '../graph/parse.js';
 import type { DRecord, GraphRecord } from '../graph/records.js';
@@ -19,13 +19,49 @@ import { violationsFor } from './conformance.js';
  */
 export interface RatifyResult { ratified: string[]; missing: string[]; legacy: DRecord[]; trailer: string }
 
-export function ratify(ctx: RepoContext, ids: string[], opts: { all?: boolean; today?: string } = {}): RatifyResult {
+/** The kind of a proposed record, for the delegated ratifier's rules; edges are never delegated. */
+function kindOf(rec: GraphRecord): DelegateKind | 'edges' | undefined {
+  if (rec.kind === 'K' && rec.mode === 'G?') return rec.test ? 'enforced' : 'guidance';
+  if (rec.kind === 'C' && rec.proposed) return 'concepts';
+  if (rec.kind === 'E' && rec.proposed) return 'edges';
+  return undefined;
+}
+
+/**
+ * With `delegated`, the project's delegated ratifier ratifies on its own: only the kinds its rules
+ * allow, all or nothing, each recorded as a decision naming it, the rule and the reason.
+ */
+export function ratify(
+  ctx: RepoContext,
+  ids: string[],
+  opts: { all?: boolean; today?: string; delegated?: { reason: string } } = {},
+): RatifyResult {
   const dir = ctx.graphDir;
   if (!dir || !ctx.graph) throw new Error('no graph to ratify in');
   const graphFile = join(dir, GRAPH_FILE);
   const proposalsFile = join(dir, PROPOSALS_FILE);
   const today = opts.today ?? new Date().toISOString().slice(0, 10);
   const wanted = new Set(ids);
+  const delegate = opts.delegated ? ctx.config.delegate : undefined;
+  if (opts.delegated) {
+    if (!delegate) throw new Error('This repository delegates no ratification ([delegate] ratifier isn\'t set in .ctx/config.toml). A person ratifies.');
+    if (!opts.delegated.reason.trim()) throw new Error('A delegated ratification needs --reason "<why it should hold>".');
+    const outside: string[] = [];
+    for (const file of [graphFile, proposalsFile]) {
+      if (!existsSync(file)) continue;
+      readFileSync(file, 'utf8').split('\n').forEach((raw, i) => {
+        let rec: GraphRecord | null = null;
+        try { rec = parseLine(raw, i + 1, file); } catch { return; }
+        if (!rec) return;
+        const key = keyOf(rec);
+        const kind = kindOf(rec);
+        if (!kind || !(opts.all || (key && wanted.has(key)))) return;
+        if (kind === 'edges' || !delegate.mayRatify.includes(kind)) outside.push(`${key} (${kind})`);
+      });
+    }
+    if (outside.length)
+      throw new Error(`Nothing was ratified. The delegated ratifier may ratify ${delegate.mayRatify.join(', ') || 'nothing'}, so a person ratifies these: ${outside.join(', ')}.`);
+  }
   const ratified: string[] = [];
   const legacy: DRecord[] = [];
   const index = loadOrBuildImportIndex(ctx.root);
@@ -56,6 +92,17 @@ export function ratify(ctx: RepoContext, ids: string[], opts: { all?: boolean; t
       } else if (rec.kind === 'C') { out = { ...rec }; delete (out as { proposed?: boolean }).proposed; delete (out as { since?: string }).since; }
       else if (rec.kind === 'E') { out = { ...rec }; delete (out as { proposed?: boolean }).proposed; delete (out as { since?: string }).since; }
       ratified.push(key ?? raw);
+      if (delegate) {
+        const kind = kindOf(rec)!;
+        const d: DRecord = {
+          kind: 'D', id: graph.nextDecisionId(), date: today, who: `${delegate.ratifier}/delegated`, sha: '-', branch: 'ratify',
+          node: rec.kind === 'K' ? rec.attachedTo : `C:${(rec as { id: string }).id.replace(/^C:/, '')}`,
+          serves: rec.kind === 'K' ? rec.id : `C:${(rec as { id: string }).id.replace(/^C:/, '')}`,
+          text: `ratified ${key} (delegated: ${kind}): ${opts.delegated!.reason.trim()}`, line: 0,
+        };
+        graph.addDecision(d);
+        legacy.push(d);
+      }
       if (file === proposalsFile) moved.push(formatRecord(out)); else kept.push(formatRecord(out));
     }
     return { kept, moved };
@@ -76,7 +123,8 @@ export function ratify(ctx: RepoContext, ids: string[], opts: { all?: boolean; t
 
   const missing = ids.filter((id) => !ratified.includes(id));
   const person = gitPerson(ctx.root);
-  return { ratified, missing, legacy, trailer: `Ctx-Ratified-By: ${person}` };
+  const by = delegate ? `${delegate.ratifier} (delegated)` : person;
+  return { ratified, missing, legacy, trailer: `Ctx-Ratified-By: ${by}` };
 }
 
 function keyOf(r: GraphRecord): string | undefined {

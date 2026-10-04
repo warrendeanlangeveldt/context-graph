@@ -48,7 +48,7 @@ Graph
   ctx record --node <n> --serves <id> --text "<why>" [--overrides <k-id>] [--agent <name>]
   ctx card <path> --text "<why the file exists>" [--req ID,ID]   write or update a file's card
   ctx retire <id> --reason "<why>" [--succ <id>]   retire a constraint or concept
-  ctx ratify <id>...                               accept proposed records
+  ctx ratify <id>... [--delegated --reason "…"]    accept proposed records (the delegated ratifier: within [delegate])
   ctx provenance                                   which of this branch's decisions are committed, and where
 
 Observation

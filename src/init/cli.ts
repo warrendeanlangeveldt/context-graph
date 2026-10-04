@@ -18,6 +18,11 @@ const CONFIG_TEMPLATE = `# Context Graph configuration. See docs/design-spec.md 
 ratifiers = [{RATIFIERS}]  # git identities (email local part or name) allowed to ratify concepts and enforced constraints
 default_branch = "main"
 
+# A lead that runs without a person watching may ratify some kinds on its own (ctx ratify --delegated):
+# [delegate]
+# ratifier = "<agent identity>"
+# may_ratify = ["guidance"]   # of guidance, enforced, concepts, retirements
+
 [slice]
 enabled = true            # true | false (observe-only) | "random:0.5"
 max_tokens = 300
@@ -148,7 +153,8 @@ async function doRatify(args: Args, env: { json: boolean }): Promise<number> {
   const ids = args.positional;
   const all = args.flags['all-proposed'] === true;
   if (!ids.length && !all) throw new Error('ctx ratify <id>... | --all-proposed');
-  const r = ratify(ctx, ids, { all });
+  const reason = str(args.flags.reason);
+  const r = ratify(ctx, ids, { all, ...(args.flags.delegated === true ? { delegated: { reason: reason ?? '' } } : {}) });
   if (env.json) { console.log(JSON.stringify(r, null, 2)); return r.missing.length ? 1 : 0; }
   for (const id of r.ratified) console.log(`ratified ${id}`);
   for (const d of r.legacy) console.log(`legacy   ${d.id} on ${d.node}: ${d.text}`);

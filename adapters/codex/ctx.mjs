@@ -3160,6 +3160,7 @@ function defaultConfig() {
     overlayUrl: "",
     defaultBranch: "main",
     ratifiers: [],
+    delegate: null,
     gate: { staleBasis: "warn", contextMoved: "warn", testCommand: "", cards: "warn" },
     hygiene: { archiveAfterDays: 90, dormantAfterDays: 180, overrideStreak: 3, proposalTtlDays: 30 },
     serve: { port: 7399, bufferEvents: 5e4 },
@@ -3278,16 +3279,29 @@ function loadConfig(graphDir) {
       for (const [k, v] of Object.entries(bindings)) if (typeof v === "string") cfg.packBindings[k] = v;
     }
   };
-  if (graphDir) apply(join3(graphDir, "config.toml"));
+  if (graphDir) {
+    apply(join3(graphDir, "config.toml"));
+    cfg.delegate = delegateFrom(join3(graphDir, "config.toml"));
+  }
   apply(join3(ctxHome(), "config.toml"));
   return cfg;
 }
+function delegateFrom(file) {
+  if (!existsSync4(file)) return null;
+  const t = parseToml(readFileSync3(file, "utf8"));
+  const ratifier = tomlGet(t, "delegate", "ratifier", "").trim();
+  if (!ratifier) return null;
+  const kinds = tomlGet(t, "delegate", "may_ratify", ["guidance"]);
+  return { ratifier, mayRatify: DELEGATE_KINDS.filter((k) => kinds.includes(k)) };
+}
+var DELEGATE_KINDS;
 var init_context = __esm({
   "src/core/context.ts"() {
     "use strict";
     init_graph();
     init_paths();
     init_toml();
+    DELEGATE_KINDS = ["guidance", "enforced", "concepts", "retirements"];
   }
 });
 
@@ -28629,7 +28643,7 @@ var init_stdio2 = __esm({
 import { readFileSync as readFileSync16 } from "node:fs";
 import { join as join17 } from "node:path";
 function ctxVersion2() {
-  if (true) return "0.2.8";
+  if (true) return "0.2.9";
   try {
     return JSON.parse(readFileSync16(join17(packageRoot(), "package.json"), "utf8")).version ?? "unknown";
   } catch {
@@ -29690,6 +29704,12 @@ var init_packs2 = __esm({
 // src/init/ratify.ts
 import { existsSync as existsSync21, readFileSync as readFileSync20, writeFileSync as writeFileSync6 } from "node:fs";
 import { join as join21 } from "node:path";
+function kindOf(rec) {
+  if (rec.kind === "K" && rec.mode === "G?") return rec.test ? "enforced" : "guidance";
+  if (rec.kind === "C" && rec.proposed) return "concepts";
+  if (rec.kind === "E" && rec.proposed) return "edges";
+  return void 0;
+}
 function ratify(ctx, ids, opts = {}) {
   const dir = ctx.graphDir;
   if (!dir || !ctx.graph) throw new Error("no graph to ratify in");
@@ -29697,6 +29717,30 @@ function ratify(ctx, ids, opts = {}) {
   const proposalsFile = join21(dir, PROPOSALS_FILE);
   const today3 = opts.today ?? (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
   const wanted = new Set(ids);
+  const delegate = opts.delegated ? ctx.config.delegate : void 0;
+  if (opts.delegated) {
+    if (!delegate) throw new Error("This repository delegates no ratification ([delegate] ratifier isn't set in .ctx/config.toml). A person ratifies.");
+    if (!opts.delegated.reason.trim()) throw new Error('A delegated ratification needs --reason "<why it should hold>".');
+    const outside = [];
+    for (const file of [graphFile, proposalsFile]) {
+      if (!existsSync21(file)) continue;
+      readFileSync20(file, "utf8").split("\n").forEach((raw, i) => {
+        let rec = null;
+        try {
+          rec = parseLine(raw, i + 1, file);
+        } catch {
+          return;
+        }
+        if (!rec) return;
+        const key = keyOf(rec);
+        const kind = kindOf(rec);
+        if (!kind || !(opts.all || key && wanted.has(key))) return;
+        if (kind === "edges" || !delegate.mayRatify.includes(kind)) outside.push(`${key} (${kind})`);
+      });
+    }
+    if (outside.length)
+      throw new Error(`Nothing was ratified. The delegated ratifier may ratify ${delegate.mayRatify.join(", ") || "nothing"}, so a person ratifies these: ${outside.join(", ")}.`);
+  }
   const ratified = [];
   const legacy = [];
   const index = loadOrBuildImportIndex(ctx.root);
@@ -29744,6 +29788,23 @@ function ratify(ctx, ids, opts = {}) {
         delete out.since;
       }
       ratified.push(key ?? raw);
+      if (delegate) {
+        const kind = kindOf(rec);
+        const d = {
+          kind: "D",
+          id: graph.nextDecisionId(),
+          date: today3,
+          who: `${delegate.ratifier}/delegated`,
+          sha: "-",
+          branch: "ratify",
+          node: rec.kind === "K" ? rec.attachedTo : `C:${rec.id.replace(/^C:/, "")}`,
+          serves: rec.kind === "K" ? rec.id : `C:${rec.id.replace(/^C:/, "")}`,
+          text: `ratified ${key} (delegated: ${kind}): ${opts.delegated.reason.trim()}`,
+          line: 0
+        };
+        graph.addDecision(d);
+        legacy.push(d);
+      }
       if (file === proposalsFile) moved.push(formatRecord(out));
       else kept.push(formatRecord(out));
     }
@@ -29763,7 +29824,8 @@ function ratify(ctx, ids, opts = {}) {
   for (const d of legacy) appendRecord(join21(dir, DECISIONS_FILE), d);
   const missing = ids.filter((id) => !ratified.includes(id));
   const person = gitPerson(ctx.root);
-  return { ratified, missing, legacy, trailer: `Ctx-Ratified-By: ${person}` };
+  const by = delegate ? `${delegate.ratifier} (delegated)` : person;
+  return { ratified, missing, legacy, trailer: `Ctx-Ratified-By: ${by}` };
 }
 function keyOf(r) {
   if (r.kind === "K" || r.kind === "C" || r.kind === "L") return r.id;
@@ -29883,7 +29945,8 @@ async function doRatify(args, env) {
   const ids = args.positional;
   const all = args.flags["all-proposed"] === true;
   if (!ids.length && !all) throw new Error("ctx ratify <id>... | --all-proposed");
-  const r = ratify(ctx, ids, { all });
+  const reason = str(args.flags.reason);
+  const r = ratify(ctx, ids, { all, ...args.flags.delegated === true ? { delegated: { reason: reason ?? "" } } : {} });
   if (env.json) {
     console.log(JSON.stringify(r, null, 2));
     return r.missing.length ? 1 : 0;
@@ -29952,6 +30015,11 @@ var init_cli2 = __esm({
 [repo]
 ratifiers = [{RATIFIERS}]  # git identities (email local part or name) allowed to ratify concepts and enforced constraints
 default_branch = "main"
+
+# A lead that runs without a person watching may ratify some kinds on its own (ctx ratify --delegated):
+# [delegate]
+# ratifier = "<agent identity>"
+# may_ratify = ["guidance"]   # of guidance, enforced, concepts, retirements
 
 [slice]
 enabled = true            # true | false (observe-only) | "random:0.5"
@@ -30079,7 +30147,9 @@ function runGate(ctx, opts) {
   } else if (enforced.length) {
     findings.push({ level: "info", rule: "enforced-test", title: `${enforced.length} enforced constraint(s) not executed`, lines: ["pass --run-tests to run them"] });
   }
-  const ratified = ratifiersIn(commitMessages, ctx.config.ratifiers);
+  const ratified = ratifiersIn(commitMessages, ctx.config.ratifiers, ctx.config.delegate);
+  const may = (kind) => ratified.ok || ratified.delegated && ctx.config.delegate.mayRatify.includes(kind);
+  const why = (kind, base) => ratified.delegated ? `ratified by ${ctx.config.delegate.ratifier} (delegated), which may not ratify ${kind}; a person ratifies it` : base;
   const newConcepts = [...atHead.concepts.values()].filter((c) => !atBase.concepts.has(c.id));
   const newEnforced = [...atHead.constraints.values()].filter((k) => k.mode === "E" && !atBase.constraints.has(k.id));
   const changedEnforced = [...atHead.constraints.values()].filter((k) => k.mode === "E" && atBase.constraints.has(k.id) && describe(atBase.constraints.get(k.id)) !== describe(k));
@@ -30088,10 +30158,10 @@ function runGate(ctx, opts) {
       findings.push({ level: "info", rule: "proposed", title: c.id, lines: ["merges as proposed"] });
       continue;
     }
-    if (!ratified.ok) findings.push({ level: ratified.configured ? "fail" : "warn", rule: "unratified", title: `C ${c.id}`, lines: [c.name, ratified.configured ? `needs a commit trailer Ctx-Ratified-By: <${ctx.config.ratifiers.join("|")}>` : "no ratifiers configured under [repo] ratifiers"] });
+    if (!may("concepts")) findings.push({ level: ratified.configured ? "fail" : "warn", rule: "unratified", title: `C ${c.id}`, lines: [c.name, why("concepts", ratified.configured ? `needs a commit trailer Ctx-Ratified-By: <${ctx.config.ratifiers.join("|")}>` : "no ratifiers configured under [repo] ratifiers")] });
   }
   for (const k of [...newEnforced, ...changedEnforced]) {
-    if (!ratified.ok) findings.push({ level: ratified.configured ? "fail" : "warn", rule: "unratified", title: `K E ${k.id}`, lines: [k.text, ratified.configured ? "needs a commit trailer Ctx-Ratified-By" : "no ratifiers configured under [repo] ratifiers"] });
+    if (!may("enforced")) findings.push({ level: ratified.configured ? "fail" : "warn", rule: "unratified", title: `K E ${k.id}`, lines: [k.text, why("enforced", ratified.configured ? "needs a commit trailer Ctx-Ratified-By" : "no ratifiers configured under [repo] ratifiers")] });
   }
   for (const k of [...atHead.constraints.values()].filter((k2) => k2.mode === "G?" && !atBase.constraints.has(k2.id))) {
     findings.push({ level: "info", rule: "proposed", title: `K G? ${k.id}`, lines: ["merges as proposed"] });
@@ -30099,7 +30169,7 @@ function runGate(ctx, opts) {
   for (const z of addedZ(atHead.retirements, atBase.retirements)) {
     const target = atBase.constraints.get(z.target) ?? atHead.constraints.get(z.target);
     const isTop = z.target.startsWith("C:") || target?.mode === "E";
-    if (isTop && !ratified.ok) findings.push({ level: ratified.configured ? "fail" : "warn", rule: "unratified-retirement", title: `Z ${z.target}`, lines: [z.reason, ratified.configured ? "needs a commit trailer Ctx-Ratified-By" : "no ratifiers configured"] });
+    if (isTop && !may("retirements")) findings.push({ level: ratified.configured ? "fail" : "warn", rule: "unratified-retirement", title: `Z ${z.target}`, lines: [z.reason, why("retirements", ratified.configured ? "needs a commit trailer Ctx-Ratified-By" : "no ratifiers configured")] });
   }
   if (!opts.head) {
     const committed = resolveProvenance(atHead, root);
@@ -30163,11 +30233,12 @@ function fmt(d) {
   if (!d) return "(unknown decision)";
   return `${d.id} ${d.date} ${d.who}  ${d.overrides ? `!K ${d.overrides}` : `->${d.serves}`}  ${d.text}`;
 }
-function ratifiersIn(messages, ratifiers) {
-  if (!ratifiers.length) return { ok: false, configured: false };
+function ratifiersIn(messages, ratifiers, delegate) {
   const trailers = [...messages.matchAll(/^Ctx-Ratified-By:\s*(.+)$/gim)].map((m) => m[1].trim().toLowerCase());
-  const ok = trailers.some((t) => ratifiers.some((r) => t.includes(r.toLowerCase()) || r.toLowerCase().includes(t)));
-  return { ok, configured: true };
+  const byPerson = trailers.filter((t) => !t.endsWith("(delegated)"));
+  const ok = ratifiers.length > 0 && byPerson.some((t) => ratifiers.some((r) => t.includes(r.toLowerCase()) || r.toLowerCase().includes(t)));
+  const delegated = Boolean(delegate) && trailers.includes(`${delegate.ratifier.toLowerCase()} (delegated)`);
+  return { ok, delegated, configured: ratifiers.length > 0 || Boolean(delegate) };
 }
 function testCommand(ctx, test) {
   if (ctx.config.gate.testCommand) return ctx.config.gate.testCommand.replaceAll("{test}", test);
@@ -36085,7 +36156,7 @@ Graph
   ctx record --node <n> --serves <id> --text "<why>" [--overrides <k-id>] [--agent <name>]
   ctx card <path> --text "<why the file exists>" [--req ID,ID]   write or update a file's card
   ctx retire <id> --reason "<why>" [--succ <id>]   retire a constraint or concept
-  ctx ratify <id>...                               accept proposed records
+  ctx ratify <id>... [--delegated --reason "\u2026"]    accept proposed records (the delegated ratifier: within [delegate])
   ctx provenance                                   which of this branch's decisions are committed, and where
 
 Observation
