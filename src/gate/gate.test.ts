@@ -99,7 +99,34 @@ describe('merge gate', () => {
     expect(text).toContain('suggest: one of these supersedes the other');
   });
 
+  it('accepts the delegated ratifier only for the kinds it may ratify', () => {
+    writeFileSync(join(repo, '.ctx/config.toml'), '[repo]\nratifiers = ["warren"]\n\n[delegate]\nratifier = "sidequest-lead"\nmay_ratify = ["concepts"]\n');
+    commit('delegate concepts');
+    g(['checkout', '-q', '-b', 'feature/delegated']);
+    writeFileSync(join(repo, '.ctx/graph.ctx'), BASE_GRAPH + 'C C:delegated A concept the lead ratified\n');
+    commit('ratified by the lead\n\nCtx-Ratified-By: sidequest-lead (delegated)');
+    let report = runGate(openRepo({ repo }), { base: 'main' });
+    expect(report.findings.filter((f) => f.rule === 'unratified')).toEqual([]);
+    writeFileSync(join(repo, '.ctx/graph.ctx'), BASE_GRAPH + 'C C:delegated A concept the lead ratified\nK E core.tested L:core proven by a test test:api/src/core/x.test.ts\n');
+    commit('an enforced rule\n\nCtx-Ratified-By: sidequest-lead (delegated)');
+    report = runGate(openRepo({ repo }), { base: 'main' });
+    const enforced = report.findings.find((f) => f.rule === 'unratified' && f.title.startsWith('K E'));
+    expect(enforced?.level).toBe('fail');
+    expect(enforced?.lines.join(' ')).toContain('which may not ratify enforced; a person ratifies it');
+  });
+
+  it("never counts a delegated trailer as a person's, even when the names overlap", () => {
+    writeFileSync(join(repo, '.ctx/config.toml'), '[repo]\nratifiers = ["lead"]\n');
+    commit('a person called lead');
+    g(['checkout', '-q', '-b', 'feature/forged']);
+    writeFileSync(join(repo, '.ctx/graph.ctx'), BASE_GRAPH + 'C C:forged Claimed by a delegated trailer\n');
+    commit('no delegation here\n\nCtx-Ratified-By: sidequest-lead (delegated)');
+    const report = runGate(openRepo({ repo }), { base: 'main' });
+    expect(report.findings.some((f) => f.rule === 'unratified' && f.level === 'fail')).toBe(true);
+  });
+
   it('passes a clean branch with a ratified concept', () => {
+
     g(['checkout', '-q', '-b', 'feature/clean']);
     writeFileSync(join(repo, '.ctx/graph.ctx'), BASE_GRAPH + 'C C:ratified A ratified concept\n');
     writeFileSync(join(repo, '.ctx/decisions.ctx'), 'D d-0001 2026-08-01 w/c aaaa main api/src/core/orch/bb.ts ->K orch.events first\nD d-0002 2026-08-10 w/c dddd feature/clean api/src/core/orch/bb.ts ->K orch.events second\n');

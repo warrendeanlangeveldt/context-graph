@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import type { RepoContext } from '../core/context.js';
+import type { DelegateKind, RepoContext } from '../core/context.js';
 import { contentHash, exemptFromCards } from '../cards/cards.js';
 import { ALIASES_FILE, CARDS_FILE, DECISIONS_FILE, GRAPH_FILE, Graph, PROPOSALS_FILE } from '../graph/graph.js';
 import { parseText } from '../graph/parse.js';
@@ -140,16 +140,20 @@ export function runGate(ctx: RepoContext, opts: GateOptions): GateReport {
   }
 
   // 6. Unratified proposals and retirements.
-  const ratified = ratifiersIn(commitMessages, ctx.config.ratifiers);
+  const ratified = ratifiersIn(commitMessages, ctx.config.ratifiers, ctx.config.delegate);
+  // A person's trailer covers everything; the delegated ratifier's covers only the kinds it may ratify.
+  const may = (kind: DelegateKind): boolean => ratified.ok || (ratified.delegated && ctx.config.delegate!.mayRatify.includes(kind));
+  const why = (kind: DelegateKind, base: string): string =>
+    ratified.delegated ? `ratified by ${ctx.config.delegate!.ratifier} (delegated), which may not ratify ${kind}; a person ratifies it` : base;
   const newConcepts = [...atHead.concepts.values()].filter((c) => !atBase.concepts.has(c.id));
   const newEnforced = [...atHead.constraints.values()].filter((k) => k.mode === 'E' && !atBase.constraints.has(k.id));
   const changedEnforced = [...atHead.constraints.values()].filter((k) => k.mode === 'E' && atBase.constraints.has(k.id) && describe(atBase.constraints.get(k.id)!) !== describe(k));
   for (const c of newConcepts) {
     if (c.proposed) { findings.push({ level: 'info', rule: 'proposed', title: c.id, lines: ['merges as proposed'] }); continue; }
-    if (!ratified.ok) findings.push({ level: ratified.configured ? 'fail' : 'warn', rule: 'unratified', title: `C ${c.id}`, lines: [c.name, ratified.configured ? `needs a commit trailer Ctx-Ratified-By: <${ctx.config.ratifiers.join('|')}>` : 'no ratifiers configured under [repo] ratifiers'] });
+    if (!may('concepts')) findings.push({ level: ratified.configured ? 'fail' : 'warn', rule: 'unratified', title: `C ${c.id}`, lines: [c.name, why('concepts', ratified.configured ? `needs a commit trailer Ctx-Ratified-By: <${ctx.config.ratifiers.join('|')}>` : 'no ratifiers configured under [repo] ratifiers')] });
   }
   for (const k of [...newEnforced, ...changedEnforced]) {
-    if (!ratified.ok) findings.push({ level: ratified.configured ? 'fail' : 'warn', rule: 'unratified', title: `K E ${k.id}`, lines: [k.text, ratified.configured ? 'needs a commit trailer Ctx-Ratified-By' : 'no ratifiers configured under [repo] ratifiers'] });
+    if (!may('enforced')) findings.push({ level: ratified.configured ? 'fail' : 'warn', rule: 'unratified', title: `K E ${k.id}`, lines: [k.text, why('enforced', ratified.configured ? 'needs a commit trailer Ctx-Ratified-By' : 'no ratifiers configured under [repo] ratifiers')] });
   }
   for (const k of [...atHead.constraints.values()].filter((k) => k.mode === 'G?' && !atBase.constraints.has(k.id))) {
     findings.push({ level: 'info', rule: 'proposed', title: `K G? ${k.id}`, lines: ['merges as proposed'] });
@@ -157,7 +161,7 @@ export function runGate(ctx: RepoContext, opts: GateOptions): GateReport {
   for (const z of addedZ(atHead.retirements, atBase.retirements)) {
     const target = atBase.constraints.get(z.target) ?? atHead.constraints.get(z.target);
     const isTop = z.target.startsWith('C:') || target?.mode === 'E';
-    if (isTop && !ratified.ok) findings.push({ level: ratified.configured ? 'fail' : 'warn', rule: 'unratified-retirement', title: `Z ${z.target}`, lines: [z.reason, ratified.configured ? 'needs a commit trailer Ctx-Ratified-By' : 'no ratifiers configured'] });
+    if (isTop && !may('retirements')) findings.push({ level: ratified.configured ? 'fail' : 'warn', rule: 'unratified-retirement', title: `Z ${z.target}`, lines: [z.reason, why('retirements', ratified.configured ? 'needs a commit trailer Ctx-Ratified-By' : 'no ratifiers configured')] });
   }
 
   // 7. Decisions not yet committed (only when the head is the working tree): they are not in the pull request.
@@ -242,11 +246,16 @@ function fmt(d: DRecord | undefined): string {
   return `${d.id} ${d.date} ${d.who}  ${d.overrides ? `!K ${d.overrides}` : `->${d.serves}`}  ${d.text}`;
 }
 
-function ratifiersIn(messages: string, ratifiers: string[]): { ok: boolean; configured: boolean } {
-  if (!ratifiers.length) return { ok: false, configured: false };
+/**
+ * Who ratified the branch: a person (a trailer naming one of `ratifiers`) or the delegated ratifier
+ * (a trailer `<ratifier> (delegated)`). A delegated trailer never counts as a person's.
+ */
+function ratifiersIn(messages: string, ratifiers: string[], delegate: RepoContext['config']['delegate']): { ok: boolean; delegated: boolean; configured: boolean } {
   const trailers = [...messages.matchAll(/^Ctx-Ratified-By:\s*(.+)$/gim)].map((m) => m[1]!.trim().toLowerCase());
-  const ok = trailers.some((t) => ratifiers.some((r) => t.includes(r.toLowerCase()) || r.toLowerCase().includes(t)));
-  return { ok, configured: true };
+  const byPerson = trailers.filter((t) => !t.endsWith('(delegated)'));
+  const ok = ratifiers.length > 0 && byPerson.some((t) => ratifiers.some((r) => t.includes(r.toLowerCase()) || r.toLowerCase().includes(t)));
+  const delegated = Boolean(delegate) && trailers.includes(`${delegate!.ratifier.toLowerCase()} (delegated)`);
+  return { ok, delegated, configured: ratifiers.length > 0 || Boolean(delegate) };
 }
 
 function testCommand(ctx: RepoContext, test: string): string | undefined {
