@@ -35,6 +35,6 @@ For hygiene findings, give the signal, the evidence and ctx's proposal, and ask 
 
 ## 4. Commit
 
-The person commits the graph changes themselves, adding `Ctx-Ratified-By: <name>` as a commit trailer for anything ratified or retired: `git commit --trailer "Ctx-Ratified-By: <name>"`. The merge gate checks that trailer against `[repo] ratifiers`. An agent never writes it.
+The person commits the graph changes themselves, adding `Ctx-Ratified-By: <name>` as a commit trailer for anything ratified or retired: `git commit --trailer "Ctx-Ratified-By: <name>"`. The merge gate checks that trailer against `[repo] ratifiers`. An agent never writes it, unless the repository delegates: with a `[delegate]` section in `.ctx/config.toml`, the lead may ratify the kinds it lists itself, with `ctx ratify <id>... --delegated --reason "<why>"`, and commit with the `Ctx-Ratified-By: <ratifier> (delegated)` trailer it prints. Anything outside those kinds still goes to the person.
 
 Report what changed and what's still open.

@@ -281,7 +281,21 @@ ctx gc                                      # archive inactive records older tha
 ctx check --conformance                     # violations of rule-bearing constraints, minus recorded legacy exceptions
 ```
 
-Concepts and enforced constraints need a commit trailer `Ctx-Ratified-By: <person>` from an identity listed under `[repo] ratifiers`; the gate checks it. The gate also reports each file the branch changed that has no card matching its content (`[gate] cards = "warn"`, or `"fail"`, or `"off"`), so the loop holds for changes made outside a session too.
+Concepts and enforced constraints need a commit trailer `Ctx-Ratified-By: <person>` from an identity listed under `[repo] ratifiers`; the gate checks it.
+
+**Delegated ratification.** For a lead that runs without a person watching, such as an autonomous team, the repository's `.ctx/config.toml` can name a delegated ratifier and the kinds it may ratify:
+
+```toml
+[delegate]
+ratifier = "sidequest-lead"          # the agent identity in its trailer
+may_ratify = ["guidance", "concepts"]  # of guidance, enforced, concepts, retirements; default guidance
+```
+
+- The lead runs `ctx ratify <id>... --delegated --reason "<why it should hold>"`.
+- It's all or nothing: if any record is of a kind outside `may_ratify`, nothing is ratified, and the person decides. Proposed edges always go to the person.
+- Each ratified record gets a decision by `<ratifier>/delegated`, reading `ratified <id> (delegated: <kind>): <reason>`, so the why travels with the graph.
+- The commit carries `Ctx-Ratified-By: <ratifier> (delegated)`. The gate accepts that trailer only for the kinds delegated, and never counts it as a person's.
+- It's read only from the repository's own config. Without `[delegate]`, `--delegated` is refused. The gate also reports each file the branch changed that has no card matching its content (`[gate] cards = "warn"`, or `"fail"`, or `"off"`), so the loop holds for changes made outside a session too.
 
 ## See what was observed
 

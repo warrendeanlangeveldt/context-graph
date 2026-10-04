@@ -51,6 +51,12 @@ export interface Config {
   overlayUrl: string;
   defaultBranch: string;
   ratifiers: string[];
+  /**
+   * A delegated ratifier: an agent identity that may ratify the kinds of record listed, on its own,
+   * for a project whose lead runs without a person watching. Set only in the repository's own
+   * config.toml. Null when nothing is delegated.
+   */
+  delegate: { ratifier: string; mayRatify: DelegateKind[] } | null;
   gate: { staleBasis: 'warn' | 'fail'; contextMoved: 'warn' | 'fail'; testCommand: string; cards: 'off' | 'warn' | 'fail' };
   hygiene: { archiveAfterDays: number; dormantAfterDays: number; overrideStreak: number; proposalTtlDays: number };
   serve: { port: number; bufferEvents: number };
@@ -62,6 +68,10 @@ export interface Config {
   /** Globs that owe no card and need no read before an edit. A config's `[cards] exclude` adds to the defaults. */
   cardsExclude: string[];
 }
+
+/** What a delegated ratifier may ratify: guidance rules, enforced rules, concepts, and retirements of either. */
+export type DelegateKind = 'guidance' | 'enforced' | 'concepts' | 'retirements';
+export const DELEGATE_KINDS: readonly DelegateKind[] = ['guidance', 'enforced', 'concepts', 'retirements'];
 
 export interface RepoContext {
   root: string;
@@ -84,6 +94,7 @@ export function defaultConfig(): Config {
     overlayUrl: '',
     defaultBranch: 'main',
     ratifiers: [],
+    delegate: null,
     gate: { staleBasis: 'warn', contextMoved: 'warn', testCommand: '', cards: 'warn' },
     hygiene: { archiveAfterDays: 90, dormantAfterDays: 180, overrideStreak: 3, proposalTtlDays: 30 },
     serve: { port: 7399, bufferEvents: 50_000 },
@@ -195,7 +206,20 @@ export function loadConfig(graphDir: string | undefined): Config {
     const bindings = t['init.packs'];
     if (bindings) for (const [k, v] of Object.entries(bindings)) if (typeof v === 'string') cfg.packBindings[k] = v;
   };
-  if (graphDir) apply(join(graphDir, 'config.toml'));
+  if (graphDir) {
+    apply(join(graphDir, 'config.toml'));
+    cfg.delegate = delegateFrom(join(graphDir, 'config.toml'));
+  }
   apply(join(ctxHome(), 'config.toml'));
   return cfg;
+}
+
+/** The repository's `[delegate]` section: `ratifier` and `may_ratify` (unknown kinds are dropped). */
+function delegateFrom(file: string): Config['delegate'] {
+  if (!existsSync(file)) return null;
+  const t = parseToml(readFileSync(file, 'utf8'));
+  const ratifier = tomlGet(t, 'delegate', 'ratifier', '').trim();
+  if (!ratifier) return null;
+  const kinds = tomlGet<string[]>(t, 'delegate', 'may_ratify', ['guidance']);
+  return { ratifier, mayRatify: DELEGATE_KINDS.filter((k) => kinds.includes(k)) };
 }
