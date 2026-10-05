@@ -154,7 +154,21 @@ async function doRatify(args: Args, env: { json: boolean }): Promise<number> {
   const all = args.flags['all-proposed'] === true;
   if (!ids.length && !all) throw new Error('ctx ratify <id>... | --all-proposed');
   const reason = str(args.flags.reason);
+  // --commit is the person's act (the Context Graph pane's Ratify): check it can land before changing anything.
+  const commit = args.flags.commit === true;
+  if (commit && args.flags.delegated === true) throw new Error('A ratification is either the person\'s (--commit) or the delegated ratifier\'s (--delegated), not both.');
+  const { commitRefusal, commitGraph } = await import('../cli/present.js');
+  const refused = commit ? commitRefusal(ctx) : undefined;
+  if (refused) { console.error(refused); return 1; }
   const r = ratify(ctx, ids, { all, ...(args.flags.delegated === true ? { delegated: { reason: reason ?? '' } } : {}) });
+  if (commit && r.ratified.length) {
+    const sha = commitGraph(ctx, `Ratify ${r.ratified.join(', ')}`);
+    if (env.json) { console.log(JSON.stringify({ ...r, commit: sha }, null, 2)); return r.missing.length ? 1 : 0; }
+    for (const id of r.ratified) console.log(`ratified ${id}`);
+    for (const id of r.missing) console.log(`not found or not proposed: ${id}`);
+    console.log(`committed ${sha} with ${r.trailer}`);
+    return r.missing.length ? 1 : 0;
+  }
   if (env.json) { console.log(JSON.stringify(r, null, 2)); return r.missing.length ? 1 : 0; }
   for (const id of r.ratified) console.log(`ratified ${id}`);
   for (const d of r.legacy) console.log(`legacy   ${d.id} on ${d.node}: ${d.text}`);

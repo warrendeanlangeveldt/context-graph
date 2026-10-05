@@ -283,6 +283,15 @@ ctx check --conformance                     # violations of rule-bearing constra
 
 Concepts and enforced constraints need a commit trailer `Ctx-Ratified-By: <person>` from an identity listed under `[repo] ratifiers`; the gate checks it.
 
+**Proposals, ratifying and dropping, as the person.** `ctx proposals` lists the proposed rules and concepts with their evidence: decisions that served each, decisions that overrode it, and current violations of a checkable rule.
+
+- **`ctx ratify <id>... --commit`** ratifies, then commits only the graph's files with your `Ctx-Ratified-By` trailer.
+- **`ctx drop <id> --reason "…" [--commit]`** turns a proposal down. It's recorded as a retirement, so the reason stays in the graph's history.
+- **Where it refuses:** both refuse, before changing anything, on the default branch or one code-kit protects, and when you aren't among the ratifiers.
+- **Agents can't:** both are your own acts, and the hooks refuse them from every agent.
+
+**What the session shows.** `ctx file <path> [--agent <id>]` gives a file's card (current or stale), rules, chain and newest decisions, and whether an agent has understood it, with what it still has to read. `ctx agents` gives each agent's coverage for the session: files read in full, files only searched, files edited (and whether each was understood first), and cards still owed. Both take `--json`, which the coming Context Graph mod reads (`docs/brief.md`).
+
 **Delegated ratification.** For a lead that runs without a person watching, such as an autonomous team, the repository's `.ctx/config.toml` can name a delegated ratifier and the kinds it may ratify:
 
 ```toml
