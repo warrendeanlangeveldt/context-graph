@@ -753,6 +753,19 @@ var init_shell = __esm({
   }
 });
 
+// src/cli/person-acts.ts
+function isPersonsGraphAct(command) {
+  return ACT.test(command.trimStart());
+}
+var CTX, ACT;
+var init_person_acts = __esm({
+  "src/cli/person-acts.ts"() {
+    "use strict";
+    CTX = String.raw`(?:ctx|node\s+["']?[^\s"']*ctx\.mjs["']?|npx\s+(?:--yes\s+)?@warren-dean/context-graph(?:@\S+)?)`;
+    ACT = new RegExp(String.raw`(?:^|[;&|\n]\s*)${CTX}\s+(?:ratify\b[^;&|\n]*\s--commit\b|drop\b)`);
+  }
+});
+
 // node_modules/picomatch/lib/constants.js
 var require_constants = __commonJS({
   "node_modules/picomatch/lib/constants.js"(exports, module) {
@@ -5182,6 +5195,14 @@ var init_code_kit = __esm({
         lines.push(`code-kit  ${owner}${layer}`);
         return { lines, requirements: t.requirements.map((r) => r.id) };
       },
+      protectedBranches(root) {
+        try {
+          const c = JSON.parse(readFileSync11(join11(root, ".claude", "code-kit.json"), "utf8"));
+          return c.branches?.protected ?? ["main", "master"];
+        } catch {
+          return ["main", "master"];
+        }
+      },
       sessionNote: () => "code-kit is active here: file cards and slices carry the spec requirement a file delivers, its lane, and its layer rules. code-kit refuses writes outside a lane or across a layer; ctx records the why."
     };
   }
@@ -5200,6 +5221,9 @@ function factsFor(root, path) {
     for (const r of f.requirements) if (!out.requirements.includes(r)) out.requirements.push(r);
   }
   return out;
+}
+function toolProtectedBranches(root) {
+  return [...new Set(toolAdapters(root).flatMap((a) => a.protectedBranches?.(root) ?? []))];
 }
 var TOOL_ADAPTERS;
 var init_tool_adapters = __esm({
@@ -5726,6 +5750,9 @@ async function handleHook(input, profile) {
     return { exitCode: 0 };
   }
   if (event === "PreToolUse") {
+    if (isShell(input.tool_name ?? "") && isPersonsGraphAct(String(input.tool_input?.command ?? ""))) {
+      return { stdout: profile.formatPreToolUseDeny("Context Graph: ratifying with a commit, and dropping a proposal, are the person's own acts, from the Context Graph pane or their terminal. Tell the person what you'd ratify or drop, and why, and stop."), exitCode: 0 };
+    }
     {
       const tool2 = input.tool_name ?? "";
       const reads = profile.isEditTool(tool2) || !input.tool_use_id ? [] : profile.touches(tool2, input.tool_input ?? {}, tc).filter((t) => READ_MODES.has(t.mode));
@@ -6034,6 +6061,7 @@ var READ_MODES, TEST_RUN, versionCache;
 var init_core = __esm({
   "src/adapters/core.ts"() {
     "use strict";
+    init_person_acts();
     init_context();
     init_imports();
     init_symbols();
@@ -28643,7 +28671,7 @@ var init_stdio2 = __esm({
 import { readFileSync as readFileSync16 } from "node:fs";
 import { join as join17 } from "node:path";
 function ctxVersion2() {
-  if (true) return "0.2.10";
+  if (true) return "0.2.11";
   try {
     return JSON.parse(readFileSync16(join17(packageRoot(), "package.json"), "utf8")).version ?? "unknown";
   } catch {
@@ -29844,14 +29872,457 @@ var init_ratify = __esm({
   }
 });
 
+// src/hygiene/hygiene.ts
+var hygiene_exports = {};
+__export(hygiene_exports, {
+  gc: () => gc,
+  hygieneReport: () => hygieneReport,
+  loadArchive: () => loadArchive,
+  reloadGraph: () => reloadGraph,
+  retire: () => retire,
+  timeline: () => timeline
+});
+import { existsSync as existsSync22, mkdirSync as mkdirSync5, readdirSync as readdirSync5, readFileSync as readFileSync21, writeFileSync as writeFileSync7 } from "node:fs";
+import { basename as basename5, join as join22 } from "node:path";
+function hygieneReport(ctx) {
+  const g = ctx.graph;
+  if (!g || !ctx.graphDir) throw new Error("no graph");
+  const cfg = ctx.config.hygiene;
+  const out = [];
+  const today3 = Date.now();
+  const ageDays = (date3) => Math.floor((today3 - new Date(date3).getTime()) / 864e5);
+  for (const k of g.constraints.values()) {
+    if (k.mode !== "G" || g.isRetired(k.id)) continue;
+    const recent = [...g.decisions.values()].filter((d) => g.isActiveDecision(d) && (d.serves === k.id || d.overrides === k.id) && !/^legacy:/.test(d.text)).sort((a, b) => b.date.localeCompare(a.date)).slice(0, cfg.overrideStreak);
+    if (recent.length >= cfg.overrideStreak && recent.every((d) => d.overrides === k.id)) {
+      out.push({ signal: "overridden-in-practice", target: k.id, evidence: recent.map((d) => `${d.id} ${d.date} ${d.who}: ${d.text}`), proposal: `retire ${k.id} (ctx retire ${k.id} --reason ...), or enforce it with a test and fix the code; the choice is a design decision`, level: "propose" });
+    }
+  }
+  for (const k of g.constraints.values()) {
+    if (g.isRetired(k.id)) continue;
+    if (isPathId(k.attachedTo) && !g.mapPath(k.attachedTo)) out.push({ signal: "unreachable", target: k.id, evidence: [`attached to ${k.attachedTo}, which no mapping reaches`], proposal: "add a mapping, or retire with reason unmapped", level: "propose" });
+    if (!isPathId(k.attachedTo) && !g.nodeExists(k.attachedTo)) out.push({ signal: "unreachable", target: k.id, evidence: [`attached to ${k.attachedTo}, which does not exist`], proposal: "attach to an existing node, or retire", level: "propose" });
+  }
+  for (const d of g.decisions.values()) {
+    if (!g.isActiveDecision(d) || !isPathId(d.node)) continue;
+    if (!g.mapPath(d.node)) out.push({ signal: "unreachable", target: d.id, evidence: [`on ${d.node}, which no mapping reaches`], proposal: "add a mapping or archive the decision", level: "propose" });
+  }
+  for (const l of g.logicals.values()) {
+    const ks = g.constraintsOn(l.id);
+    if (!ks.length) continue;
+    const dirs = g.mappings.filter((m) => m.logical === l.id).map((m) => m.glob.replace(/\/\*\*$/, "").replace(/\*.*$/, "")).filter((d) => d && d !== "**");
+    if (!dirs.length) continue;
+    const ts = git(ctx.root, ["log", "-1", "--format=%ct", "--", ...dirs]);
+    if (!ts) continue;
+    const days2 = Math.floor((today3 - Number(ts) * 1e3) / 864e5);
+    if (days2 > cfg.dormantAfterDays) out.push({ signal: "dormant", target: l.id, evidence: [`no commit under ${dirs.join(", ")} for ${days2} days`, `${ks.length} constraint(s) attached`], proposal: "informational; dormancy is not staleness", level: "info" });
+  }
+  for (const f of g.validate(ctx.root)) {
+    if (f.rule === "enforced-test") out.push({ signal: "missing-test", target: f.message, evidence: [], proposal: "restore the test, or downgrade the constraint to G", level: "propose" });
+    if (f.rule === "deleted-path") out.push({ signal: "deleted-path", target: f.message.split(" ")[1] ?? f.message, evidence: [f.message], proposal: "archive with note path-deleted (ctx gc --deleted)", level: "propose" });
+    if (f.rule === "orphaned-basis") out.push({ signal: "orphaned-basis", target: f.message.split(" ")[1] ?? f.message, evidence: [f.message], proposal: "supersede or re-point the decision", level: "propose" });
+  }
+  const expired = (since) => Boolean(since) && ageDays(since) > cfg.proposalTtlDays;
+  for (const k of g.constraints.values()) if (k.mode === "G?" && expired(k.since)) out.push({ signal: "expired-proposal", target: k.id, evidence: [`proposed ${k.since}, ${ageDays(k.since)} days ago`], proposal: "ratify it or drop it", level: "propose" });
+  for (const c of g.concepts.values()) if (c.proposed && expired(c.since)) out.push({ signal: "expired-proposal", target: c.id, evidence: [`proposed ${c.since}`], proposal: "ratify it or drop it", level: "propose" });
+  for (const e of g.edges) if (e.proposed && expired(e.since)) out.push({ signal: "expired-proposal", target: `${e.from} ${e.rel} ${e.to}`, evidence: [`proposed ${e.since}`], proposal: "dropped automatically by ctx gc (proposed edges from reach)", level: "info" });
+  for (const c of g.concepts.values()) {
+    if (!c.adr || g.isRetired(c.id)) continue;
+    const adr = findAdr(ctx.root, c.adr);
+    if (!adr) continue;
+    const status = /^\**\s*status\s*\**\s*[:|]?\s*\**\s*([^\n*]+)/im.exec(adr.text)?.[1]?.trim();
+    if (!status || !/supersed/i.test(status)) continue;
+    const succNum = /(\d{3,5})/.exec(status.replace(/supersed\w*\s*(by)?/i, ""))?.[1];
+    const succ = succNum ? [...g.concepts.values()].find((x) => x.adr === succNum)?.id : void 0;
+    out.push({ signal: "superseded-adr", target: c.id, evidence: [`${adr.file}: status "${status}"`], proposal: `ctx retire ${c.id} --reason "ADR ${c.adr} superseded"${succ ? ` --succ ${succ}` : ""}`, level: "propose" });
+  }
+  const packs = loadPacks(["auto"]);
+  const files = (git(ctx.root, ["ls-files", "--cached", "--others", "--exclude-standard"]) ?? "").split("\n").filter(Boolean);
+  for (const k of g.constraints.values()) {
+    if (!k.from || g.isRetired(k.id)) continue;
+    const packName = k.from.split("@")[0];
+    const pack2 = packs.find((p) => p.name === packName);
+    if (!pack2) continue;
+    const template = pack2.records.find((r) => r.kind === "K" && (r.id === k.id || k.id.startsWith(`${r.id}.`)));
+    const role = template && /\{([^}]+)\}/.exec(template.attachedTo)?.[1];
+    if (!role) continue;
+    const { bindings } = detectBindings(pack2, g, files, ctx.config.packBindings);
+    if (!bindings.some((b) => b.role === role && b.logical === k.attachedTo)) {
+      out.push({ signal: "mapping-drift", target: k.id, evidence: [`bound to ${k.attachedTo} as {${role}} from ${k.from}; detection no longer matches`], proposal: "re-bind the role under [init.packs], or retire the binding", level: "propose" });
+    }
+  }
+  const debt = /* @__PURE__ */ new Map();
+  for (const d of g.decisions.values()) {
+    if (!/^legacy:/.test(d.text) || !d.overrides) continue;
+    const e = debt.get(d.overrides) ?? { open: 0, paid: 0 };
+    if (g.isActiveDecision(d)) e.open++;
+    else e.paid++;
+    debt.set(d.overrides, e);
+  }
+  for (const [k, e] of debt) out.push({ signal: "debt-trend", target: k, evidence: [`${e.open} legacy exception(s) open, ${e.paid} paid`], proposal: "informational; the open number should fall", level: "info" });
+  return out;
+}
+function retire(ctx, target, reason, succ) {
+  const g = ctx.graph;
+  if (!g || !ctx.graphDir) throw new Error("no graph");
+  if (!g.targetExists(target)) throw new Error(`${target} is not a constraint or concept`);
+  if (g.isRetired(target)) throw new Error(`${target} is already retired`);
+  if (succ && !g.targetExists(succ)) throw new Error(`successor ${succ} does not exist`);
+  const who = `${gitPerson(ctx.root)}/human`;
+  const record2 = { kind: "Z", target, date: (/* @__PURE__ */ new Date()).toISOString().slice(0, 10), who, reason, line: 0 };
+  if (succ) record2.succ = succ;
+  appendRecord(join22(ctx.graphDir, GRAPH_FILE), record2);
+  const k = g.constraints.get(target);
+  const needsTrailer = target.startsWith("C:") || k?.mode === "E";
+  return { record: record2, needsTrailer, trailer: `Ctx-Ratified-By: ${gitPerson(ctx.root)}` };
+}
+function gc(ctx, opts = {}) {
+  const g = ctx.graph;
+  if (!g || !ctx.graphDir) throw new Error("no graph");
+  const now = opts.now ?? /* @__PURE__ */ new Date();
+  const cutoff = now.getTime() - ctx.config.hygiene.archiveAfterDays * 864e5;
+  const old = (date3) => new Date(date3).getTime() < cutoff;
+  const year = String(now.getFullYear());
+  const archiveDir = join22(ctx.graphDir, "archive");
+  const archiveFile = join22(archiveDir, `${year}.ctx`);
+  const toArchive = [];
+  const ids = /* @__PURE__ */ new Set();
+  for (const s of g.supersessions) {
+    const newer = g.decisions.get(s.newId);
+    const older = g.decisions.get(s.oldId);
+    if (!newer || !older || !old(newer.date)) continue;
+    toArchive.push(older, s);
+    ids.add(older.id);
+  }
+  for (const z of g.retirements) {
+    if (!old(z.date)) continue;
+    const k = g.constraints.get(z.target);
+    const c = g.concepts.get(z.target);
+    if (k) {
+      toArchive.push(k, z);
+      ids.add(k.id);
+    } else if (c) {
+      toArchive.push(c, z);
+      ids.add(c.id);
+    }
+  }
+  if (opts.deleted) {
+    for (const d of g.decisions.values()) {
+      if (ids.has(d.id) || !isPathId(d.node) || existsSync22(toAbsolute(ctx.root, splitSymbol(d.node).path))) continue;
+      toArchive.push(d);
+      ids.add(d.id);
+    }
+  }
+  const ttl = ctx.config.hygiene.proposalTtlDays * 864e5;
+  const droppedProposals = [];
+  const rewrite = (file) => {
+    if (!existsSync22(file)) return;
+    const lines = readFileSync21(file, "utf8").split("\n");
+    const kept = [];
+    for (let i = 0; i < lines.length; i++) {
+      const raw = lines[i];
+      let rec = null;
+      try {
+        rec = parseLine(raw, i + 1, file);
+      } catch {
+        kept.push(raw);
+        continue;
+      }
+      if (!rec) {
+        kept.push(raw);
+        continue;
+      }
+      if (rec.kind === "D" && ids.has(rec.id)) continue;
+      if (rec.kind === "K" && ids.has(rec.id)) continue;
+      if (rec.kind === "C" && ids.has(rec.id)) continue;
+      if (rec.kind === "S" && ids.has(rec.oldId)) continue;
+      if (rec.kind === "Z" && ids.has(rec.target)) continue;
+      if (rec.kind === "E" && rec.proposed && rec.since && now.getTime() - new Date(rec.since).getTime() > ttl) {
+        droppedProposals.push(`${rec.from} ${rec.rel} ${rec.to}`);
+        continue;
+      }
+      kept.push(raw);
+    }
+    writeFileSync7(file, kept.join("\n").replace(/\n*$/, "\n"), "utf8");
+  };
+  if (toArchive.length) {
+    mkdirSync5(archiveDir, { recursive: true });
+    const header = existsSync22(archiveFile) ? "" : `# archive ${year}: inactive records moved by ctx gc; ids stay resolvable, the walker never reads this file
+`;
+    writeFileSync7(archiveFile, (existsSync22(archiveFile) ? readFileSync21(archiveFile, "utf8") : header) + toArchive.map(formatRecord).join("\n") + "\n", "utf8");
+  }
+  for (const f of [join22(ctx.graphDir, DECISIONS_FILE), join22(ctx.graphDir, GRAPH_FILE), join22(ctx.graphDir, "proposals.ctx")]) rewrite(f);
+  const res = { archived: [...ids], droppedProposals };
+  if (toArchive.length) res.archiveFile = archiveFile;
+  return res;
+}
+function loadArchive(graphDir) {
+  const dir = join22(graphDir, "archive");
+  if (!existsSync22(dir)) return [];
+  const out = [];
+  for (const f of readdirSync5(dir).filter((x) => x.endsWith(".ctx")).sort()) out.push(...parseText(readFileSync21(join22(dir, f), "utf8"), join22(dir, f)));
+  return out;
+}
+function timeline(ctx, node) {
+  const g = ctx.graph;
+  if (!g || !ctx.graphDir) throw new Error("no graph");
+  const archive = loadArchive(ctx.graphDir);
+  const rows = [];
+  const decisions = /* @__PURE__ */ new Map();
+  for (const r of archive) if (r.kind === "D" && r.node === node) decisions.set(r.id, { d: r, archived: true });
+  for (const d of g.decisions.values()) if (d.node === node && !decisions.has(d.id)) decisions.set(d.id, { d, archived: false });
+  const seq = /* @__PURE__ */ new Map();
+  const order = /* @__PURE__ */ new Map();
+  for (const { d, archived } of decisions.values()) {
+    seq.set(d.id, seq.size);
+    const row = { date: d.date, kind: "decision", id: d.id, text: `${d.who} ->${d.serves}${d.overrides ? ` !${d.overrides}` : ""}  ${d.text}`, archived };
+    order.set(row, seq.size);
+    rows.push(row);
+  }
+  const sup = [...g.supersessions, ...archive.filter((r) => r.kind === "S")];
+  for (const s of sup) {
+    if (!decisions.has(s.oldId)) continue;
+    const newer = g.decisions.get(s.newId) ?? archive.find((r) => r.kind === "D" && r.id === s.newId);
+    const row = { date: newer?.date ?? "", kind: "superseded", id: s.oldId, text: `superseded by ${s.newId}`, archived: !g.decisions.has(s.oldId) };
+    order.set(row, (seq.get(s.oldId) ?? 0) + 1.5);
+    rows.push(row);
+  }
+  const attached = new Set([...g.constraints.values(), ...archive.filter((r) => r.kind === "K")].filter((k) => k.attachedTo === node).map((k) => k.id));
+  for (const z of [...g.retirements, ...archive.filter((r) => r.kind === "Z")]) if (attached.has(z.target)) rows.push({ date: z.date, kind: "retired", id: z.target, text: `${z.who} ${z.reason}${z.succ ? ` -> ${z.succ}` : ""}`, archived: !g.constraints.has(z.target) });
+  return rows.sort((a, b) => a.date.localeCompare(b.date) || (order.get(a) ?? Infinity) - (order.get(b) ?? Infinity));
+}
+function findAdr(root, num) {
+  const files = (git(root, ["ls-files", "--cached", "--others", "--exclude-standard"]) ?? "").split("\n").filter((f2) => /(^|\/)(adr|adrs|decisions)\/[^/]*\.md$/i.test(f2) && basename5(f2).includes(num));
+  const f = files[0];
+  if (!f) return void 0;
+  try {
+    return { file: f, text: readFileSync21(toAbsolute(root, f), "utf8") };
+  } catch {
+    return void 0;
+  }
+}
+function reloadGraph(ctx) {
+  return Graph.load(ctx.graphDir);
+}
+var init_hygiene = __esm({
+  "src/hygiene/hygiene.ts"() {
+    "use strict";
+    init_graph();
+    init_parse();
+    init_records();
+    init_write();
+    init_packs2();
+    init_git();
+    init_paths();
+  }
+});
+
+// src/cli/present.ts
+var present_exports = {};
+__export(present_exports, {
+  agentCoverage: () => agentCoverage,
+  commitGraph: () => commitGraph,
+  commitRefusal: () => commitRefusal,
+  fileContext: () => fileContext,
+  isRatifier: () => isRatifier,
+  proposals: () => proposals,
+  protectedBranches: () => protectedBranches,
+  run: () => run
+});
+import { existsSync as existsSync23 } from "node:fs";
+import { join as join23 } from "node:path";
+function fileContext(ctx, path, opts = {}) {
+  const g = needGraph(ctx);
+  const w = walk(g, path, { maxDecisions: 4 });
+  const state = cardState(g, ctx.root, path);
+  const events = eventsOf(ctx, opts.session);
+  const check2 = checkEdit({ graph: g, root: ctx.root, config: ctx.config, events, agent: opts.agent, path, index: loadOrBuildImportIndex(ctx.root) });
+  const facts = factsFor(ctx.root, path);
+  return {
+    path,
+    mapped: w.mapped,
+    chain: w.chain,
+    card: state.card ? { text: state.card.text, fresh: state.fresh, date: state.card.date, who: state.card.who } : null,
+    rules: w.constraints.map((k) => ({ id: k.id, mode: k.mode, text: k.text, test: k.test ?? null })),
+    decisions: [...w.decisions].reverse().slice(0, 4).map((d) => ({ id: d.id, date: d.date, who: d.who, serves: d.serves, overrides: d.overrides ?? null, text: d.text })),
+    understood: { ok: check2.missing.length === 0, missing: check2.missing.map((m) => ({ path: m.path, why: m.why })) },
+    tools: { lines: facts.lines, requirements: facts.requirements }
+  };
+}
+function agentCoverage(ctx, session) {
+  const g = needGraph(ctx);
+  const events = eventsOf(ctx, session);
+  const index = loadOrBuildImportIndex(ctx.root);
+  const types = {};
+  for (const e of events) if (e.t === "session") {
+    const p = e.p;
+    if (p.agent && p.agentType) types[p.agent] = p.agentType;
+  }
+  const byAgent = /* @__PURE__ */ new Map();
+  const of = (agent) => {
+    const key = agent ?? "main";
+    if (!byAgent.has(key)) byAgent.set(key, { agent: key, agentType: agent ? types[agent] ?? null : null, read: [], searched: [], edited: [], cardsOwed: [] });
+    return byAgent.get(key);
+  };
+  events.forEach((e, i) => {
+    if (e.t !== "touch" && e.t !== "edit") return;
+    const t = e.p;
+    if (t.mode === "failed" || t.mode === "external") return;
+    const a = of(t.agent);
+    const add = (list) => {
+      if (!list.includes(t.path)) list.push(t.path);
+    };
+    if (t.mode === "full" || t.mode === "range" && t.range?.[0] === 1 && t.range?.[1] === -1) add(a.read);
+    else if (t.mode === "grep" || t.mode === "name") add(a.searched);
+    else if (t.mode === "edit" || t.mode === "write") {
+      if (a.edited.some((x) => x.path === t.path)) return;
+      const before = events.slice(0, i);
+      const held = heldInFull(before, t.agent);
+      if (t.mode === "write" && !held.has(t.path) && !before.some((b) => b.p?.path === t.path)) {
+        a.edited.push({ path: t.path, understood: true, missing: [] });
+        return;
+      }
+      const c = checkEdit({ graph: g, root: ctx.root, config: ctx.config, events: before, agent: t.agent, path: t.path, index });
+      a.edited.push({ path: t.path, understood: c.missing.length === 0, missing: c.missing.map((m) => m.path) });
+    }
+  });
+  for (const a of byAgent.values()) {
+    const s = new SessionState(ctx.root, session, a.agent === "main" ? void 0 : a.agent);
+    a.cardsOwed = Object.keys(s.data.cardsOwed ?? {});
+  }
+  return [...byAgent.values()];
+}
+function proposals(ctx) {
+  const g = needGraph(ctx);
+  const index = loadOrBuildImportIndex(ctx.root);
+  const decisions = [...g.decisions.values()];
+  const evidence = (id) => ({
+    served: decisions.filter((d) => d.serves === id).length,
+    overridden: decisions.filter((d) => d.overrides === id).length
+  });
+  const rules = [...g.constraints.values()].filter((k) => k.mode === "G?" && !g.isRetired(k.id)).map((k) => ({
+    id: k.id,
+    kind: k.test ? "enforced" : "guidance",
+    module: k.attachedTo,
+    text: k.text,
+    ...evidence(k.id),
+    violations: k.rule ? violationsFor(g, k, index).length : null
+  }));
+  const concepts = [...g.concepts.values()].filter((c) => c.proposed && !g.isRetired(c.id)).map((c) => ({
+    id: c.id,
+    kind: "concepts",
+    module: null,
+    text: c.name,
+    ...evidence(c.id),
+    violations: null
+  }));
+  return [...rules, ...concepts];
+}
+function protectedBranches(ctx) {
+  return [.../* @__PURE__ */ new Set([ctx.config.defaultBranch, ...toolProtectedBranches(ctx.root)])];
+}
+function isRatifier(ctx, person) {
+  const p = person.toLowerCase();
+  return ctx.config.ratifiers.some((r) => p.includes(r.toLowerCase()) || r.toLowerCase().includes(p));
+}
+function commitRefusal(ctx) {
+  if (!ctx.graphDir || !ctx.graphDir.startsWith(ctx.root)) return "The graph is linked from outside the repository; commit its changes there yourself.";
+  const branch = git(ctx.root, ["branch", "--show-current"]) ?? "";
+  if (!branch) return "The repository has no current branch; check one out first.";
+  if (protectedBranches(ctx).includes(branch)) return `${branch} is protected. Switch to a branch, then ratify or drop there.`;
+  const person = gitPerson(ctx.root);
+  if (!isRatifier(ctx, person)) return `${person} isn't among the ratifiers. Add them to [repo] ratifiers in .ctx/config.toml first.`;
+  return void 0;
+}
+function commitGraph(ctx, message) {
+  const dir = ctx.graphDir;
+  const files = [GRAPH_FILE, PROPOSALS_FILE, "decisions.ctx"].map((f) => join23(dir, f)).filter((f) => existsSync23(f));
+  const person = gitPerson(ctx.root);
+  git(ctx.root, ["add", "--", ...files]);
+  const out = git(ctx.root, ["commit", "-q", "-m", message, "--trailer", `Ctx-Ratified-By: ${person}`, "--", ...files]);
+  if (out === void 0) throw new Error("The commit failed; the graph is changed but not committed.");
+  return git(ctx.root, ["rev-parse", "--short", "HEAD"]) ?? "";
+}
+async function run(args, env) {
+  const ctx = openFromArgs(args);
+  const print = (value, text) => console.log(env.json ? JSON.stringify(value, null, 2) : text);
+  if (args.cmd === "file") {
+    const path = args.positional[0];
+    if (!path) throw new Error("ctx file <path> [--agent <id>] [--session <id>]");
+    const f = fileContext(ctx, path, { session: str(args.flags.session) ?? latestSession(ctx.root), agent: str(args.flags.agent) });
+    print(f, [
+      f.path,
+      `  card: ${f.card ? `${f.card.fresh ? "current" : "stale"}: ${f.card.text}` : "none yet"}`,
+      `  chain: ${f.chain.join(" > ") || "(unmapped)"}`,
+      ...f.rules.map((r) => `  rule ${r.id} (${r.mode}): ${r.text}`),
+      ...f.decisions.map((d) => `  ${d.id} ${d.date} ${d.who}: ${d.text}`),
+      `  understood: ${f.understood.ok ? "yes" : `no; still to read: ${f.understood.missing.map((m) => m.path).join(", ")}`}`,
+      ...f.tools.lines.map((l) => `  ${l}`)
+    ].join("\n"));
+    return 0;
+  }
+  if (args.cmd === "agents") {
+    const session = str(args.flags.session) ?? latestSession(ctx.root);
+    if (!session) {
+      print([], "(no sessions)");
+      return 0;
+    }
+    const list = agentCoverage(ctx, session);
+    print(list, list.map((a) => `${a.agent}${a.agentType ? ` (${a.agentType})` : ""}: read ${a.read.length}, searched ${a.searched.length}, edited ${a.edited.length} (${a.edited.filter((e) => !e.understood).length} without understanding), cards owed ${a.cardsOwed.length}`).join("\n") || `${session}: nothing observed yet`);
+    return 0;
+  }
+  if (args.cmd === "proposals") {
+    const list = proposals(ctx);
+    print(list, list.map((p) => `${p.id} (${p.kind}${p.module ? `, ${p.module}` : ""}): ${p.text}
+  served ${p.served}, overridden ${p.overridden}${p.violations !== null ? `, ${p.violations} violation(s)` : ""}`).join("\n") || "No proposals.");
+    return 0;
+  }
+  if (args.cmd === "drop") {
+    const id = args.positional[0];
+    const reason = str(args.flags.reason);
+    if (!id || !reason?.trim()) throw new Error('ctx drop <id> --reason "<why it is turned down>" [--commit]');
+    needGraph(ctx);
+    if (!proposals(ctx).some((p) => p.id === id)) throw new Error(`${id} is not a proposal; ratified rules and concepts are retired with ctx retire.`);
+    const commit = args.flags.commit === true;
+    const refused = commit ? commitRefusal(ctx) : void 0;
+    if (refused) {
+      console.error(refused);
+      return 1;
+    }
+    retire(ctx, id, `dropped proposal: ${reason.trim()}`);
+    const sha = commit ? commitGraph(ctx, `Drop ${id}: ${reason.trim()}`) : void 0;
+    print({ dropped: id, reason: reason.trim(), commit: sha ?? null }, `dropped ${id}${sha ? ` (committed ${sha})` : ""}`);
+    return 0;
+  }
+  return 1;
+}
+var eventsOf;
+var init_present = __esm({
+  "src/cli/present.ts"() {
+    "use strict";
+    init_cards();
+    init_read_before_edit();
+    init_graph();
+    init_hygiene();
+    init_imports();
+    init_conformance();
+    init_store();
+    init_tool_adapters();
+    init_git();
+    init_walk();
+    init_main();
+    eventsOf = (ctx, session) => session ? new ObservationStore(ctx.root, session).readAll() : [];
+  }
+});
+
 // src/init/cli.ts
 var cli_exports = {};
 __export(cli_exports, {
-  run: () => run
+  run: () => run2
 });
-import { existsSync as existsSync22, mkdirSync as mkdirSync5, readFileSync as readFileSync21, writeFileSync as writeFileSync7 } from "node:fs";
-import { join as join22, resolve as resolve11 } from "node:path";
-async function run(args, env) {
+import { existsSync as existsSync24, mkdirSync as mkdirSync6, readFileSync as readFileSync22, writeFileSync as writeFileSync8 } from "node:fs";
+import { join as join24, resolve as resolve11 } from "node:path";
+async function run2(args, env) {
   if (args.cmd === "init") return init(args, env);
   if (args.cmd === "ratify") return doRatify(args, env);
   if (args.cmd === "pack") return pack(args, env);
@@ -29860,7 +30331,7 @@ async function run(args, env) {
 async function init(args, env) {
   const repoOpt = str(args.flags.repo);
   const ctx = openRepo({ ...repoOpt ? { repo: repoOpt } : {}, ...str(args.flags.graph) ? { graph: str(args.flags.graph) } : {} });
-  const target = ctx.graphDir ?? join22(ctx.root, ".ctx");
+  const target = ctx.graphDir ?? join24(ctx.root, ".ctx");
   const minFiles = str(args.flags["min-files"]);
   const maxModules = str(args.flags["max-modules"]);
   const result = bootstrap(ctx, { ...minFiles ? { minFiles: Number(minFiles) } : {}, ...maxModules ? { maxModules: Number(maxModules) } : {} });
@@ -29915,13 +30386,13 @@ async function init(args, env) {
     }
   }
   if (args.flags.write) {
-    mkdirSync5(target, { recursive: true });
-    const graphFile = join22(target, GRAPH_FILE);
-    if (!existsSync22(graphFile)) {
+    mkdirSync6(target, { recursive: true });
+    const graphFile = join24(target, GRAPH_FILE);
+    if (!existsSync24(graphFile)) {
       const header = `# Context Graph, bootstrapped ${today3} by ctx init. Everything here is a proposal until ratified (ctx ratify).
 `;
-      writeFileSync7(graphFile, header + all.map(formatRecord).join("\n") + "\n", "utf8");
-      if (!existsSync22(join22(target, "config.toml"))) writeFileSync7(join22(target, "config.toml"), CONFIG_TEMPLATE.replace("{RATIFIERS}", JSON.stringify(gitPerson(ctx.root))), "utf8");
+      writeFileSync8(graphFile, header + all.map(formatRecord).join("\n") + "\n", "utf8");
+      if (!existsSync24(join24(target, "config.toml"))) writeFileSync8(join24(target, "config.toml"), CONFIG_TEMPLATE.replace("{RATIFIERS}", JSON.stringify(gitPerson(ctx.root))), "utf8");
       console.log(`wrote ${graphFile} (${all.length} records) and config.toml`);
       const ins = appendInstructionBlock(ctx.root);
       if (ins.status === "appended") console.log(`appended the Context Graph block to ${ins.file}`);
@@ -29930,8 +30401,8 @@ async function init(args, env) {
 
 ${INSTRUCTION_BLOCK}`);
     } else {
-      for (const r of all) appendRecord(join22(target, PROPOSALS_FILE), r);
-      console.log(`appended ${all.length} proposal(s) to ${join22(target, PROPOSALS_FILE)}`);
+      for (const r of all) appendRecord(join24(target, PROPOSALS_FILE), r);
+      console.log(`appended ${all.length} proposal(s) to ${join24(target, PROPOSALS_FILE)}`);
     }
   }
   return 0;
@@ -29946,7 +30417,26 @@ async function doRatify(args, env) {
   const all = args.flags["all-proposed"] === true;
   if (!ids.length && !all) throw new Error("ctx ratify <id>... | --all-proposed");
   const reason = str(args.flags.reason);
+  const commit = args.flags.commit === true;
+  if (commit && args.flags.delegated === true) throw new Error("A ratification is either the person's (--commit) or the delegated ratifier's (--delegated), not both.");
+  const { commitRefusal: commitRefusal2, commitGraph: commitGraph2 } = await Promise.resolve().then(() => (init_present(), present_exports));
+  const refused = commit ? commitRefusal2(ctx) : void 0;
+  if (refused) {
+    console.error(refused);
+    return 1;
+  }
   const r = ratify(ctx, ids, { all, ...args.flags.delegated === true ? { delegated: { reason: reason ?? "" } } : {} });
+  if (commit && r.ratified.length) {
+    const sha = commitGraph2(ctx, `Ratify ${r.ratified.join(", ")}`);
+    if (env.json) {
+      console.log(JSON.stringify({ ...r, commit: sha }, null, 2));
+      return r.missing.length ? 1 : 0;
+    }
+    for (const id of r.ratified) console.log(`ratified ${id}`);
+    for (const id of r.missing) console.log(`not found or not proposed: ${id}`);
+    console.log(`committed ${sha} with ${r.trailer}`);
+    return r.missing.length ? 1 : 0;
+  }
   if (env.json) {
     console.log(JSON.stringify(r, null, 2));
     return r.missing.length ? 1 : 0;
@@ -29974,7 +30464,7 @@ async function pack(args, env) {
     const text = exportPack(g, name, str(args.flags.version) ?? "1");
     const out = str(args.flags.out);
     if (out) {
-      writeFileSync7(resolve11(out), text, "utf8");
+      writeFileSync8(resolve11(out), text, "utf8");
       console.log(`wrote ${resolve11(out)}`);
     } else process.stdout.write(text);
     return 0;
@@ -29990,7 +30480,7 @@ async function pack(args, env) {
 }
 function hasCodeKitLayers(root) {
   try {
-    const c = JSON.parse(readFileSync21(join22(root, ".claude", "code-kit.json"), "utf8"));
+    const c = JSON.parse(readFileSync22(join24(root, ".claude", "code-kit.json"), "utf8"));
     return Array.isArray(c.layers) && c.layers.length > 0;
   } catch {
     return false;
@@ -30054,8 +30544,8 @@ packs = ["auto"]
 
 // src/gate/gate.ts
 import { execFileSync as execFileSync3 } from "node:child_process";
-import { existsSync as existsSync23, readFileSync as readFileSync22 } from "node:fs";
-import { join as join23, relative as relative4 } from "node:path";
+import { existsSync as existsSync25, readFileSync as readFileSync23 } from "node:fs";
+import { join as join25, relative as relative4 } from "node:path";
 function runGate(ctx, opts) {
   const root = ctx.root;
   const graphRel = graphRelativeDir(ctx);
@@ -30184,7 +30674,7 @@ function runGate(ctx, opts) {
     const stale = [];
     for (const f of changedFiles2) {
       if (exemptFromCards(f, ctx.config.cardsExclude)) continue;
-      const text = opts.head ? git(root, ["show", `${opts.head}:${f}`]) : readFileIfFile(join23(root, f));
+      const text = opts.head ? git(root, ["show", `${opts.head}:${f}`]) : readFileIfFile(join25(root, f));
       if (text === void 0) continue;
       const card = atHead.cards.get(f);
       if (!card || card.hash !== contentHash(text)) stale.push(`${f}${card ? "  (card is stale)" : "  (no card)"}`);
@@ -30282,7 +30772,7 @@ function formatGate(report) {
 }
 function readFileIfFile(file) {
   try {
-    return existsSync23(file) ? readFileSync22(file, "utf8") : void 0;
+    return existsSync25(file) ? readFileSync23(file, "utf8") : void 0;
   } catch {
     return void 0;
   }
@@ -30304,9 +30794,9 @@ var init_gate = __esm({
 // src/gate/cli.ts
 var cli_exports2 = {};
 __export(cli_exports2, {
-  run: () => run2
+  run: () => run3
 });
-async function run2(args, env) {
+async function run3(args, env) {
   const ctx = openFromArgs(args);
   const base = str(args.flags.base);
   if (!base) throw new Error("ctx gate --base <ref> [--head <ref>] [--run-tests]");
@@ -30322,257 +30812,12 @@ var init_cli3 = __esm({
   }
 });
 
-// src/hygiene/hygiene.ts
-var hygiene_exports = {};
-__export(hygiene_exports, {
-  gc: () => gc,
-  hygieneReport: () => hygieneReport,
-  loadArchive: () => loadArchive,
-  reloadGraph: () => reloadGraph,
-  retire: () => retire,
-  timeline: () => timeline
-});
-import { existsSync as existsSync24, mkdirSync as mkdirSync6, readdirSync as readdirSync5, readFileSync as readFileSync23, writeFileSync as writeFileSync8 } from "node:fs";
-import { basename as basename5, join as join24 } from "node:path";
-function hygieneReport(ctx) {
-  const g = ctx.graph;
-  if (!g || !ctx.graphDir) throw new Error("no graph");
-  const cfg = ctx.config.hygiene;
-  const out = [];
-  const today3 = Date.now();
-  const ageDays = (date3) => Math.floor((today3 - new Date(date3).getTime()) / 864e5);
-  for (const k of g.constraints.values()) {
-    if (k.mode !== "G" || g.isRetired(k.id)) continue;
-    const recent = [...g.decisions.values()].filter((d) => g.isActiveDecision(d) && (d.serves === k.id || d.overrides === k.id) && !/^legacy:/.test(d.text)).sort((a, b) => b.date.localeCompare(a.date)).slice(0, cfg.overrideStreak);
-    if (recent.length >= cfg.overrideStreak && recent.every((d) => d.overrides === k.id)) {
-      out.push({ signal: "overridden-in-practice", target: k.id, evidence: recent.map((d) => `${d.id} ${d.date} ${d.who}: ${d.text}`), proposal: `retire ${k.id} (ctx retire ${k.id} --reason ...), or enforce it with a test and fix the code; the choice is a design decision`, level: "propose" });
-    }
-  }
-  for (const k of g.constraints.values()) {
-    if (g.isRetired(k.id)) continue;
-    if (isPathId(k.attachedTo) && !g.mapPath(k.attachedTo)) out.push({ signal: "unreachable", target: k.id, evidence: [`attached to ${k.attachedTo}, which no mapping reaches`], proposal: "add a mapping, or retire with reason unmapped", level: "propose" });
-    if (!isPathId(k.attachedTo) && !g.nodeExists(k.attachedTo)) out.push({ signal: "unreachable", target: k.id, evidence: [`attached to ${k.attachedTo}, which does not exist`], proposal: "attach to an existing node, or retire", level: "propose" });
-  }
-  for (const d of g.decisions.values()) {
-    if (!g.isActiveDecision(d) || !isPathId(d.node)) continue;
-    if (!g.mapPath(d.node)) out.push({ signal: "unreachable", target: d.id, evidence: [`on ${d.node}, which no mapping reaches`], proposal: "add a mapping or archive the decision", level: "propose" });
-  }
-  for (const l of g.logicals.values()) {
-    const ks = g.constraintsOn(l.id);
-    if (!ks.length) continue;
-    const dirs = g.mappings.filter((m) => m.logical === l.id).map((m) => m.glob.replace(/\/\*\*$/, "").replace(/\*.*$/, "")).filter((d) => d && d !== "**");
-    if (!dirs.length) continue;
-    const ts = git(ctx.root, ["log", "-1", "--format=%ct", "--", ...dirs]);
-    if (!ts) continue;
-    const days2 = Math.floor((today3 - Number(ts) * 1e3) / 864e5);
-    if (days2 > cfg.dormantAfterDays) out.push({ signal: "dormant", target: l.id, evidence: [`no commit under ${dirs.join(", ")} for ${days2} days`, `${ks.length} constraint(s) attached`], proposal: "informational; dormancy is not staleness", level: "info" });
-  }
-  for (const f of g.validate(ctx.root)) {
-    if (f.rule === "enforced-test") out.push({ signal: "missing-test", target: f.message, evidence: [], proposal: "restore the test, or downgrade the constraint to G", level: "propose" });
-    if (f.rule === "deleted-path") out.push({ signal: "deleted-path", target: f.message.split(" ")[1] ?? f.message, evidence: [f.message], proposal: "archive with note path-deleted (ctx gc --deleted)", level: "propose" });
-    if (f.rule === "orphaned-basis") out.push({ signal: "orphaned-basis", target: f.message.split(" ")[1] ?? f.message, evidence: [f.message], proposal: "supersede or re-point the decision", level: "propose" });
-  }
-  const expired = (since) => Boolean(since) && ageDays(since) > cfg.proposalTtlDays;
-  for (const k of g.constraints.values()) if (k.mode === "G?" && expired(k.since)) out.push({ signal: "expired-proposal", target: k.id, evidence: [`proposed ${k.since}, ${ageDays(k.since)} days ago`], proposal: "ratify it or drop it", level: "propose" });
-  for (const c of g.concepts.values()) if (c.proposed && expired(c.since)) out.push({ signal: "expired-proposal", target: c.id, evidence: [`proposed ${c.since}`], proposal: "ratify it or drop it", level: "propose" });
-  for (const e of g.edges) if (e.proposed && expired(e.since)) out.push({ signal: "expired-proposal", target: `${e.from} ${e.rel} ${e.to}`, evidence: [`proposed ${e.since}`], proposal: "dropped automatically by ctx gc (proposed edges from reach)", level: "info" });
-  for (const c of g.concepts.values()) {
-    if (!c.adr || g.isRetired(c.id)) continue;
-    const adr = findAdr(ctx.root, c.adr);
-    if (!adr) continue;
-    const status = /^\**\s*status\s*\**\s*[:|]?\s*\**\s*([^\n*]+)/im.exec(adr.text)?.[1]?.trim();
-    if (!status || !/supersed/i.test(status)) continue;
-    const succNum = /(\d{3,5})/.exec(status.replace(/supersed\w*\s*(by)?/i, ""))?.[1];
-    const succ = succNum ? [...g.concepts.values()].find((x) => x.adr === succNum)?.id : void 0;
-    out.push({ signal: "superseded-adr", target: c.id, evidence: [`${adr.file}: status "${status}"`], proposal: `ctx retire ${c.id} --reason "ADR ${c.adr} superseded"${succ ? ` --succ ${succ}` : ""}`, level: "propose" });
-  }
-  const packs = loadPacks(["auto"]);
-  const files = (git(ctx.root, ["ls-files", "--cached", "--others", "--exclude-standard"]) ?? "").split("\n").filter(Boolean);
-  for (const k of g.constraints.values()) {
-    if (!k.from || g.isRetired(k.id)) continue;
-    const packName = k.from.split("@")[0];
-    const pack2 = packs.find((p) => p.name === packName);
-    if (!pack2) continue;
-    const template = pack2.records.find((r) => r.kind === "K" && (r.id === k.id || k.id.startsWith(`${r.id}.`)));
-    const role = template && /\{([^}]+)\}/.exec(template.attachedTo)?.[1];
-    if (!role) continue;
-    const { bindings } = detectBindings(pack2, g, files, ctx.config.packBindings);
-    if (!bindings.some((b) => b.role === role && b.logical === k.attachedTo)) {
-      out.push({ signal: "mapping-drift", target: k.id, evidence: [`bound to ${k.attachedTo} as {${role}} from ${k.from}; detection no longer matches`], proposal: "re-bind the role under [init.packs], or retire the binding", level: "propose" });
-    }
-  }
-  const debt = /* @__PURE__ */ new Map();
-  for (const d of g.decisions.values()) {
-    if (!/^legacy:/.test(d.text) || !d.overrides) continue;
-    const e = debt.get(d.overrides) ?? { open: 0, paid: 0 };
-    if (g.isActiveDecision(d)) e.open++;
-    else e.paid++;
-    debt.set(d.overrides, e);
-  }
-  for (const [k, e] of debt) out.push({ signal: "debt-trend", target: k, evidence: [`${e.open} legacy exception(s) open, ${e.paid} paid`], proposal: "informational; the open number should fall", level: "info" });
-  return out;
-}
-function retire(ctx, target, reason, succ) {
-  const g = ctx.graph;
-  if (!g || !ctx.graphDir) throw new Error("no graph");
-  if (!g.targetExists(target)) throw new Error(`${target} is not a constraint or concept`);
-  if (g.isRetired(target)) throw new Error(`${target} is already retired`);
-  if (succ && !g.targetExists(succ)) throw new Error(`successor ${succ} does not exist`);
-  const who = `${gitPerson(ctx.root)}/human`;
-  const record2 = { kind: "Z", target, date: (/* @__PURE__ */ new Date()).toISOString().slice(0, 10), who, reason, line: 0 };
-  if (succ) record2.succ = succ;
-  appendRecord(join24(ctx.graphDir, GRAPH_FILE), record2);
-  const k = g.constraints.get(target);
-  const needsTrailer = target.startsWith("C:") || k?.mode === "E";
-  return { record: record2, needsTrailer, trailer: `Ctx-Ratified-By: ${gitPerson(ctx.root)}` };
-}
-function gc(ctx, opts = {}) {
-  const g = ctx.graph;
-  if (!g || !ctx.graphDir) throw new Error("no graph");
-  const now = opts.now ?? /* @__PURE__ */ new Date();
-  const cutoff = now.getTime() - ctx.config.hygiene.archiveAfterDays * 864e5;
-  const old = (date3) => new Date(date3).getTime() < cutoff;
-  const year = String(now.getFullYear());
-  const archiveDir = join24(ctx.graphDir, "archive");
-  const archiveFile = join24(archiveDir, `${year}.ctx`);
-  const toArchive = [];
-  const ids = /* @__PURE__ */ new Set();
-  for (const s of g.supersessions) {
-    const newer = g.decisions.get(s.newId);
-    const older = g.decisions.get(s.oldId);
-    if (!newer || !older || !old(newer.date)) continue;
-    toArchive.push(older, s);
-    ids.add(older.id);
-  }
-  for (const z of g.retirements) {
-    if (!old(z.date)) continue;
-    const k = g.constraints.get(z.target);
-    const c = g.concepts.get(z.target);
-    if (k) {
-      toArchive.push(k, z);
-      ids.add(k.id);
-    } else if (c) {
-      toArchive.push(c, z);
-      ids.add(c.id);
-    }
-  }
-  if (opts.deleted) {
-    for (const d of g.decisions.values()) {
-      if (ids.has(d.id) || !isPathId(d.node) || existsSync24(toAbsolute(ctx.root, splitSymbol(d.node).path))) continue;
-      toArchive.push(d);
-      ids.add(d.id);
-    }
-  }
-  const ttl = ctx.config.hygiene.proposalTtlDays * 864e5;
-  const droppedProposals = [];
-  const rewrite = (file) => {
-    if (!existsSync24(file)) return;
-    const lines = readFileSync23(file, "utf8").split("\n");
-    const kept = [];
-    for (let i = 0; i < lines.length; i++) {
-      const raw = lines[i];
-      let rec = null;
-      try {
-        rec = parseLine(raw, i + 1, file);
-      } catch {
-        kept.push(raw);
-        continue;
-      }
-      if (!rec) {
-        kept.push(raw);
-        continue;
-      }
-      if (rec.kind === "D" && ids.has(rec.id)) continue;
-      if (rec.kind === "K" && ids.has(rec.id)) continue;
-      if (rec.kind === "C" && ids.has(rec.id)) continue;
-      if (rec.kind === "S" && ids.has(rec.oldId)) continue;
-      if (rec.kind === "Z" && ids.has(rec.target)) continue;
-      if (rec.kind === "E" && rec.proposed && rec.since && now.getTime() - new Date(rec.since).getTime() > ttl) {
-        droppedProposals.push(`${rec.from} ${rec.rel} ${rec.to}`);
-        continue;
-      }
-      kept.push(raw);
-    }
-    writeFileSync8(file, kept.join("\n").replace(/\n*$/, "\n"), "utf8");
-  };
-  if (toArchive.length) {
-    mkdirSync6(archiveDir, { recursive: true });
-    const header = existsSync24(archiveFile) ? "" : `# archive ${year}: inactive records moved by ctx gc; ids stay resolvable, the walker never reads this file
-`;
-    writeFileSync8(archiveFile, (existsSync24(archiveFile) ? readFileSync23(archiveFile, "utf8") : header) + toArchive.map(formatRecord).join("\n") + "\n", "utf8");
-  }
-  for (const f of [join24(ctx.graphDir, DECISIONS_FILE), join24(ctx.graphDir, GRAPH_FILE), join24(ctx.graphDir, "proposals.ctx")]) rewrite(f);
-  const res = { archived: [...ids], droppedProposals };
-  if (toArchive.length) res.archiveFile = archiveFile;
-  return res;
-}
-function loadArchive(graphDir) {
-  const dir = join24(graphDir, "archive");
-  if (!existsSync24(dir)) return [];
-  const out = [];
-  for (const f of readdirSync5(dir).filter((x) => x.endsWith(".ctx")).sort()) out.push(...parseText(readFileSync23(join24(dir, f), "utf8"), join24(dir, f)));
-  return out;
-}
-function timeline(ctx, node) {
-  const g = ctx.graph;
-  if (!g || !ctx.graphDir) throw new Error("no graph");
-  const archive = loadArchive(ctx.graphDir);
-  const rows = [];
-  const decisions = /* @__PURE__ */ new Map();
-  for (const r of archive) if (r.kind === "D" && r.node === node) decisions.set(r.id, { d: r, archived: true });
-  for (const d of g.decisions.values()) if (d.node === node && !decisions.has(d.id)) decisions.set(d.id, { d, archived: false });
-  const seq = /* @__PURE__ */ new Map();
-  const order = /* @__PURE__ */ new Map();
-  for (const { d, archived } of decisions.values()) {
-    seq.set(d.id, seq.size);
-    const row = { date: d.date, kind: "decision", id: d.id, text: `${d.who} ->${d.serves}${d.overrides ? ` !${d.overrides}` : ""}  ${d.text}`, archived };
-    order.set(row, seq.size);
-    rows.push(row);
-  }
-  const sup = [...g.supersessions, ...archive.filter((r) => r.kind === "S")];
-  for (const s of sup) {
-    if (!decisions.has(s.oldId)) continue;
-    const newer = g.decisions.get(s.newId) ?? archive.find((r) => r.kind === "D" && r.id === s.newId);
-    const row = { date: newer?.date ?? "", kind: "superseded", id: s.oldId, text: `superseded by ${s.newId}`, archived: !g.decisions.has(s.oldId) };
-    order.set(row, (seq.get(s.oldId) ?? 0) + 1.5);
-    rows.push(row);
-  }
-  const attached = new Set([...g.constraints.values(), ...archive.filter((r) => r.kind === "K")].filter((k) => k.attachedTo === node).map((k) => k.id));
-  for (const z of [...g.retirements, ...archive.filter((r) => r.kind === "Z")]) if (attached.has(z.target)) rows.push({ date: z.date, kind: "retired", id: z.target, text: `${z.who} ${z.reason}${z.succ ? ` -> ${z.succ}` : ""}`, archived: !g.constraints.has(z.target) });
-  return rows.sort((a, b) => a.date.localeCompare(b.date) || (order.get(a) ?? Infinity) - (order.get(b) ?? Infinity));
-}
-function findAdr(root, num) {
-  const files = (git(root, ["ls-files", "--cached", "--others", "--exclude-standard"]) ?? "").split("\n").filter((f2) => /(^|\/)(adr|adrs|decisions)\/[^/]*\.md$/i.test(f2) && basename5(f2).includes(num));
-  const f = files[0];
-  if (!f) return void 0;
-  try {
-    return { file: f, text: readFileSync23(toAbsolute(root, f), "utf8") };
-  } catch {
-    return void 0;
-  }
-}
-function reloadGraph(ctx) {
-  return Graph.load(ctx.graphDir);
-}
-var init_hygiene = __esm({
-  "src/hygiene/hygiene.ts"() {
-    "use strict";
-    init_graph();
-    init_parse();
-    init_records();
-    init_write();
-    init_packs2();
-    init_git();
-    init_paths();
-  }
-});
-
 // src/hygiene/cli.ts
 var cli_exports3 = {};
 __export(cli_exports3, {
-  run: () => run3
+  run: () => run4
 });
-async function run3(args, env) {
+async function run4(args, env) {
   const ctx = openFromArgs(args);
   needGraph(ctx);
   if (args.cmd === "hygiene") {
@@ -34308,9 +34553,9 @@ var init_wrapper = __esm({
 });
 
 // src/overlay/server.ts
-import { createReadStream, existsSync as existsSync25, mkdirSync as mkdirSync7, readdirSync as readdirSync6, readFileSync as readFileSync24, statSync as statSync6, unlinkSync, watch, writeFileSync as writeFileSync9 } from "node:fs";
+import { createReadStream, existsSync as existsSync26, mkdirSync as mkdirSync7, readdirSync as readdirSync6, readFileSync as readFileSync24, statSync as statSync6, unlinkSync, watch, writeFileSync as writeFileSync9 } from "node:fs";
 import { createServer } from "node:http";
-import { extname, join as join25, resolve as resolve12 } from "node:path";
+import { extname, join as join26, resolve as resolve12 } from "node:path";
 function eventKey(env) {
   return `${env.session}|${env.ts}|${env.t}|${env.who}|${JSON.stringify(env.p)}`;
 }
@@ -34321,7 +34566,7 @@ async function startServer(opts) {
   const clients = /* @__PURE__ */ new Map();
   const boot = Date.now();
   const providers = /* @__PURE__ */ new Map();
-  const viewDir = opts.viewDir ?? join25(packageRoot(), "view", "dist");
+  const viewDir = opts.viewDir ?? join26(packageRoot(), "view", "dist");
   const state = (hash) => {
     let s = repos.get(hash);
     if (!s) {
@@ -34360,7 +34605,7 @@ async function startServer(opts) {
       }
       if (st.t === "session" && !opts.hosted && !s.root) {
         const cwd = st.p.cwd;
-        if (cwd && existsSync25(cwd)) s.root = findRepoRoot(cwd);
+        if (cwd && existsSync26(cwd)) s.root = findRepoRoot(cwd);
       }
     }
     broadcast(hash, out);
@@ -34400,12 +34645,12 @@ async function startServer(opts) {
   };
   let watcher;
   if (!opts.hosted) {
-    const obsDir = join25(ctxHome(), "observations");
+    const obsDir = join26(ctxHome(), "observations");
     mkdirSync7(obsDir, { recursive: true });
     for (const hash of readdirSync6(obsDir)) {
-      const dir = join25(obsDir, hash);
+      const dir = join26(obsDir, hash);
       if (!statSync6(dir).isDirectory()) continue;
-      for (const f of readdirSync6(dir).filter((x) => x.endsWith(".jsonl")).sort((a, b) => statSync6(join25(dir, a)).mtimeMs - statSync6(join25(dir, b)).mtimeMs)) readNew(join25(dir, f), hash);
+      for (const f of readdirSync6(dir).filter((x) => x.endsWith(".jsonl")).sort((a, b) => statSync6(join26(dir, a)).mtimeMs - statSync6(join26(dir, b)).mtimeMs)) readNew(join26(dir, f), hash);
     }
     for (const r of opts.repos ?? []) state(repoHash(r)).root = findRepoRoot(r);
     try {
@@ -34413,7 +34658,7 @@ async function startServer(opts) {
         if (!name || !String(name).endsWith(".jsonl")) return;
         const rel = String(name);
         const hash = rel.split(/[\\/]/)[0];
-        readNew(join25(obsDir, rel), hash);
+        readNew(join26(obsDir, rel), hash);
       });
     } catch {
     }
@@ -34450,7 +34695,7 @@ async function startServer(opts) {
       }
       if (req.method === "POST" && rest === "register") {
         const body = await readBody(req);
-        if (body.root && existsSync25(body.root) && !opts.hosted) s.root = findRepoRoot(body.root);
+        if (body.root && existsSync26(body.root) && !opts.hosted) s.root = findRepoRoot(body.root);
         return sendJson(res, { ok: true, root: s.root ?? null });
       }
       if (req.method === "POST" && rest === "provisional/retire") {
@@ -34497,8 +34742,8 @@ async function startServer(opts) {
       return;
     }
     let file = url.pathname === "/" ? "/index.html" : url.pathname;
-    const abs = join25(viewDir, file);
-    if (existsSync25(abs) && statSync6(abs).isFile()) {
+    const abs = join26(viewDir, file);
+    if (existsSync26(abs) && statSync6(abs).isFile()) {
       res.setHeader("content-type", MIME[extname(abs)] ?? "application/octet-stream");
       res.end(readFileSync24(abs));
       return;
@@ -34540,7 +34785,7 @@ async function startServer(opts) {
   });
   const addr = server.address();
   const port = typeof addr === "object" && addr ? addr.port : opts.port;
-  const serveFile = join25(ctxHome(), "serve.json");
+  const serveFile = join26(ctxHome(), "serve.json");
   const registered = !opts.hosted && opts.register !== false;
   if (registered) {
     mkdirSync7(ctxHome(), { recursive: true });
@@ -34560,7 +34805,7 @@ async function startServer(opts) {
       for (const ws of clients.keys()) ws.terminate();
       wss.close();
       server.close(() => {
-        if (registered && existsSync25(serveFile)) {
+        if (registered && existsSync26(serveFile)) {
           try {
             unlinkSync(serveFile);
           } catch {
@@ -34781,9 +35026,9 @@ var init_server4 = __esm({
 // src/overlay/cli.ts
 var cli_exports4 = {};
 __export(cli_exports4, {
-  run: () => run4
+  run: () => run5
 });
-async function run4(args, env) {
+async function run5(args, env) {
   if (args.cmd === "serve") {
     const repoOpt = str(args.flags.repo);
     const root = repoOpt ? findRepoRoot(repoOpt) : void 0;
@@ -35099,34 +35344,34 @@ var init_report = __esm({
 
 // src/bench/runner.ts
 import { execFileSync as execFileSync4, spawnSync as spawnSync2 } from "node:child_process";
-import { copyFileSync, existsSync as existsSync26, mkdirSync as mkdirSync8, readFileSync as readFileSync25, rmSync, writeFileSync as writeFileSync10, appendFileSync as appendFileSync3 } from "node:fs";
-import { join as join26 } from "node:path";
+import { copyFileSync, existsSync as existsSync27, mkdirSync as mkdirSync8, readFileSync as readFileSync25, rmSync, writeFileSync as writeFileSync10, appendFileSync as appendFileSync3 } from "node:fs";
+import { join as join27 } from "node:path";
 async function runBench(ctx, tasks, opts) {
   const log = opts.log ?? (() => void 0);
   const root = ctx.root;
   const stamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-").slice(0, 19);
-  const dir = opts.outDir ?? join26(ctx.graphDir && !ctx.graphDir.startsWith(root) ? ctx.graphDir : join26(root, ".ctx"), "bench", "results", stamp);
+  const dir = opts.outDir ?? join27(ctx.graphDir && !ctx.graphDir.startsWith(root) ? ctx.graphDir : join27(root, ".ctx"), "bench", "results", stamp);
   mkdirSync8(dir, { recursive: true });
-  const runsFile = join26(dir, "runs.jsonl");
+  const runsFile = join27(dir, "runs.jsonl");
   const selected = opts.tasks?.length ? tasks.filter((t) => opts.tasks.includes(t.id)) : tasks;
   if (!selected.length) throw new Error("no tasks selected");
-  writeFileSync10(join26(dir, "meta.json"), JSON.stringify({ startedAt: (/* @__PURE__ */ new Date()).toISOString(), repo: root, harness: opts.harness, arms: opts.arms, runs: opts.runs, tasks: selected.map((t) => t.id) }, null, 2));
+  writeFileSync10(join27(dir, "meta.json"), JSON.stringify({ startedAt: (/* @__PURE__ */ new Date()).toISOString(), repo: root, harness: opts.harness, arms: opts.arms, runs: opts.runs, tasks: selected.map((t) => t.id) }, null, 2));
   const records = [];
-  const wtRoot = join26(ctxHome(), "bench", repoHash(root));
+  const wtRoot = join27(ctxHome(), "bench", repoHash(root));
   mkdirSync8(wtRoot, { recursive: true });
   for (const task of selected) {
     for (const arm of opts.arms) {
-      for (let run7 = 1; run7 <= opts.runs; run7++) {
-        const label = `${task.id} ${arm} #${run7}`;
-        const wt = join26(wtRoot, `${task.id}-${arm}-${run7}`);
+      for (let run8 = 1; run8 <= opts.runs; run8++) {
+        const label = `${task.id} ${arm} #${run8}`;
+        const wt = join27(wtRoot, `${task.id}-${arm}-${run8}`);
         rmWorktree(root, wt);
         log(`${label}: worktree at ${task.base}`);
         execFileSync4("git", ["worktree", "add", "--detach", "-f", wt, task.base], { cwd: root, stdio: "ignore" });
         const started = Date.now();
-        const rec = { task: task.id, stratum: task.stratum, arm, harness: opts.harness, run: run7, startedAt: new Date(started).toISOString(), durationMs: 0, passed: null, checkExit: null, tokensIn: null, tokensOut: null, turns: null, toolCalls: 0, reads: 0, edits: 0, rework: 0, testFailures: 0, slicesInjected: 0, callersLoaded: 0, callersTotal: 0, darkTotal: 0, reach: 0, decisions: [], session: null, harnessError: null };
+        const rec = { task: task.id, stratum: task.stratum, arm, harness: opts.harness, run: run8, startedAt: new Date(started).toISOString(), durationMs: 0, passed: null, checkExit: null, tokensIn: null, tokensOut: null, turns: null, toolCalls: 0, reads: 0, edits: 0, rework: 0, testFailures: 0, slicesInjected: 0, callersLoaded: 0, callersTotal: 0, darkTotal: 0, reach: 0, decisions: [], session: null, harnessError: null };
         try {
           const env = prepareArm(ctx, task, arm, wt, opts.harness);
-          const session = `bench-${task.id}-${arm}-${run7}-${stamp}`;
+          const session = `bench-${task.id}-${arm}-${run8}-${stamp}`;
           env.CTX_SESSION = session;
           const h = runHarness(opts, task, wt, env, session, log);
           rec.session = h.session;
@@ -35137,7 +35382,7 @@ async function runBench(ctx, tasks, opts) {
           const check2 = spawnSync2("sh", ["-c", task.check], { cwd: wt, encoding: "utf8", timeout: opts.timeoutMs ?? 10 * 6e4, env: { ...process.env, CI: "1" } });
           rec.checkExit = check2.status;
           rec.passed = check2.status === 0;
-          writeFileSync10(join26(dir, `${task.id}-${arm}-${run7}.check.log`), `${check2.stdout ?? ""}
+          writeFileSync10(join27(dir, `${task.id}-${arm}-${run8}.check.log`), `${check2.stdout ?? ""}
 ${check2.stderr ?? ""}`);
           if (h.session) collectMetrics(rec, new ObservationStore(wt, h.session).readAll().length ? new ObservationStore(wt, h.session) : new ObservationStore(root, h.session));
         } catch (e) {
@@ -35157,25 +35402,25 @@ ${check2.stderr ?? ""}`);
 function prepareArm(ctx, task, arm, wt, harness) {
   const env = { ...process.env, CLAUDE_PROJECT_DIR: wt };
   delete env.CTX_GRAPH_DIR;
-  const inTree = join26(wt, ".ctx");
+  const inTree = join27(wt, ".ctx");
   if (arm === "A") {
-    if (existsSync26(inTree)) rmSync(inTree, { recursive: true, force: true });
+    if (existsSync27(inTree)) rmSync(inTree, { recursive: true, force: true });
     env.CTX_GRAPH_DIR = "";
     delete env.CTX_GRAPH_DIR;
     return env;
   }
-  const snapshotDir = join26(wt, ".ctx-bench");
+  const snapshotDir = join27(wt, ".ctx-bench");
   mkdirSync8(snapshotDir, { recursive: true });
-  const graphDir = existsSync26(join26(inTree, "graph.ctx")) ? inTree : ctx.graphDir;
+  const graphDir = existsSync27(join27(inTree, "graph.ctx")) ? inTree : ctx.graphDir;
   if (!graphDir) throw new Error("no graph to snapshot for arm " + arm);
   const baseDate = git(ctx.root, ["show", "-s", "--format=%cI", task.base]) ?? "";
   if (!baseDate) throw new Error(`cannot date base commit ${task.base}`);
   const cut = new Date(baseDate).getTime();
-  for (const f of ["graph.ctx", "aliases.ctx", "proposals.ctx"]) if (existsSync26(join26(graphDir, f))) copyFileSync(join26(graphDir, f), join26(snapshotDir, f));
-  const decisionsFile = join26(graphDir, "decisions.ctx");
+  for (const f of ["graph.ctx", "aliases.ctx", "proposals.ctx"]) if (existsSync27(join27(graphDir, f))) copyFileSync(join27(graphDir, f), join27(snapshotDir, f));
+  const decisionsFile = join27(graphDir, "decisions.ctx");
   const kept = [];
   let dropped = 0;
-  if (existsSync26(decisionsFile)) {
+  if (existsSync27(decisionsFile)) {
     const recs = parseText(readFileSync25(decisionsFile, "utf8"), decisionsFile);
     const keptIds = /* @__PURE__ */ new Set();
     for (const r of recs) {
@@ -35192,20 +35437,20 @@ function prepareArm(ctx, task, arm, wt, harness) {
       } else kept.push(formatRecord(r));
     }
   }
-  writeFileSync10(join26(snapshotDir, "decisions.ctx"), `# temporal cut at ${task.base} (${baseDate}); ${dropped} later decision(s) excluded
+  writeFileSync10(join27(snapshotDir, "decisions.ctx"), `# temporal cut at ${task.base} (${baseDate}); ${dropped} later decision(s) excluded
 ` + kept.join("\n") + (kept.length ? "\n" : ""));
-  const cfg = existsSync26(join26(graphDir, "config.toml")) ? readFileSync25(join26(graphDir, "config.toml"), "utf8") : "";
+  const cfg = existsSync27(join27(graphDir, "config.toml")) ? readFileSync25(join27(graphDir, "config.toml"), "utf8") : "";
   const sliceOn = arm === "C";
-  writeFileSync10(join26(snapshotDir, "config.toml"), cfg.replace(/^\s*enabled\s*=.*$/m, "") + `
+  writeFileSync10(join27(snapshotDir, "config.toml"), cfg.replace(/^\s*enabled\s*=.*$/m, "") + `
 [slice]
 enabled = ${sliceOn}
 `, "utf8");
   env.CTX_GRAPH_DIR = snapshotDir;
-  if (existsSync26(inTree)) rmSync(inTree, { recursive: true, force: true });
+  if (existsSync27(inTree)) rmSync(inTree, { recursive: true, force: true });
   if (arm === "B") {
     const g = Graph.load(snapshotDir);
-    const file = join26(wt, harness === "codex" ? "AGENTS.md" : "CLAUDE.md");
-    const prior = existsSync26(file) ? readFileSync25(file, "utf8") : "";
+    const file = join27(wt, harness === "codex" ? "AGENTS.md" : "CLAUDE.md");
+    const prior = existsSync27(file) ? readFileSync25(file, "utf8") : "";
     writeFileSync10(file, prior + "\n\n" + renderWholeGraph(g), "utf8");
   }
   return env;
@@ -35223,8 +35468,8 @@ function renderWholeGraph(g) {
   return lines.join("\n") + "\n";
 }
 function adapterDir(name) {
-  const dir = join26(packageRoot(), "adapters", name);
-  if (!existsSync26(dir)) throw new Error(`adapter directory not found at ${dir}; the benchmark needs the full package or a clone`);
+  const dir = join27(packageRoot(), "adapters", name);
+  if (!existsSync27(dir)) throw new Error(`adapter directory not found at ${dir}; the benchmark needs the full package or a clone`);
   return dir;
 }
 function runHarness(opts, task, wt, env, session, log) {
@@ -35295,7 +35540,7 @@ function collectMetrics(rec, store) {
   });
 }
 function rmWorktree(root, wt) {
-  if (!existsSync26(wt)) return;
+  if (!existsSync27(wt)) return;
   try {
     execFileSync4("git", ["worktree", "remove", "--force", wt], { cwd: root, stdio: "ignore" });
   } catch {
@@ -35322,15 +35567,15 @@ var init_runner = __esm({
 // src/bench/cli.ts
 var cli_exports5 = {};
 __export(cli_exports5, {
-  run: () => run5
+  run: () => run6
 });
-import { existsSync as existsSync27, mkdirSync as mkdirSync9, readFileSync as readFileSync26, readdirSync as readdirSync7, writeFileSync as writeFileSync11 } from "node:fs";
-import { join as join27, resolve as resolve13 } from "node:path";
-async function run5(args, env) {
+import { existsSync as existsSync28, mkdirSync as mkdirSync9, readFileSync as readFileSync26, readdirSync as readdirSync7, writeFileSync as writeFileSync11 } from "node:fs";
+import { join as join28, resolve as resolve13 } from "node:path";
+async function run6(args, env) {
   const sub = args.positional[0];
   const ctx = openFromArgs(args);
-  const benchDir = ctx.graphDir && !ctx.graphDir.startsWith(ctx.root) ? join27(ctx.graphDir, "bench") : join27(ctx.root, ".ctx", "bench");
-  const corpusFile = str(args.flags.corpus) ?? join27(benchDir, "tasks.ctx");
+  const benchDir = ctx.graphDir && !ctx.graphDir.startsWith(ctx.root) ? join28(ctx.graphDir, "bench") : join28(ctx.root, ".ctx", "bench");
+  const corpusFile = str(args.flags.corpus) ?? join28(benchDir, "tasks.ctx");
   if (sub === "corpus") {
     const { tasks, skipped } = proposeCorpus(ctx, { ...str(args.flags.since) ? { since: str(args.flags.since) } : {}, ...str(args.flags.limit) ? { limit: Number(str(args.flags.limit)) } : {}, ...str(args.flags["test-command"]) ? { testCommand: str(args.flags["test-command"]) } : {} });
     if (env.json) {
@@ -35347,7 +35592,7 @@ async function run5(args, env) {
     return 0;
   }
   if (sub === "run") {
-    if (!existsSync27(corpusFile)) throw new Error(`no corpus at ${corpusFile}; run ctx bench corpus --write first`);
+    if (!existsSync28(corpusFile)) throw new Error(`no corpus at ${corpusFile}; run ctx bench corpus --write first`);
     const tasks = parseCorpus(readFileSync26(corpusFile, "utf8"));
     const arms = (str(args.flags.arms) ?? "A,C").split(",").map((a) => a.trim().toUpperCase());
     for (const a of arms) if (!["A", "B", "C"].includes(a)) throw new Error(`unknown arm ${a}`);
@@ -35368,8 +35613,8 @@ async function run5(args, env) {
       }
     });
     const report = buildReport(r.records);
-    writeFileSync11(join27(r.dir, "report.md"), formatReport(report), "utf8");
-    writeFileSync11(join27(r.dir, "report.json"), JSON.stringify(report, null, 2), "utf8");
+    writeFileSync11(join28(r.dir, "report.md"), formatReport(report), "utf8");
+    writeFileSync11(join28(r.dir, "report.json"), JSON.stringify(report, null, 2), "utf8");
     if (env.json) console.log(JSON.stringify({ dir: r.dir, report }, null, 2));
     else {
       console.log("");
@@ -35381,12 +35626,12 @@ async function run5(args, env) {
   if (sub === "report") {
     let dir = str(args.flags.dir);
     if (!dir) {
-      const results = join27(benchDir, "results");
-      const runs = existsSync27(results) ? readdirSync7(results).sort() : [];
+      const results = join28(benchDir, "results");
+      const runs = existsSync28(results) ? readdirSync7(results).sort() : [];
       if (!runs.length) throw new Error(`no results under ${results}`);
-      dir = join27(results, runs[runs.length - 1]);
+      dir = join28(results, runs[runs.length - 1]);
     }
-    const records = readFileSync26(join27(dir, "runs.jsonl"), "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
+    const records = readFileSync26(join28(dir, "runs.jsonl"), "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
     const report = buildReport(records);
     if (env.json) console.log(JSON.stringify(report, null, 2));
     else console.log(formatReport(report));
@@ -35411,14 +35656,14 @@ ctx bench report [--dir <results dir>]`;
 
 // src/cli/doctor.ts
 import { execFileSync as execFileSync5 } from "node:child_process";
-import { existsSync as existsSync28, readFileSync as readFileSync27, readdirSync as readdirSync8, statSync as statSync7 } from "node:fs";
+import { existsSync as existsSync29, readFileSync as readFileSync27, readdirSync as readdirSync8, statSync as statSync7 } from "node:fs";
 import { homedir as homedir4 } from "node:os";
-import { join as join28, resolve as resolve14 } from "node:path";
+import { join as join29, resolve as resolve14 } from "node:path";
 function runDoctor(ctx, opts = {}) {
   const out = [];
   const now = opts.now ?? Date.now();
-  const claudeDir = opts.claudeDir ?? process.env.CLAUDE_CONFIG_DIR ?? join28(homedir4(), ".claude");
-  const sourceVersion = readVersion(join28(packageRoot(), "package.json"));
+  const claudeDir = opts.claudeDir ?? process.env.CLAUDE_CONFIG_DIR ?? join29(homedir4(), ".claude");
+  const sourceVersion = readVersion(join29(packageRoot(), "package.json"));
   const g = ctx.graph;
   if (!g) out.push({ level: "fail", text: `no graph for ${ctx.root}: run ctx init --write (or ctx link a graph kept elsewhere); hooks observe but inject nothing` });
   else {
@@ -35430,20 +35675,20 @@ function runDoctor(ctx, opts = {}) {
     if (ks.length && proposed === ks.length && !g.decisions.size) out.push({ level: "warn", text: "every rule is still proposed and no decision has been recorded: the graph has not started earning its content yet" });
   }
   if (!isOnPath("ctx")) out.push({ level: "warn", text: `the ctx command is not on the PATH: the instruction block tells agents to run ctx commands; install it with ${scriptCommand()} install cli, or npm i -g @warren-dean/context-graph` });
-  const ins = ["AGENTS.md", "CLAUDE.md"].find((f) => existsSync28(join28(ctx.root, f)));
+  const ins = ["AGENTS.md", "CLAUDE.md"].find((f) => existsSync29(join29(ctx.root, f)));
   if (!ins) out.push({ level: "warn", text: "no AGENTS.md or CLAUDE.md: the agent is never told to hydrate before reading; ctx install instructions writes the block once one exists" });
-  else if (!readFileSync27(join28(ctx.root, ins), "utf8").includes(INSTRUCTION_HEADING)) out.push({ level: "warn", text: `${ins} lacks the Context Graph block: run ctx install instructions` });
+  else if (!readFileSync27(join29(ctx.root, ins), "utf8").includes(INSTRUCTION_HEADING)) out.push({ level: "warn", text: `${ins} lacks the Context Graph block: run ctx install instructions` });
   else out.push({ level: "ok", text: `${ins} carries the Context Graph block` });
   let installedAt;
-  const installed = readJson(join28(claudeDir, "plugins", "installed_plugins.json"));
+  const installed = readJson(join29(claudeDir, "plugins", "installed_plugins.json"));
   const entry = installed?.plugins?.["context-graph@context-graph"]?.[0];
   if (!entry) out.push({ level: "warn", text: "Claude Code plugin not installed (no context-graph@context-graph in installed_plugins.json); /plugin marketplace add <path> then /plugin install context-graph@context-graph" });
   else {
     installedAt = Date.parse(entry.lastUpdated ?? entry.installedAt ?? "") || void 0;
-    const settings = readJson(join28(claudeDir, "settings.json"));
+    const settings = readJson(join29(claudeDir, "settings.json"));
     const enabled = settings?.enabledPlugins?.["context-graph@context-graph"];
     if (enabled === false) out.push({ level: "fail", text: "Claude Code plugin is installed but disabled in settings.json" });
-    const hooksFile = entry.installPath ? join28(entry.installPath, "hooks", "hooks.json") : void 0;
+    const hooksFile = entry.installPath ? join29(entry.installPath, "hooks", "hooks.json") : void 0;
     const hooks = hooksFile ? readJson(hooksFile) : void 0;
     const pre = hooks?.hooks?.PreToolUse?.map((h) => h.matcher).join("|") ?? "";
     const stale = sourceVersion && entry.version && entry.version !== sourceVersion;
@@ -35456,12 +35701,12 @@ function runDoctor(ctx, opts = {}) {
     if (old.length) out.push({ level: "fail", text: `${old.length} of ${procs.length} running Claude Code session${procs.length === 1 ? "" : "s"} started before the plugin was installed or last updated (${new Date(installedAt).toLocaleString()}) and never loaded its hooks: exit each and start it again with claude --resume (pids ${old.map((p) => p.pid).join(", ")})` });
     else out.push({ level: "ok", text: `${procs.length} running Claude Code session${procs.length === 1 ? "" : "s"}, all started after the plugin was installed` });
   }
-  const obsDir = join28(ctxHome(), "observations", repoHash(ctx.root));
+  const obsDir = join29(ctxHome(), "observations", repoHash(ctx.root));
   const dayAgo = now - 24 * 36e5;
   const recent = [];
-  if (existsSync28(obsDir)) {
+  if (existsSync29(obsDir)) {
     for (const f of readdirSync8(obsDir).filter((x) => x.endsWith(".jsonl"))) {
-      const file = join28(obsDir, f);
+      const file = join29(obsDir, f);
       if (statSync7(file).mtimeMs < dayAgo) continue;
       const row = { session: f.replace(/\.jsonl$/, ""), harness: /* @__PURE__ */ new Set(), events: 0, last: 0, edits: 0, slices: 0, cards: 0 };
       for (const line of readFileSync27(file, "utf8").split("\n")) {
@@ -35548,10 +35793,10 @@ __export(guide_exports, {
   cardsReport: () => cardsReport,
   changedFiles: () => changedFiles,
   nextStep: () => nextStep,
-  run: () => run6
+  run: () => run7
 });
-import { existsSync as existsSync29, readFileSync as readFileSync28 } from "node:fs";
-import { join as join29, resolve as resolve15 } from "node:path";
+import { existsSync as existsSync30, readFileSync as readFileSync28 } from "node:fs";
+import { join as join30, resolve as resolve15 } from "node:path";
 function changedFiles(ctx) {
   const root = ctx.root;
   const branch = git(root, ["branch", "--show-current"]) ?? "";
@@ -35560,7 +35805,7 @@ function changedFiles(ctx) {
   for (const list of [base ? git(root, ["diff", "--name-only", base]) : void 0, git(root, ["diff", "--name-only", "HEAD"]), git(root, ["ls-files", "--others", "--exclude-standard"])]) {
     for (const f of (list ?? "").split("\n").filter(Boolean)) out.add(f);
   }
-  return [...out].filter((f) => existsSync29(join29(root, f)));
+  return [...out].filter((f) => existsSync30(join30(root, f)));
 }
 function cardsReport(ctx, opts = {}) {
   const g = ctx.graph;
@@ -35599,8 +35844,8 @@ function nextStep(ctx, opts = {}) {
       return result("cards", `The last session (${session}) still owes ${[decisions.length ? `${decisions.length} decision(s) (${decisions.slice(0, 3).join(", ")})` : "", cards.length ? `${cards.length} card(s) (${cards.slice(0, 3).join(", ")})` : ""].filter(Boolean).join(" and ")}.`);
     }
   }
-  const ins = ["AGENTS.md", "CLAUDE.md"].find((f) => existsSync29(join29(ctx.root, f)));
-  if (ins && !readFileSync28(join29(ctx.root, ins), "utf8").includes(INSTRUCTION_HEADING)) {
+  const ins = ["AGENTS.md", "CLAUDE.md"].find((f) => existsSync30(join30(ctx.root, f)));
+  if (ins && !readFileSync28(join30(ctx.root, ins), "utf8").includes(INSTRUCTION_HEADING)) {
     return result("init", `${ins} has no Context Graph block, so agents are never told to hydrate before they read, or how the loop works.`, { command: "ctx install instructions" });
   }
   const changed = cardsReport(ctx, { changed: true });
@@ -35608,17 +35853,17 @@ function nextStep(ctx, opts = {}) {
     const n = changed.missing.length + changed.stale.length;
     return result("cards", `${n} file(s) this branch changed have no card matching them (${[...changed.stale, ...changed.missing].slice(0, 3).join(", ")}${n > 3 ? ", \u2026" : ""}). The gate reports them, and the next agent to edit them has to read them in full.`, { command: "ctx cards --changed" });
   }
-  const proposals = [...g.constraints.values()].filter((k) => k.mode === "G?").length + [...g.concepts.values()].filter((c) => c.proposed).length;
+  const proposals2 = [...g.constraints.values()].filter((k) => k.mode === "G?").length + [...g.concepts.values()].filter((c) => c.proposed).length;
   const hygiene = hygieneReport(ctx).filter((f) => f.level === "propose");
-  if (proposals || hygiene.length) {
-    return result("curate", [proposals ? `${proposals} proposed rule(s) or concept(s) wait for a person to ratify or drop` : "", hygiene.length ? `${hygiene.length} hygiene finding(s) propose a change` : ""].filter(Boolean).join("; ") + ".", { command: proposals ? "ctx check" : "ctx hygiene" });
+  if (proposals2 || hygiene.length) {
+    return result("curate", [proposals2 ? `${proposals2} proposed rule(s) or concept(s) wait for a person to ratify or drop` : "", hygiene.length ? `${hygiene.length} hygiene finding(s) propose a change` : ""].filter(Boolean).join("; ") + ".", { command: proposals2 ? "ctx check" : "ctx hygiene" });
   }
   const all = cardsReport(ctx);
   summary.push(`${g.logicals.size} modules, ${g.constraints.size} rules, ${g.decisions.size} decisions`);
   summary.push(`cards: ${all.fresh.length} current, ${all.stale.length} stale, ${all.missing.length} missing, of ${all.fresh.length + all.stale.length + all.missing.length} files`);
   return result("done", "The graph is valid, nothing is owed, this branch's changed files all have current cards, and nothing waits for ratification.");
 }
-async function run6(args, env) {
+async function run7(args, env) {
   const ctx = openFromArgs(args);
   if (args.cmd === "cards") {
     const r = cardsReport(ctx, { changed: args.flags.changed === true });
@@ -35683,6 +35928,11 @@ async function extraCommands(args, env) {
     case "next":
     case "cards":
       return (await Promise.resolve().then(() => (init_guide(), guide_exports))).run(args, env);
+    case "file":
+    case "agents":
+    case "proposals":
+    case "drop":
+      return (await Promise.resolve().then(() => (init_present(), present_exports))).run(args, env);
     default:
       return void 0;
   }
@@ -35694,8 +35944,8 @@ var init_commands = __esm({
 });
 
 // src/cli/main.ts
-import { copyFileSync as copyFileSync2, existsSync as existsSync30, lstatSync as lstatSync2, mkdirSync as mkdirSync10, readdirSync as readdirSync9, readFileSync as readFileSync29, symlinkSync, unlinkSync as unlinkSync2 } from "node:fs";
-import { join as join30, resolve as resolve16 } from "node:path";
+import { copyFileSync as copyFileSync2, existsSync as existsSync31, lstatSync as lstatSync2, mkdirSync as mkdirSync10, readdirSync as readdirSync9, readFileSync as readFileSync29, symlinkSync, unlinkSync as unlinkSync2 } from "node:fs";
+import { join as join31, resolve as resolve16 } from "node:path";
 function parseArgs(argv) {
   const positional = [];
   const flags = {};
@@ -35980,20 +36230,20 @@ async function main() {
       const ctx = openFromArgs(args);
       const g = needGraph(ctx);
       const from = ctx.graphDir;
-      const dest = join30(ctx.root, ".ctx");
+      const dest = join31(ctx.root, ".ctx");
       if (resolve16(from) === resolve16(dest)) {
         console.log(`the graph already lives in ${dest}`);
         return 0;
       }
-      if (existsSync30(dest) && readdirSync9(dest).length && args.flags.force !== true) throw new Error(`${dest} already exists; pass --force to overwrite it with the linked graph`);
+      if (existsSync31(dest) && readdirSync9(dest).length && args.flags.force !== true) throw new Error(`${dest} already exists; pass --force to overwrite it with the linked graph`);
       mkdirSync10(dest, { recursive: true });
       const copied = [];
       for (const f of readdirSync9(from)) {
-        if (!lstatSync2(join30(from, f)).isFile()) continue;
-        copyFileSync2(join30(from, f), join30(dest, f));
+        if (!lstatSync2(join31(from, f)).isFile()) continue;
+        copyFileSync2(join31(from, f), join31(dest, f));
         copied.push(f);
       }
-      const link = join30(ctxHome(), "graphs", repoHash(ctx.root));
+      const link = join31(ctxHome(), "graphs", repoHash(ctx.root));
       if (isSymlink(link)) unlinkSync2(link);
       console.log(`moved the graph into ${dest} (${copied.join(", ")}): ${g.logicals.size} modules, ${g.constraints.size} rules, ${g.decisions.size} decisions`);
       console.log(`${from} is no longer read for this repository. Commit .ctx so every checkout and teammate carries it:
@@ -36005,11 +36255,11 @@ async function main() {
       if (!graph) throw new Error("ctx link --graph <dir> [--repo <dir>]");
       const ctx = openRepo({ ...str(args.flags.repo) ? { repo: str(args.flags.repo) } : {} });
       const target = resolve16(graph);
-      if (!existsSync30(join30(target, "graph.ctx"))) throw new Error(`${target} has no graph.ctx`);
-      const linkDir = join30(ctxHome(), "graphs");
+      if (!existsSync31(join31(target, "graph.ctx"))) throw new Error(`${target} has no graph.ctx`);
+      const linkDir = join31(ctxHome(), "graphs");
       mkdirSync10(linkDir, { recursive: true });
-      const link = join30(linkDir, repoHash(ctx.root));
-      if (existsSync30(link) || isSymlink(link)) unlinkSync2(link);
+      const link = join31(linkDir, repoHash(ctx.root));
+      if (existsSync31(link) || isSymlink(link)) unlinkSync2(link);
       symlinkSync(target, link);
       console.log(`${ctx.root}
   -> ${target}
@@ -36157,6 +36407,11 @@ Graph
   ctx card <path> --text "<why the file exists>" [--req ID,ID]   write or update a file's card
   ctx retire <id> --reason "<why>" [--succ <id>]   retire a constraint or concept
   ctx ratify <id>... [--delegated --reason "\u2026"]    accept proposed records (the delegated ratifier: within [delegate])
+  ctx ratify <id>... --commit                      the person: ratify and commit the graph with their trailer
+  ctx drop <id> --reason "<why>" [--commit]        the person: turn a proposal down, with the reason kept
+  ctx proposals                                    proposed rules and concepts, with their evidence
+  ctx file <path> [--agent <id>]                   a file's card, rules, decisions, and whether an agent understood it
+  ctx agents [--session <id>]                      each agent's coverage: read, searched, edited, cards owed
   ctx provenance                                   which of this branch's decisions are committed, and where
 
 Observation
