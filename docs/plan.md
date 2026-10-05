@@ -15,7 +15,7 @@
 **Lane:** lead
 **Requirements:** FILE-2, FILE-3, COV-1, COV-3
 **Depends on:** none
-**Status:** todo
+**Status:** done
 
 One command that gives a file's card and freshness, rules, chain, newest decisions, and whether a given agent understood it, with what's unread, plus code-kit's facts when present. Coverage per agent, as JSON, for a session.
 
@@ -24,7 +24,7 @@ One command that gives a file's card and freshness, rules, chain, newest decisio
 **Lane:** lead
 **Requirements:** RAT-1, RAT-3, RAT-4, RAT-5
 **Depends on:** none
-**Status:** todo
+**Status:** done
 
 - **Proposals:** a listing with served, overridden and violation counts.
 - **`ratify --commit`:** commits only the graph's files with the person's trailer, refusing on default or protected branches and for non-ratifiers.

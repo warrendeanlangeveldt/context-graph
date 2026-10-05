@@ -2,6 +2,18 @@
 
 What changed in each release of Context Graph, newest first. Versions follow the plugin manifests and the npm package `@warren-dean/context-graph`. Each release is also on [GitHub Releases](https://github.com/warrendeanlangeveldt/context-graph/releases).
 
+## 0.2.11 (2026-10-06)
+
+The command-line groundwork for the coming Context Graph mod (`docs/brief.md`), useful on its own:
+
+- **`ctx file <path> [--agent <id>]`:** a file's card and freshness, rules, chain and newest decisions, and whether an agent has understood it, with what it still has to read.
+- **`ctx agents`:** each agent's coverage in the session: read, searched, edited (and whether each edit was understood first), and cards owed.
+- **`ctx proposals`:** proposed rules and concepts, with served, overridden and violation counts.
+- **The person's acts:** `ctx ratify … --commit` ratifies and commits only the graph with the person's trailer, and `ctx drop <id> --reason` turns a proposal down, keeping the reason.
+  - Both refuse on protected branches and for non-ratifiers.
+  - The hooks refuse both from every agent, matching only a real command, not text that mentions one.
+- **Tool adapters** can now name protected branches. code-kit's adapter reports its `branches.protected`.
+
 ## 0.2.10 (2026-10-04)
 
 - **Changelog:** `CHANGELOG.md` now ships in the npm package, covering every release, and the README links to it.

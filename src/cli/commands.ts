@@ -19,6 +19,8 @@ export async function extraCommands(args: Args, env: { json: boolean; usage: str
       return (await import('../bench/cli.js')).run(args, env);
     case 'next': case 'cards':
       return (await import('./guide.js')).run(args, env);
+    case 'file': case 'agents': case 'proposals': case 'drop':
+      return (await import('./present.js')).run(args, env);
     default:
       return undefined;
   }
