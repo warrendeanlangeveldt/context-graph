@@ -73,5 +73,13 @@ export const codeKitAdapter: ToolAdapter = {
     lines.push(`code-kit  ${owner}${layer}`);
     return { lines, requirements: t.requirements.map((r) => r.id) };
   },
+  protectedBranches(root) {
+    try {
+      const c = JSON.parse(readFileSync(join(root, '.claude', 'code-kit.json'), 'utf8')) as { branches?: { protected?: string[] } };
+      return c.branches?.protected ?? ['main', 'master'];
+    } catch {
+      return ['main', 'master'];
+    }
+  },
   sessionNote: () => 'code-kit is active here: file cards and slices carry the spec requirement a file delivers, its lane, and its layer rules. code-kit refuses writes outside a lane or across a layer; ctx records the why.',
 };

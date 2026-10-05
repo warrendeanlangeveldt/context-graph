@@ -21,6 +21,8 @@ export interface ToolAdapter {
   fileFacts(root: string, path: string): FileFacts | undefined;
   /** One line for the session-start text, saying the tool is present and what that changes. */
   sessionNote?(root: string): string | undefined;
+  /** Branches the tool protects, where a person's graph commit must not land. */
+  protectedBranches?(root: string): string[];
 }
 
 export const TOOL_ADAPTERS: ToolAdapter[] = [codeKitAdapter];
@@ -39,4 +41,9 @@ export function factsFor(root: string, path: string): FileFacts {
     for (const r of f.requirements) if (!out.requirements.includes(r)) out.requirements.push(r);
   }
   return out;
+}
+
+/** Every active adapter's protected branches. */
+export function toolProtectedBranches(root: string): string[] {
+  return [...new Set(toolAdapters(root).flatMap((a) => a.protectedBranches?.(root) ?? []))];
 }
