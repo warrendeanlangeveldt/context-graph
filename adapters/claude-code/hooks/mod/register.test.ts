@@ -132,9 +132,9 @@ const bandUi = ($: any) =>
   });
 const press = ($: any, key: string, requestId?: string) =>
   $.ui.press({ plugin: 'context-graph', key, ...(requestId ? { requestId } : {}) });
-const ctx = ($: any) => $.command.run({ command: 'ctx', args: '' });
+const ctx = ($: any) => $.command.run({ command: 'graph', args: '' });
 
-test('FILE-1 /ctx opens the pane on the file an agent read, naming the agent', async ($, on) => {
+test('FILE-1 /graph opens the pane on the file an agent read, naming the agent', async ($, on) => {
   const w = project();
   await start($, on, w);
   await $.tool.call({ tool: 'Read', tool_use_id: 'r1', file_path: '/work/src/a.ts', agentId: 'agent-web' } as any);
@@ -188,7 +188,7 @@ test("FILE-4 the code-kit section opens code-kit's Lanes pane", async ($, on) =>
   await ui.unmount();
 });
 
-test('FILE-5 without a graph, /ctx says how to start one and there is no band', async ($, on) => {
+test('FILE-5 without a graph, /graph says how to start one and there is no band', async ($, on) => {
   const w = project();
   w.info = { ...w.info, graphDir: null };
   await start($, on, w);

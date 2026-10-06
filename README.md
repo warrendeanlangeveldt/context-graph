@@ -182,13 +182,13 @@ Or, without the plugin directory, `ctx install claude-code` writes the hooks int
 
 With Claude Code 2.1.287 or later, the plugin's mod shows the graph to you while agents work, in the terminal (VS Code's terminal included) and the Desktop app. Older versions skip it; the hooks above work the same either way.
 
-- **`/ctx`** opens the Context pane. `/ctx` again, or Escape, closes it. It shows:
+- **`/graph`** opens the Context pane. `/graph` again, or Escape, closes it. It shows:
   - **the file an agent last read or edited,** and which agent: its card (current or stale), the rules on it, its module chain, its newest decisions, and whether that agent has understood it, with what it still has to read. With code-kit installed, also the file's lane, layer and requirement, with a button for code-kit's Lanes pane.
   - **Proposals,** each with its evidence (decisions that served it, decisions that overrode it, current violations), and **Ratify** and **Drop**. Ratify asks you to confirm, then runs `ctx ratify <id> --commit`. Drop asks for your reason, then runs `ctx drop <id> --reason … --commit`. Both refuse on a protected branch or for someone not among the ratifiers, and change nothing. The hooks refuse both from every agent.
   - **Coverage** for each agent this session: files read in full, files only searched, files edited, and cards owed. An edit made without understanding is marked, with what was still unread.
 - **The band** above the prompt reads "N proposals to ratify" while proposals wait, with a button that opens the pane. With code-kit's mod as well, both plugins' lines stand together.
 
-The pane stays current within 2 seconds of a read, an edit or a change to the graph, and never calls a model. It isn't `/context`, which is Claude Code's own command. In a repository with no graph, `/ctx` says how to start one. Mods don't draw in the VS Code extension's chat panel, the Agent SDK or `claude -p`.
+The pane stays current within 2 seconds of a read, an edit or a change to the graph, and never calls a model. It isn't `/context`, which is Claude Code's own command, or `/ctx`, which is the plugin's `ctx` skill. In a repository with no graph, `/graph` says how to start one. Mods don't draw in the VS Code extension's chat panel, the Agent SDK or `claude -p`.
 
 ## Use it in Codex
 
