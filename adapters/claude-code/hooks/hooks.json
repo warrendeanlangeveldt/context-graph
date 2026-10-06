@@ -1,5 +1,8 @@
 {
   "description": "Context Graph: decisions before a read, a slice before an edit, observe every tool call, demand a decision at turn end.",
+  "modules": [
+    "./mod/register.mjs"
+  ],
   "hooks": {
     "SessionStart": [
       {
@@ -7,7 +10,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/ctx-hook",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/ctx-hook\"",
             "timeout": 10
           }
         ]
@@ -19,7 +22,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/ctx-hook",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/ctx-hook\"",
             "timeout": 5,
             "async": true
           }
@@ -32,7 +35,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/ctx-hook",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/ctx-hook\"",
             "timeout": 10
           }
         ]
@@ -44,7 +47,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/ctx-hook",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/ctx-hook\"",
             "timeout": 30,
             "async": true
           }
@@ -57,7 +60,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/ctx-hook",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/ctx-hook\"",
             "timeout": 10,
             "async": true
           }
@@ -70,7 +73,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/ctx-hook",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/ctx-hook\"",
             "timeout": 5,
             "async": true
           }
@@ -83,7 +86,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/ctx-hook",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/ctx-hook\"",
             "timeout": 5,
             "async": true
           }
@@ -96,7 +99,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/ctx-hook",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/ctx-hook\"",
             "timeout": 15
           }
         ]
@@ -108,7 +111,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/ctx-hook",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/ctx-hook\"",
             "timeout": 15
           }
         ]
