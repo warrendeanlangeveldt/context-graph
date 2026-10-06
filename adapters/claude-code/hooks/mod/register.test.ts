@@ -132,6 +132,9 @@ const bandUi = ($: any) =>
   });
 const press = ($: any, key: string, requestId?: string) =>
   $.ui.press({ plugin: 'context-graph', key, ...(requestId ? { requestId } : {}) });
+/** The text an element shows, its children's in order. */
+const shownIn = (node: any): string[] =>
+  !node ? [] : typeof node === 'string' ? [node] : (node.children ?? []).flatMap((c: any) => shownIn(c));
 const ctx = ($: any) => $.command.run({ command: 'graph', args: '' });
 
 test('FILE-1 /graph opens the pane on the file an agent read, naming the agent', async ($, on) => {
@@ -142,7 +145,8 @@ test('FILE-1 /graph opens the pane on the file an agent read, naming the agent',
   expect(w.opened).toEqual([PANE]);
   expect(w.fileAsks.at(-1)).toEqual(['src/a.ts', '--session', 's1', '--agent', 'agent-web', '--json']);
   const ui = await mountPane($, PANE);
-  expect(await ui.find({ type: 'Text', text: 'src/a.ts · web-engineer' })).toBeDefined();
+  expect(await ui.find({ type: 'Text', text: 'last touched by web-engineer' })).toBeDefined();
+  expect(await ui.find({ type: 'Text', text: 'src/a.ts' })).toBeDefined();
   await ui.unmount();
 });
 
@@ -161,7 +165,7 @@ test('FILE-1 the pane moves to the file an agent edits next, within 2 seconds', 
   } as any);
   await clock.advance(2000);
   const ui = await mountPane($, PANE);
-  expect(await ui.find({ type: 'Text', text: 'src/b.ts · web-engineer' })).toBeDefined();
+  expect(await ui.find({ type: 'Text', text: 'src/b.ts' })).toBeDefined();
   await ui.unmount();
 });
 
@@ -171,7 +175,7 @@ test('FILE-3 the pane says what the agent still has to read', async ($, on) => {
   await $.tool.call({ tool: 'Read', tool_use_id: 'r1', file_path: '/work/src/a.ts', agentId: 'agent-web' } as any);
   await ctx($);
   const ui = await mountPane($, PANE);
-  expect(await ui.find({ type: 'Text', text: 'Not understood yet: still to read src/b.ts' })).toBeDefined();
+  expect(await ui.find({ type: 'Text', text: '✗ not yet: still to read src/b.ts' })).toBeDefined();
   await ui.unmount();
 });
 
@@ -209,7 +213,7 @@ test('RAT-1 and RAT-2 the proposals show their evidence, and the band counts the
   expect(w.opened).toContain(PANE);
   await band.unmount();
   const ui = await mountPane($, PANE);
-  expect(await ui.find({ type: 'Text', text: 'served 3, overridden 1' })).toBeDefined();
+  expect(await ui.find({ type: 'Text', text: 'Evidence: served by 3 decisions, overridden by 1 decision' })).toBeDefined();
   await ui.unmount();
 });
 
@@ -271,13 +275,13 @@ test('COV-1 and COV-2 coverage per agent rises within 2 seconds of a read', asyn
   w.agents = [{ agent: 'agent-web', agentType: 'web-engineer', read: ['src/a.ts'], searched: [], edited: [], cardsOwed: [] }];
   await ctx($);
   const before = await mountPane($, PANE);
-  expect(await before.find({ type: 'Text', text: 'web-engineer: read 1, searched 0, edited 0' })).toBeDefined();
+  expect(shownIn(await before.find({ key: 'agent-agent-web' }))).toEqual(['web-engineer', '1', '0', '0', '0']);
   await before.unmount();
   w.agents = [{ ...w.agents[0], read: ['src/a.ts', 'src/b.ts'] }];
   await $.tool.call({ tool: 'Read', tool_use_id: 'r2', file_path: '/work/src/b.ts', agentId: 'agent-web' } as any);
   await clock.advance(2000);
   const after = await mountPane($, PANE);
-  expect(await after.find({ type: 'Text', text: 'web-engineer: read 2, searched 0, edited 0' })).toBeDefined();
+  expect(shownIn(await after.find({ key: 'agent-agent-web' }))).toEqual(['web-engineer', '2', '0', '0', '0']);
   await after.unmount();
 });
 
@@ -296,6 +300,6 @@ test('COV-3 an edit made without understanding is marked, with what was unread',
   await start($, on, w);
   await ctx($);
   const ui = await mountPane($, PANE);
-  expect(await ui.find({ type: 'Text', text: '  ! edited src/a.ts without understanding: unread src/b.ts' })).toBeDefined();
+  expect(await ui.find({ type: 'Text', text: '✗ web-engineer edited src/a.ts without understanding it: src/b.ts unread' })).toBeDefined();
   await ui.unmount();
 });
