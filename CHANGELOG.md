@@ -2,6 +2,19 @@
 
 What changed in each release of Context Graph, newest first. Versions follow the plugin manifests and the npm package `@warren-dean/context-graph`. Each release is also on [GitHub Releases](https://github.com/warrendeanlangeveldt/context-graph/releases).
 
+## 0.3.0 (2026-10-07)
+
+Context Graph in the session: a mod for Claude Code 2.1.287 or later, in the terminal and the Desktop app. Older versions skip it, and the hooks work as before. See [In the session](README.md#in-the-session).
+
+- **`/ctx`** opens the Context pane:
+  - the file an agent last read or edited, with its card, rules, chain, newest decisions, and whether that agent understood it;
+  - with code-kit installed, the file's lane, layer and requirement;
+  - proposals with their evidence, with **Ratify** and **Drop**;
+  - coverage per agent, with edits made without understanding marked.
+- **The band** reads "N proposals to ratify" while proposals wait. Both plugins' band lines show together.
+- **Ratify** commits only the graph, with your trailer, after you confirm. **Drop** keeps your reason. Both run only on your press.
+- The plugin's hook commands quote the plugin's path, so a path with a space no longer splits.
+
 ## 0.2.11 (2026-10-06)
 
 The command-line groundwork for the coming Context Graph mod (`docs/brief.md`), useful on its own:
