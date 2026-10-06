@@ -19,7 +19,7 @@ Context Graph puts a file's card, rules and decisions in front of an agent befor
 
 In the Claude Code terminal or Desktop app, a person running Context Graph:
 
-- opens a Context pane (`/ctx`, or the band) that follows the file the agent is reading or editing, with its card, rules, recent decisions, and whether it's understood enough to edit;
+- opens a Context pane (`/graph`, or the band) that follows the file the agent is reading or editing, with its card, rules, recent decisions, and whether it's understood enough to edit;
 - sees per agent what it read in full, what it only searched, and what it edited;
 - ratifies or drops a proposal with a press and a confirmation, the ratification committed with their own trailer.
 

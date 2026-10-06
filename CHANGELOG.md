@@ -6,7 +6,7 @@ What changed in each release of Context Graph, newest first. Versions follow the
 
 Context Graph in the session: a mod for Claude Code 2.1.287 or later, in the terminal and the Desktop app. Older versions skip it, and the hooks work as before. See [In the session](README.md#in-the-session).
 
-- **`/ctx`** opens the Context pane:
+- **`/graph`** opens the Context pane:
   - the file an agent last read or edited, with its card, rules, chain, newest decisions, and whether that agent understood it;
   - with code-kit installed, the file's lane, layer and requirement;
   - proposals with their evidence, with **Ratify** and **Drop**;

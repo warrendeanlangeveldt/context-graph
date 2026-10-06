@@ -42,7 +42,7 @@ Needs Claude Code 2.1.287 or later on the machine that builds it.
 **Depends on:** ST-1
 **Status:** review
 
-The module in the Claude Code adapter's `hooks.json`, `/ctx`, the pane following the agents' reads and edits, and the no-graph message.
+The module in the Claude Code adapter's `hooks.json`, `/graph`, the pane following the agents' reads and edits, and the no-graph message.
 
 ### ST-4 The file being worked on
 

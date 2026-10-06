@@ -27,11 +27,11 @@ export function register(on) {
     // A name another command already holds is refused; the rest of the mod goes on without it.
     await $.command
       .register({
-        name: 'ctx',
+        name: 'graph',
         description: 'Context Graph: the file being worked on, proposals to ratify, coverage per agent',
         immediate: true,
       })
-      .catch((err) => $.ui.log(`Context Graph: /ctx isn't available in this session: ${err?.message ?? err}`));
+      .catch((err) => $.ui.log(`Context Graph: /graph isn't available in this session: ${err?.message ?? err}`));
     const cli = `${$.plugin.root}/ctx.mjs`;
     const cwd = e.cwd ?? (await $.session.cwd());
     const session = await $.session.id();
@@ -90,7 +90,7 @@ export function register(on) {
         for (const f of files) stamps.push(await stamp(`${dir}/${f}`));
         return [...stamps, followed?.path ?? '', followed?.agentId ?? '', activity].join('\n');
       },
-      // FILE-1: open the pane, or close it when it's open.
+      // FILE-1: /graph opens the pane, or close it when it's open.
       toggle: async () => {
         if ((await $.ui.panes()).some((p) => p.id === PANE_ID)) {
           await $.ui.close({ id: PANE_ID });
@@ -207,11 +207,11 @@ export function register(on) {
     return next(e);
   });
 
-  on('command.run', { command: 'ctx' }, async ($, e) =>
+  on('command.run', { command: 'graph' }, async ($, e) =>
     act
       ? act.toggle()
       : {
-          text: 'Context Graph is still starting; try /ctx again in a moment.',
+          text: 'Context Graph is still starting; try /graph again in a moment.',
         },
   );
 
