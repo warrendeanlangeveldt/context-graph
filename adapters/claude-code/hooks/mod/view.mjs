@@ -72,28 +72,50 @@ const evidence = (p) => {
 };
 
 /** FILE-2 to FILE-4: the followed file. */
-function fileSection(followed, file, els, { onLanes }) {
+function fileSection(followed, file, els, { onLanes, onWriteCard, onModuleCards }) {
   const { Box, Button } = els;
   const { text, heading, row } = layout(els);
   const by = followed ? `${followed.agentType ? `last touched by ${followed.agentType}` : 'last touched by the main session'}` : null;
   if (!followed) return [heading('File'), text('No file yet. The pane follows the file an agent last reads or edits.', { dimColor: true })];
   if (!file) return [heading('File', by), row('Path', followed.path, { bold: true }), text('Reading it…', { dimColor: true })];
   const rows = [heading('File', by), row('Path', file.path, { bold: true })];
+  // A card to write, or one gone stale, is a press away: the lead runs the cards skill on the file.
+  const cardButton = (label) => Button({ key: 'write-card', label, onPress: () => onWriteCard(file.path) });
   rows.push(
-    file.card
-      ? row(
+    file.card?.fresh
+      ? row('Card', file.card.text)
+      : row(
           'Card',
-          `${file.card.text}${file.card.fresh ? '' : '  (stale: the file changed since)'}`,
-          file.card.fresh ? {} : { color: 'yellow' },
-        )
-      : row('Card', 'No card yet. /context-graph:cards writes one.', { dimColor: true }),
+          Box({
+            flexDirection: 'column',
+            children: [
+              file.card
+                ? text(`${file.card.text}  (stale: the file changed since)`, { color: 'yellow' })
+                : text('No card yet.', { dimColor: true }),
+              cardButton(file.card ? 'Update card' : 'Write card'),
+            ],
+          }),
+        ),
   );
   rows.push(
     file.understood.ok
       ? row('Understood', '✓ yes', { color: 'green' })
       : row('Understood', `✗ not yet: still to read ${file.understood.missing.map((m) => m.path).join(', ')}`, { color: 'yellow' }),
   );
-  if (file.chain.length) rows.push(row('Module', file.chain.join(' › ')));
+  if (file.chain.length)
+    rows.push(
+      row(
+        'Module',
+        Box({
+          flexDirection: 'row',
+          columnGap: 2,
+          children: [
+            text(file.chain.join(' › ')),
+            Button({ key: 'module-cards', label: 'Cards for this module', plain: true, onPress: () => onModuleCards(file.chain[0]) }),
+          ],
+        }),
+      ),
+    );
   rows.push(
     row(
       'Rules',

@@ -10,7 +10,8 @@ Context Graph in the session: a mod for Claude Code 2.1.287 or later, in the ter
   - the file an agent last read or edited, with its card, rules, chain, newest decisions, and whether that agent understood it;
   - with code-kit installed, the file's lane, layer and requirement;
   - proposals with their evidence, with **Ratify** and **Drop**;
-  - coverage per agent, with edits made without understanding marked.
+  - coverage per agent, with edits made without understanding marked;
+  - **Write card** and **Cards for this module**, which ask the lead to write the cards, or to hand them to the agent working on those files.
 - **The band** reads "N proposals to ratify" while proposals wait. Both plugins' band lines show together.
 - **Ratify** commits only the graph, with your trailer, after you confirm. **Drop** keeps your reason. Both run only on your press.
 - The plugin's hook commands quote the plugin's path, so a path with a space no longer splits.

@@ -119,6 +119,16 @@ export function register(on) {
       lanes: async () => {
         await $.command.run({ command: 'lanes', args: '' }).catch(() => null);
       },
+      // Cards: asked of the lead, which writes them with the cards skill or hands them to the agent
+      // working on those files. Not a person's act: any agent may write a card, and the hooks ask the
+      // agent that edits a file for its card anyway.
+      askForCards: async (scope, what) => {
+        await $.prompt.submit({
+          text: `Write the Context Graph ${what}: run /context-graph:cards ${scope}, or ask the agent working on ${scope} to.`,
+        });
+        model = { ...model, notice: { ok: true, text: `Asked the lead for the ${what}.` } };
+        $.ui.invalidate('ui.render');
+      },
       // RAT-3: confirm, then ratify and commit only the graph with the person's trailer.
       ratify: async (proposal) => {
         const answer = await $.ui
@@ -236,6 +246,8 @@ export function register(on) {
       onRatify: (p) => act.ratify(p),
       onDrop: (p) => act.drop(p),
       onLanes: () => act.lanes(),
+      onWriteCard: (path) => act.askForCards(path, `card for ${path}`),
+      onModuleCards: (module) => act.askForCards(module, `cards for the files in ${module} without a current one`),
     });
   });
 

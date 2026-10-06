@@ -46,6 +46,7 @@ function project() {
     open: new Set<string>(),
     opened: [] as string[],
     commands: [] as string[],
+    prompts: [] as string[],
   };
 }
 type World = ReturnType<typeof project>;
@@ -86,6 +87,10 @@ function stub(on: any, w: World) {
   on('command.run', { command: 'lanes' }, () => {
     w.commands.push('lanes');
     return { text: '' };
+  });
+  on('prompt.submit', ($: any, e: any) => {
+    w.prompts.push(e.text);
+    return { text: e.text };
   });
   on('agent.list', () => ({ value: w.running }));
   on('fs.stat', () => ({ value: { kind: 'file', size: 1, mtimeMs: 1, isLink: false } }));
@@ -301,5 +306,22 @@ test('COV-3 an edit made without understanding is marked, with what was unread',
   await ctx($);
   const ui = await mountPane($, PANE);
   expect(await ui.find({ type: 'Text', text: '✗ web-engineer edited src/a.ts without understanding it: src/b.ts unread' })).toBeDefined();
+  await ui.unmount();
+});
+
+test('Cards: Write card and Cards for this module ask the lead, who may write them or hand them on', async ($, on) => {
+  const w = project();
+  w.files['src/b.ts'] = { ...w.files['src/b.ts'], card: null };
+  await start($, on, w);
+  await $.tool.call({ tool: 'Read', tool_use_id: 'r1', file_path: '/work/src/b.ts' } as any);
+  await ctx($);
+  const ui = await mountPane($, PANE);
+  await press($, 'write-card', PANE);
+  expect(w.prompts.at(-1)).toBe(
+    'Write the Context Graph card for src/b.ts: run /context-graph:cards src/b.ts, or ask the agent working on src/b.ts to.',
+  );
+  await press($, 'module-cards', PANE);
+  expect(w.prompts.at(-1)).toContain('/context-graph:cards L:src');
+  expect(await ui.find({ type: 'Text', text: /Asked the lead for the cards for the files in L:src/ })).toBeDefined();
   await ui.unmount();
 });
