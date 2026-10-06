@@ -40,7 +40,7 @@ Needs Claude Code 2.1.287 or later on the machine that builds it.
 **Lane:** lead
 **Requirements:** FILE-1, FILE-5
 **Depends on:** ST-1
-**Status:** review
+**Status:** done
 
 The module in the Claude Code adapter's `hooks.json`, `/graph`, the pane following the agents' reads and edits, and the no-graph message.
 
@@ -49,7 +49,7 @@ The module in the Claude Code adapter's `hooks.json`, `/graph`, the pane followi
 **Lane:** lead
 **Requirements:** FILE-2, FILE-3, FILE-4
 **Depends on:** ST-3
-**Status:** review
+**Status:** done
 
 Card, rules, chain, decisions and understood-or-not for the followed file, and the code-kit section with its link when code-kit is installed.
 
@@ -58,7 +58,7 @@ Card, rules, chain, decisions and understood-or-not for the followed file, and t
 **Lane:** lead
 **Requirements:** RAT-1, RAT-2, RAT-3, RAT-4
 **Depends on:** ST-2, ST-3
-**Status:** review
+**Status:** done
 
 The Proposals section with evidence, the band's count, and the Ratify and Drop confirmations running the person's acts.
 
@@ -67,6 +67,6 @@ The Proposals section with evidence, the band's count, and the Ratify and Drop c
 **Lane:** lead
 **Requirements:** COV-1, COV-2, COV-3
 **Depends on:** ST-1, ST-3
-**Status:** review
+**Status:** done
 
 The Coverage section, live, with edits made without understanding marked.
