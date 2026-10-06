@@ -38,156 +38,196 @@ export function bandLine(proposals) {
   return n ? { text: `${plural(n, 'proposal', 'proposals')} to ratify` } : null;
 }
 
-/** FILE-2 to FILE-4: the followed file. */
-function fileSection(followed, file, { Box, Text, Button }, { onLanes }) {
+// The pane's layout: a heading per section, then rows of a fixed-width label and its value.
+const LABEL = 12;
+
+function layout({ Box, Text }) {
   const text = (value, style = {}) => Text({ ...style, children: [value] });
-  if (!followed)
-    return [
-      text('No file yet: the pane follows the files agents read and edit.', {
-        dimColor: true,
-      }),
-    ];
-  if (!file) return [text(`${followed.path} · ${who(followed.agentType)}`, { bold: true }), text('Reading it…', { dimColor: true })];
-  const rows = [text(`${file.path} · ${who(followed.agentType)}`, { bold: true })];
+  const heading = (title, aside) =>
+    Box({
+      flexDirection: 'row',
+      columnGap: 2,
+      children: [text(title.toUpperCase(), { bold: true, color: 'cyan' }), ...(aside ? [text(aside, { dimColor: true })] : [])],
+    });
+  // One labelled row; the value is a node, or a string drawn in `style`.
+  const row = (label, value, style = {}) =>
+    Box({
+      flexDirection: 'row',
+      children: [
+        Box({ width: LABEL, children: [text(label, { dimColor: true })] }),
+        Box({ flexDirection: 'column', children: [typeof value === 'string' ? text(value, style) : value] }),
+      ],
+    });
+  return { text, heading, row };
+}
+
+const ruleKind = (r) => (r.mode === 'G?' ? 'proposed' : r.test ? 'enforced' : 'guidance');
+const evidence = (p) => {
+  const parts = [];
+  if (p.served) parts.push(`served by ${plural(p.served, 'decision', 'decisions')}`);
+  if (p.overridden) parts.push(`overridden by ${plural(p.overridden, 'decision', 'decisions')}`);
+  if (p.violations) parts.push(`${plural(p.violations, 'file breaks', 'files break')} it now`);
+  else if (p.violations === 0) parts.push('no file breaks it');
+  return parts.length ? parts.join(', ') : 'no decision has cited it yet';
+};
+
+/** FILE-2 to FILE-4: the followed file. */
+function fileSection(followed, file, els, { onLanes }) {
+  const { Box, Button } = els;
+  const { text, heading, row } = layout(els);
+  const by = followed ? `${followed.agentType ? `last touched by ${followed.agentType}` : 'last touched by the main session'}` : null;
+  if (!followed) return [heading('File'), text('No file yet. The pane follows the file an agent last reads or edits.', { dimColor: true })];
+  if (!file) return [heading('File', by), row('Path', followed.path, { bold: true }), text('Reading it…', { dimColor: true })];
+  const rows = [heading('File', by), row('Path', file.path, { bold: true })];
   rows.push(
     file.card
-      ? text(`Card (${file.card.fresh ? 'current' : 'stale'}): ${file.card.text}`, file.card.fresh ? {} : { color: 'yellow' })
-      : text('No card yet', { dimColor: true }),
+      ? row(
+          'Card',
+          `${file.card.text}${file.card.fresh ? '' : '  (stale: the file changed since)'}`,
+          file.card.fresh ? {} : { color: 'yellow' },
+        )
+      : row('Card', 'No card yet. /context-graph:cards writes one.', { dimColor: true }),
   );
   rows.push(
     file.understood.ok
-      ? text('Understood: yes', { color: 'green' })
-      : text(`Not understood yet: still to read ${file.understood.missing.map((m) => m.path).join(', ')}`, { color: 'yellow' }),
+      ? row('Understood', '✓ yes', { color: 'green' })
+      : row('Understood', `✗ not yet: still to read ${file.understood.missing.map((m) => m.path).join(', ')}`, { color: 'yellow' }),
   );
-  if (file.chain.length) rows.push(text(`Module: ${file.chain.join(' › ')}`, { dimColor: true }));
-  for (const r of file.rules)
-    rows.push(text(`Rule ${r.id} (${r.mode === 'G?' ? 'proposed' : r.test ? 'enforced' : 'guidance'}): ${r.text}`));
-  for (const d of file.decisions) rows.push(text(`${d.date} ${d.who}: ${d.text}`, { dimColor: true }));
+  if (file.chain.length) rows.push(row('Module', file.chain.join(' › ')));
+  rows.push(
+    row(
+      'Rules',
+      file.rules.length
+        ? Box({
+            flexDirection: 'column',
+            children: file.rules.map((r) =>
+              Box({
+                flexDirection: 'row',
+                columnGap: 1,
+                children: [
+                  text(r.id, { bold: true }),
+                  text(r.text),
+                  text(`(${ruleKind(r)})`, ruleKind(r) === 'proposed' ? { color: 'yellow' } : { dimColor: true }),
+                ],
+              }),
+            ),
+          })
+        : 'none',
+      { dimColor: true },
+    ),
+  );
+  rows.push(
+    row(
+      'Decisions',
+      file.decisions.length
+        ? Box({ flexDirection: 'column', children: file.decisions.map((d) => text(`${d.date}  ${d.text}  (${d.who})`)) })
+        : 'none recorded yet',
+      { dimColor: true },
+    ),
+  );
   // FILE-4: what a tool sharing the repository says of the file (code-kit: lane, layer, requirement).
   if (file.tools?.lines?.length)
     rows.push(
-      Box({
-        key: 'tools',
-        flexDirection: 'column',
-        children: [
-          ...file.tools.lines.map((l) => text(l, { dimColor: true })),
-          Button({
-            key: 'open-lanes',
-            label: 'Lanes',
-            plain: true,
-            onPress: onLanes,
-          }),
-        ],
-      }),
+      row(
+        'code-kit',
+        Box({
+          key: 'tools',
+          flexDirection: 'row',
+          columnGap: 2,
+          children: [
+            Box({ flexDirection: 'column', children: file.tools.lines.map((l) => text(l.replace(/^code-kit\s+/, ''))) }),
+            Button({ key: 'open-lanes', label: 'Open Lanes', onPress: onLanes }),
+          ],
+        }),
+      ),
     );
   return rows;
 }
 
 /** RAT-1: every proposal with its evidence, and Ratify and Drop. */
-function proposalsSection(proposals, { Box, Text, Button }, { onRatify, onDrop }) {
-  if (!proposals.length) return [Text({ dimColor: true, children: ['No proposals waiting.'] })];
-  return proposals.map((p) =>
-    Box({
-      key: `proposal-${p.id}`,
-      flexDirection: 'column',
-      children: [
-        Text({
-          children: [`${p.id} (${p.kind}${p.module ? `, ${p.module}` : ''}): ${p.text}`],
-        }),
-        Box({
-          flexDirection: 'row',
-          columnGap: 2,
-          children: [
-            Text({
-              dimColor: true,
-              children: [
-                `served ${p.served}, overridden ${p.overridden}${p.violations !== null ? `, ${plural(p.violations, 'violation', 'violations')}` : ''}`,
-              ],
-            }),
-            Button({
-              key: `ratify-${p.id}`,
-              label: 'Ratify',
-              onPress: () => onRatify(p),
-            }),
-            Button({
-              key: `drop-${p.id}`,
-              label: 'Drop',
-              onPress: () => onDrop(p),
-            }),
-          ],
-        }),
-      ],
-    }),
-  );
+function proposalsSection(proposals, els, { onRatify, onDrop }) {
+  const { Box, Button } = els;
+  const { text, heading } = layout(els);
+  if (!proposals.length) return [heading('Proposals'), text('None waiting.', { dimColor: true })];
+  return [
+    heading('Proposals', `${plural(proposals.length, 'waits', 'wait')} for you to ratify or drop`),
+    ...proposals.map((p) =>
+      Box({
+        key: `proposal-${p.id}`,
+        flexDirection: 'column',
+        borderStyle: 'round',
+        paddingX: 1,
+        children: [
+          Box({
+            flexDirection: 'row',
+            columnGap: 2,
+            children: [
+              text(p.id, { bold: true }),
+              text(`${p.kind === 'concepts' ? 'concept' : `rule (${p.kind})`}${p.module ? ` on ${p.module}` : ''}`, { dimColor: true }),
+            ],
+          }),
+          text(p.text),
+          text(`Evidence: ${evidence(p)}`, { dimColor: true }),
+          Box({
+            flexDirection: 'row',
+            columnGap: 2,
+            children: [
+              Button({ key: `ratify-${p.id}`, label: 'Ratify', onPress: () => onRatify(p) }),
+              Button({ key: `drop-${p.id}`, label: 'Drop…', onPress: () => onDrop(p) }),
+            ],
+          }),
+        ],
+      }),
+    ),
+  ];
 }
 
-/** COV-1 and COV-3: each agent's coverage, with edits made without understanding marked. */
-function coverageSection(agents, types, { Box, Text }) {
-  if (!agents.length)
-    return [
-      Text({
-        dimColor: true,
-        children: ['Nothing read or edited yet this session.'],
-      }),
-    ];
-  return agents.map((a) =>
+/** COV-1 and COV-3: each agent's coverage as a table, with edits made without understanding marked. */
+function coverageSection(agents, types, els) {
+  const { Box } = els;
+  const { text, heading } = layout(els);
+  if (!agents.length) return [heading('Coverage'), text('Nothing read or edited yet this session.', { dimColor: true })];
+  const name = (a) => (a.agent === 'main' ? 'main session' : (a.agentType ?? types[a.agent] ?? a.agent));
+  const width = Math.max(14, ...agents.map((a) => name(a).length + 2));
+  const cells = (values, style = {}) =>
     Box({
-      key: `agent-${a.agent}`,
-      flexDirection: 'column',
-      children: [
-        Text({
-          children: [
-            `${a.agent === 'main' ? 'the main session' : (a.agentType ?? types[a.agent] ?? a.agent)}: read ${a.read.length}, searched ${a.searched.length}, edited ${a.edited.length}${a.cardsOwed.length ? `, ${plural(a.cardsOwed.length, 'card', 'cards')} owed` : ''}`,
-          ],
-        }),
-        ...a.edited.map((e) =>
-          e.understood
-            ? Text({
-                dimColor: true,
-                children: [`  edited ${e.path}, understood first`],
-              })
-            : Text({
-                color: 'yellow',
-                children: [`  ! edited ${e.path} without understanding: unread ${e.missing.join(', ')}`],
-              }),
-        ),
-      ],
-    }),
+      flexDirection: 'row',
+      children: values.map((v, i) => Box({ width: i === 0 ? width : 10, children: [text(String(v), style)] })),
+    });
+  // Every edit with its state; one made without understanding stands out, with what was unread (COV-3).
+  const marked = agents.flatMap((a) =>
+    a.edited.map((e) =>
+      e.understood
+        ? text(`✓ ${name(a)} edited ${e.path}, understood first`, { dimColor: true })
+        : text(`✗ ${name(a)} edited ${e.path} without understanding it: ${e.missing.join(', ')} unread`, { color: 'yellow' }),
+    ),
   );
+  return [
+    heading('Coverage', 'this session'),
+    cells(['agent', 'read', 'searched', 'edited', 'cards owed'], { dimColor: true }),
+    ...agents.map((a) =>
+      Box({
+        key: `agent-${a.agent}`,
+        children: [cells([name(a), a.read.length, a.searched.length, a.edited.length, a.cardsOwed.length])],
+      }),
+    ),
+    ...marked,
+  ];
 }
 
 /** The Context pane: the followed file, proposals, coverage, and what the person's last act did. */
 export function contextPane(model, els, handlers) {
   const { Box, Text } = els;
   if (!model || model.kind === 'none') return Text({ dimColor: true, children: [NO_GRAPH] });
-  const heading = (value) => Text({ bold: true, children: [value] });
   return Box({
     flexDirection: 'column',
     rowGap: 1,
     children: [
-      ...(model.notice
-        ? [
-            Text({
-              color: model.notice.ok ? 'green' : 'red',
-              children: [model.notice.text],
-            }),
-          ]
-        : []),
-      Box({
-        key: 'file',
-        flexDirection: 'column',
-        children: fileSection(model.followed, model.file, els, handlers),
-      }),
-      Box({
-        key: 'proposals',
-        flexDirection: 'column',
-        children: [heading('Proposals'), ...proposalsSection(model.proposals, els, handlers)],
-      }),
-      Box({
-        key: 'coverage',
-        flexDirection: 'column',
-        children: [heading('Coverage'), ...coverageSection(model.agents, model.types ?? {}, els)],
-      }),
+      ...(model.notice ? [Text({ color: model.notice.ok ? 'green' : 'red', children: [model.notice.text] })] : []),
+      Box({ key: 'file', flexDirection: 'column', children: fileSection(model.followed, model.file, els, handlers) }),
+      Box({ key: 'proposals', flexDirection: 'column', children: proposalsSection(model.proposals, els, handlers) }),
+      Box({ key: 'coverage', flexDirection: 'column', children: coverageSection(model.agents, model.types ?? {}, els) }),
+      Text({ dimColor: true, children: ['Esc or /graph closes the pane.'] }),
     ],
   });
 }
