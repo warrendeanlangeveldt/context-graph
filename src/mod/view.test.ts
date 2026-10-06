@@ -8,7 +8,7 @@ const make = (type: string) => (props: Record<string, unknown>): Node => ({ type
 const els = { Box: make('Box'), Text: make('Text'), Button: make('Button'), Input: make('Input') };
 const texts = (n: Node | string): string[] => (typeof n === 'string' ? [n] : n.type === 'Text' ? (n.children as string[]) : (n.children as Node[]).flatMap(texts));
 const keys = (n: Node | string): string[] => (typeof n === 'string' ? [] : [...(n.props.key ? [String(n.props.key)] : []), ...(n.type === 'Text' ? [] : (n.children as Node[]).flatMap(keys))]);
-const none = { onRatify: () => {}, onDrop: () => {}, onLanes: () => {} };
+const none = { onRatify: () => {}, onDrop: () => {}, onLanes: () => {}, onWriteCard: () => {}, onModuleCards: () => {} };
 
 const file = {
   path: 'src/a.ts',
@@ -40,7 +40,11 @@ describe('the Context Graph mod: what it draws', () => {
     expect(shown).toContain('2026-10-03  keep a constant  (warren/claude)');
     expect(shown).toContain('✗ not yet: still to read src/b.ts');
     const bare = texts(contextPane({ kind: 'graph', followed: { path: 'src/a.ts', agentType: null }, file: { ...file, card: null, decisions: [] }, proposals: [], agents: [] }, els, none));
-    expect(bare).toContain('No card yet. /context-graph:cards writes one.');
+    expect(bare).toContain('No card yet.');
+    const bareKeys = keys(contextPane({ kind: 'graph', followed: { path: 'src/a.ts', agentType: null }, file: { ...file, card: null }, proposals: [], agents: [] }, els, none));
+    expect(bareKeys).toEqual(expect.arrayContaining(['write-card', 'module-cards']));
+    const current = keys(contextPane({ kind: 'graph', followed: { path: 'src/a.ts', agentType: null }, file, proposals: [], agents: [] }, els, none));
+    expect(current).not.toContain('write-card');
     expect(bare).toContain('last touched by the main session');
     expect(bare).toContain('none recorded yet');
   });
