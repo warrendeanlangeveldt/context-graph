@@ -2,6 +2,14 @@
 
 What changed in each release of Context Graph, newest first. Versions follow the plugin manifests and the npm package `@warren-dean/context-graph`. Each release is also on [GitHub Releases](https://github.com/warrendeanlangeveldt/context-graph/releases).
 
+## 0.3.1 (2026-10-07)
+
+- **`ctx propose <path> "<rule>"`, and the MCP tool `propose`:** propose a rule for a path's module, or for a module named as `L:…`.
+  - Options: `--test` names a test that checks it, `--rule` gives a checkable rule, and `--id` sets the id (otherwise one is made from the module and the rule's first words).
+  - It goes into `proposals.ctx` and applies as proposed until a person ratifies it.
+  - It refuses a path outside any module, a rule the module already has, and an id already in use.
+  - Agents may propose; only a person ratifies.
+
 ## 0.3.0 (2026-10-07)
 
 Context Graph in the session: a mod for Claude Code 2.1.287 or later, in the terminal and the Desktop app. Older versions skip it, and the hooks work as before. See [In the session](README.md#in-the-session).

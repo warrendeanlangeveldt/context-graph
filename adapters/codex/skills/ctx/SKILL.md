@@ -13,6 +13,7 @@ Use the `ctx` MCP tools rather than reading the graph files directly:
 - `check` validates the graph.
 - `record` writes a decision: `node`, `serves` (the constraint or concept the change honours), `text` (the why); add `overrides` only when the change deliberately breaks a guided constraint.
 - `card` writes or updates a file's card: `path` and `text` (what the file is for, what it relies on, who relies on it, what it must keep true), or several with `cards`. Write it after editing a file, while the file is in context.
+- `propose` proposes a rule for a path's module (or an `L:` module): `target` and `text`, with `test` (the path of a test that checks it) or `rule` when it can be checked. Use it for a convention you find the code following, or one your decisions keep serving, that no rule states yet. It applies as proposed until a person ratifies it; it never changes an agreed rule. From a shell: `ctx propose <path> "<rule>"`.
 
 The loop: before editing a file, understand it. A fresh card counts; otherwise read the file in full (`cat`, not `head` or `sed -n`) with what it imports, and what imports it when an edit changes its exports. A patch without that is refused with the exact list. After the edit, the card is owed until it matches the file.
 
