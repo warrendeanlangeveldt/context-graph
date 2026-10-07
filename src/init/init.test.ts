@@ -99,10 +99,14 @@ describe('bootstrap, packs, conformance, ratify', () => {
     g(['add', '-A']);
     const ctx = openRepo({ repo });
     const r = bootstrap(ctx, { minFiles: 1, today: '2026-09-07' });
-    expect(r.mappings).toEqual([]);
-    expect(r.logicals).toEqual([]);
-    expect(r.edges).toEqual([]);
-    expect(r.notes.some((n) => n.includes('already defines 2 modules'))).toBe(true);
+    // Its modules stand: nothing is proposed for the folder L:dom maps.
+    expect(r.mappings.some((m) => m.glob === 'src/domain/**')).toBe(false);
+    expect(r.logicals.some((l) => l.id === 'L:dom')).toBe(false);
+    // Folders only the root mapping claims are proposed as new modules, each with a proposed containment edge.
+    expect(r.mappings.length).toBeGreaterThan(0);
+    expect(r.mappings.every((m) => m.glob !== '**')).toBe(true);
+    expect(r.edges.filter((e) => e.rel === 'in').every((e) => e.proposed && e.since === '2026-09-07')).toBe(true);
+    expect(r.notes.some((n) => n.includes('already defines 2 modules') && n.includes('proposed as new modules'))).toBe(true);
     const arch = r.constraints.filter((k) => k.id.startsWith('arch.'));
     expect(arch.map((k) => [k.text, k.attachedTo])).toContainEqual(['domain never reaches infrastructure', 'L:dom']);
     expect(arch.find((k) => k.test === 'test/architecture.test.ts')?.attachedTo).toBe('L:root');

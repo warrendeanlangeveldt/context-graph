@@ -52,6 +52,8 @@ Graph
   ctx ratify <id>... --commit                      the person: ratify and commit the graph with their trailer
   ctx drop <id> --reason "<why>" [--commit]        the person: turn a proposal down, with the reason kept
   ctx proposals                                    proposed rules and concepts, with their evidence
+  ctx module <L:id> --paths "<glob>…" [--in <L:parent>] [--name "…"] [--delegated --reason "…"]
+                                                   give paths their own module, so rules can attach to them
   ctx propose <path|L:module> "<rule>" [--id x] [--test <path>] [--rule <checkable>]
                                                    propose a rule for a path's module; a person ratifies it
   ctx file <path> [--agent <id>]                   a file's card, rules, decisions, and whether an agent understood it

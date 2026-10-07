@@ -2394,9 +2394,9 @@ var require_picomatch = __commonJS({
     var utils = require_utils();
     var constants2 = require_constants();
     var isObject2 = (val) => val && typeof val === "object" && !Array.isArray(val);
-    var picomatch4 = (glob, options, returnState = false) => {
+    var picomatch5 = (glob, options, returnState = false) => {
       if (Array.isArray(glob)) {
-        const fns = glob.map((input) => picomatch4(input, options, returnState));
+        const fns = glob.map((input) => picomatch5(input, options, returnState));
         const arrayMatcher = (str2) => {
           for (const isMatch of fns) {
             const state2 = isMatch(str2);
@@ -2412,16 +2412,16 @@ var require_picomatch = __commonJS({
       }
       const opts = options || {};
       const posix = opts.windows;
-      const regex = isState ? picomatch4.compileRe(glob, options) : picomatch4.makeRe(glob, options, false, true);
+      const regex = isState ? picomatch5.compileRe(glob, options) : picomatch5.makeRe(glob, options, false, true);
       const state = regex.state;
       delete regex.state;
       let isIgnored = () => false;
       if (opts.ignore) {
         const ignoreOpts = { ...options, ignore: null, onMatch: null, onResult: null };
-        isIgnored = picomatch4(opts.ignore, ignoreOpts, returnState);
+        isIgnored = picomatch5(opts.ignore, ignoreOpts, returnState);
       }
       const matcher = (input, returnObject = false) => {
-        const { isMatch, match, output } = picomatch4.test(input, regex, options, { glob, posix });
+        const { isMatch, match, output } = picomatch5.test(input, regex, options, { glob, posix });
         const result = { glob, state, regex, posix, input, output, match, isMatch };
         if (typeof opts.onResult === "function") {
           opts.onResult(result);
@@ -2447,7 +2447,7 @@ var require_picomatch = __commonJS({
       }
       return matcher;
     };
-    picomatch4.test = (input, regex, options, { glob, posix } = {}) => {
+    picomatch5.test = (input, regex, options, { glob, posix } = {}) => {
       if (typeof input !== "string") {
         throw new TypeError("Expected input to be a string");
       }
@@ -2464,24 +2464,24 @@ var require_picomatch = __commonJS({
       }
       if (match === false || opts.capture === true) {
         if (opts.matchBase === true || opts.basename === true) {
-          match = picomatch4.matchBase(input, regex, options, posix);
+          match = picomatch5.matchBase(input, regex, options, posix);
         } else {
           match = regex.exec(output);
         }
       }
       return { isMatch: Boolean(match), match, output };
     };
-    picomatch4.matchBase = (input, glob, options, posix = options && options.windows) => {
-      const regex = glob instanceof RegExp ? glob : picomatch4.makeRe(glob, options);
+    picomatch5.matchBase = (input, glob, options, posix = options && options.windows) => {
+      const regex = glob instanceof RegExp ? glob : picomatch5.makeRe(glob, options);
       return regex.test(utils.basename(input, { windows: posix }));
     };
-    picomatch4.isMatch = (str2, patterns, options) => picomatch4(patterns, options)(str2);
-    picomatch4.parse = (pattern, options) => {
-      if (Array.isArray(pattern)) return pattern.map((p) => picomatch4.parse(p, options));
+    picomatch5.isMatch = (str2, patterns, options) => picomatch5(patterns, options)(str2);
+    picomatch5.parse = (pattern, options) => {
+      if (Array.isArray(pattern)) return pattern.map((p) => picomatch5.parse(p, options));
       return parse3(pattern, { ...options, fastpaths: false });
     };
-    picomatch4.scan = (input, options) => scan(input, options);
-    picomatch4.compileRe = (state, options, returnOutput = false, returnState = false) => {
+    picomatch5.scan = (input, options) => scan(input, options);
+    picomatch5.compileRe = (state, options, returnOutput = false, returnState = false) => {
       if (returnOutput === true) {
         return state.output;
       }
@@ -2492,13 +2492,13 @@ var require_picomatch = __commonJS({
       if (state && state.negated === true) {
         source = `^(?!${source}).*$`;
       }
-      const regex = picomatch4.toRegex(source, options);
+      const regex = picomatch5.toRegex(source, options);
       if (returnState === true) {
         regex.state = state;
       }
       return regex;
     };
-    picomatch4.makeRe = (input, options = {}, returnOutput = false, returnState = false) => {
+    picomatch5.makeRe = (input, options = {}, returnOutput = false, returnState = false) => {
       if (!input || typeof input !== "string") {
         throw new TypeError("Expected a non-empty string");
       }
@@ -2509,9 +2509,9 @@ var require_picomatch = __commonJS({
       if (!parsed.output) {
         parsed = parse3(input, options);
       }
-      return picomatch4.compileRe(parsed, options, returnOutput, returnState);
+      return picomatch5.compileRe(parsed, options, returnOutput, returnState);
     };
-    picomatch4.toRegex = (source, options) => {
+    picomatch5.toRegex = (source, options) => {
       try {
         const opts = options || {};
         return new RegExp(source, opts.flags || (opts.nocase ? "i" : ""));
@@ -2520,8 +2520,8 @@ var require_picomatch = __commonJS({
         return /$^/;
       }
     };
-    picomatch4.constants = constants2;
-    module.exports = picomatch4;
+    picomatch5.constants = constants2;
+    module.exports = picomatch5;
   }
 });
 
@@ -2531,14 +2531,14 @@ var require_picomatch2 = __commonJS({
     "use strict";
     var pico = require_picomatch();
     var utils = require_utils();
-    function picomatch4(glob, options, returnState = false) {
+    function picomatch5(glob, options, returnState = false) {
       if (options && (options.windows === null || options.windows === void 0)) {
         options = { ...options, windows: utils.isWindows() };
       }
       return pico(glob, options, returnState);
     }
-    Object.assign(picomatch4, pico);
-    module.exports = picomatch4;
+    Object.assign(picomatch5, pico);
+    module.exports = picomatch5;
   }
 });
 
@@ -2971,8 +2971,14 @@ var init_graph = __esm({
         const { path: p } = splitSymbol(path);
         return this.matchers.find((m) => m.match(p))?.rec;
       }
+      /**
+       * The modules `node` sits in. A module with no agreed containment edge walks up through its proposed
+       * one: cut off from its parent, its files would lose every rule the parent carries.
+       */
       parentsOf(node) {
-        return this.edges.filter((e) => e.rel === "in" && e.from === node && !e.proposed).map((e) => e.to);
+        const contains = this.edges.filter((e) => e.rel === "in" && e.from === node);
+        const agreed = contains.filter((e) => !e.proposed);
+        return (agreed.length ? agreed : contains).map((e) => e.to);
       }
       conceptsOf(node) {
         return this.edges.filter((e) => e.rel === "impl" && e.from === node && !e.proposed).map((e) => e.to);
@@ -3314,7 +3320,7 @@ var init_context = __esm({
     init_graph();
     init_paths();
     init_toml();
-    DELEGATE_KINDS = ["guidance", "enforced", "concepts", "retirements"];
+    DELEGATE_KINDS = ["guidance", "enforced", "concepts", "retirements", "modules"];
   }
 });
 
@@ -28715,7 +28721,7 @@ var init_propose = __esm({
 import { readFileSync as readFileSync16 } from "node:fs";
 import { join as join18 } from "node:path";
 function ctxVersion2() {
-  if (true) return "0.3.1";
+  if (true) return "0.3.2";
   try {
     return JSON.parse(readFileSync16(join18(packageRoot(), "package.json"), "utf8")).version ?? "unknown";
   } catch {
@@ -29316,8 +29322,17 @@ function bootstrap(ctx, opts = {}) {
   const existing = ctx.graph;
   const curated = Boolean(existing && existing.mappings.some((m) => m.glob !== "**"));
   if (curated) {
-    notes.push(`the graph already defines ${existing.logicals.size} modules; proposals attach to them and no new modules are proposed`);
-    candidates = [];
+    const own = new Set(existing.mappings.map((m) => m.glob));
+    candidates = candidates.filter((c) => {
+      if (own.has(`${c.dir}/**`)) return false;
+      const claim = existing.mapPath(`${c.dir}/__ctx_probe__.ts`);
+      if (!claim || claim.glob === "**") return true;
+      return claim.glob.endsWith("/**") && c.dir.startsWith(`${claim.glob.slice(0, -3)}/`);
+    });
+    for (const id of existing.logicals.keys()) used.add(id);
+    notes.push(
+      candidates.length ? `the graph already defines ${existing.logicals.size} modules; ${candidates.length} folder(s) it doesn't map yet are proposed as new modules, with their containment edges proposed` : `the graph already defines ${existing.logicals.size} modules, and maps every folder that looks like one`
+    );
   }
   for (const c of [...candidates].sort((a, b) => a.dir.split("/").length - b.dir.split("/").length || a.dir.localeCompare(b.dir))) ids.set(c.dir, idFor(c.dir));
   for (const c of candidates) {
@@ -29343,7 +29358,8 @@ function bootstrap(ctx, opts = {}) {
     }
     return rootId;
   };
-  for (const c of candidates) edges.push({ kind: "E", from: ids.get(c.dir), rel: "in", to: parentOf(c.dir), line: 0 });
+  for (const c of candidates)
+    edges.push({ kind: "E", from: ids.get(c.dir), rel: "in", to: parentOf(c.dir), line: 0, ...curated ? { proposed: true, since: today3 } : {} });
   const index = buildImportIndex(root);
   const moduleOf = (f) => {
     if (curated) {
@@ -29795,7 +29811,7 @@ import { join as join22 } from "node:path";
 function kindOf(rec) {
   if (rec.kind === "K" && rec.mode === "G?") return rec.test ? "enforced" : "guidance";
   if (rec.kind === "C" && rec.proposed) return "concepts";
-  if (rec.kind === "E" && rec.proposed) return "edges";
+  if (rec.kind === "E" && rec.proposed) return rec.rel === "in" ? "modules" : "edges";
   return void 0;
 }
 function ratify(ctx, ids, opts = {}) {
@@ -29876,7 +29892,7 @@ function ratify(ctx, ids, opts = {}) {
         delete out.since;
       }
       ratified.push(key ?? raw);
-      if (delegate) {
+      if (delegate && rec.kind !== "E") {
         const kind = kindOf(rec);
         const d = {
           kind: "D",
@@ -29932,6 +29948,62 @@ var init_ratify = __esm({
   }
 });
 
+// src/graph/modules.ts
+import { readFileSync as readFileSync21, writeFileSync as writeFileSync7 } from "node:fs";
+import { join as join23 } from "node:path";
+function probePath(glob) {
+  const literal2 = glob.split("/").filter((p) => p && !/[*?[\]{}!()]/.test(p));
+  return [...literal2, "__ctx_probe__.ts"].join("/");
+}
+function currentModule(g, globs) {
+  return g.mapPath(probePath(globs[0]))?.logical;
+}
+function moduleProblem(g, m) {
+  if (!MODULE_ID.test(m.id)) return `${m.id} isn't a module id: L: then letters, digits, dots, dashes and underscores.`;
+  if (!m.globs.length) return 'Name the paths: --paths "<glob> [<glob>\u2026]".';
+  const mapped = new Set(g.mappings.map((x) => x.glob));
+  const taken = m.globs.filter((x) => mapped.has(x));
+  if (taken.length) return `${taken.join(", ")} ${taken.length === 1 ? "is" : "are"} already mapped (to ${g.mappings.find((x) => x.glob === taken[0]).logical}).`;
+  if (m.parent !== void 0 && !g.logicals.has(m.parent)) return `${m.parent} isn't a module in the graph.`;
+  if (m.parent === m.id) return "A module can't sit in itself.";
+  return void 0;
+}
+function addModule(ctx, m, today3 = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10)) {
+  const g = ctx.graph;
+  const file = join23(ctx.graphDir, GRAPH_FILE);
+  const lines = readFileSync21(file, "utf8").split("\n");
+  const mappings = m.globs.map((glob) => ({ kind: "M", glob, logical: m.id, line: 0 }));
+  const isM = (l) => /^M\s/.test(l.trim());
+  const shadows = (l, glob) => {
+    const existing = l.trim().split(/\s+/)[1];
+    return Boolean(existing) && (0, import_picomatch4.default)(existing, { dot: true })(probePath(glob));
+  };
+  let at = lines.findIndex((l) => isM(l) && m.globs.some((glob) => shadows(l, glob)));
+  if (at < 0) {
+    const last = lines.map((l, i) => isM(l) ? i : -1).filter((i) => i >= 0).pop();
+    at = last === void 0 ? lines.length : last + 1;
+  }
+  lines.splice(at, 0, ...mappings.map(formatRecord));
+  const isNew = !g.logicals.has(m.id);
+  const logical = isNew ? { kind: "L", id: m.id, name: m.name?.trim() || m.id.slice(2), line: 0 } : null;
+  const edge = isNew && m.parent ? { kind: "E", from: m.id, rel: "in", to: m.parent, line: 0, ...m.agreed ? {} : { proposed: true, since: today3 } } : null;
+  const tail = [logical, edge].filter((r) => r !== null).map(formatRecord);
+  const body = lines.join("\n").replace(/\n*$/, "\n");
+  writeFileSync7(file, body + tail.map((l) => `${l}
+`).join(""), "utf8");
+  return { mappings, logical, edge };
+}
+var import_picomatch4, MODULE_ID;
+var init_modules = __esm({
+  "src/graph/modules.ts"() {
+    "use strict";
+    import_picomatch4 = __toESM(require_picomatch2(), 1);
+    init_graph();
+    init_write();
+    MODULE_ID = /^L:[A-Za-z0-9][A-Za-z0-9._-]*$/;
+  }
+});
+
 // src/hygiene/hygiene.ts
 var hygiene_exports = {};
 __export(hygiene_exports, {
@@ -29942,8 +30014,8 @@ __export(hygiene_exports, {
   retire: () => retire,
   timeline: () => timeline
 });
-import { existsSync as existsSync22, mkdirSync as mkdirSync5, readdirSync as readdirSync5, readFileSync as readFileSync21, writeFileSync as writeFileSync7 } from "node:fs";
-import { basename as basename5, join as join23 } from "node:path";
+import { existsSync as existsSync22, mkdirSync as mkdirSync5, readdirSync as readdirSync5, readFileSync as readFileSync22, writeFileSync as writeFileSync8 } from "node:fs";
+import { basename as basename5, join as join24 } from "node:path";
 function hygieneReport(ctx) {
   const g = ctx.graph;
   if (!g || !ctx.graphDir) throw new Error("no graph");
@@ -30022,19 +30094,24 @@ function hygieneReport(ctx) {
   for (const [k, e] of debt) out.push({ signal: "debt-trend", target: k, evidence: [`${e.open} legacy exception(s) open, ${e.paid} paid`], proposal: "informational; the open number should fall", level: "info" });
   return out;
 }
-function retire(ctx, target, reason, succ) {
+function retire(ctx, target, reason, succ, opts = {}) {
   const g = ctx.graph;
   if (!g || !ctx.graphDir) throw new Error("no graph");
   if (!g.targetExists(target)) throw new Error(`${target} is not a constraint or concept`);
   if (g.isRetired(target)) throw new Error(`${target} is already retired`);
   if (succ && !g.targetExists(succ)) throw new Error(`successor ${succ} does not exist`);
-  const who = `${gitPerson(ctx.root)}/human`;
+  const needs = target.startsWith("C:") || g.constraints.get(target)?.mode === "E";
+  const delegate = opts.delegated ? ctx.config.delegate : null;
+  if (opts.delegated && !delegate) throw new Error("This repository delegates no ratification ([delegate] ratifier isn't set in .ctx/config.toml). A person retires it.");
+  if (delegate && needs && !delegate.mayRatify.includes("retirements"))
+    throw new Error(`The delegated ratifier may ratify ${delegate.mayRatify.join(", ") || "nothing"}, not retirements; a person retires ${target}.`);
+  const who = delegate ? `${delegate.ratifier}/delegated` : `${gitPerson(ctx.root)}/human`;
   const record2 = { kind: "Z", target, date: (/* @__PURE__ */ new Date()).toISOString().slice(0, 10), who, reason, line: 0 };
   if (succ) record2.succ = succ;
-  appendRecord(join23(ctx.graphDir, GRAPH_FILE), record2);
+  appendRecord(join24(ctx.graphDir, GRAPH_FILE), record2);
   const k = g.constraints.get(target);
   const needsTrailer = target.startsWith("C:") || k?.mode === "E";
-  return { record: record2, needsTrailer, trailer: `Ctx-Ratified-By: ${gitPerson(ctx.root)}` };
+  return { record: record2, needsTrailer, trailer: `Ctx-Ratified-By: ${delegate ? `${delegate.ratifier} (delegated)` : gitPerson(ctx.root)}` };
 }
 function gc(ctx, opts = {}) {
   const g = ctx.graph;
@@ -30043,8 +30120,8 @@ function gc(ctx, opts = {}) {
   const cutoff = now.getTime() - ctx.config.hygiene.archiveAfterDays * 864e5;
   const old = (date3) => new Date(date3).getTime() < cutoff;
   const year = String(now.getFullYear());
-  const archiveDir = join23(ctx.graphDir, "archive");
-  const archiveFile = join23(archiveDir, `${year}.ctx`);
+  const archiveDir = join24(ctx.graphDir, "archive");
+  const archiveFile = join24(archiveDir, `${year}.ctx`);
   const toArchive = [];
   const ids = /* @__PURE__ */ new Set();
   for (const s of g.supersessions) {
@@ -30077,7 +30154,7 @@ function gc(ctx, opts = {}) {
   const droppedProposals = [];
   const rewrite = (file) => {
     if (!existsSync22(file)) return;
-    const lines = readFileSync21(file, "utf8").split("\n");
+    const lines = readFileSync22(file, "utf8").split("\n");
     const kept = [];
     for (let i = 0; i < lines.length; i++) {
       const raw = lines[i];
@@ -30103,24 +30180,24 @@ function gc(ctx, opts = {}) {
       }
       kept.push(raw);
     }
-    writeFileSync7(file, kept.join("\n").replace(/\n*$/, "\n"), "utf8");
+    writeFileSync8(file, kept.join("\n").replace(/\n*$/, "\n"), "utf8");
   };
   if (toArchive.length) {
     mkdirSync5(archiveDir, { recursive: true });
     const header = existsSync22(archiveFile) ? "" : `# archive ${year}: inactive records moved by ctx gc; ids stay resolvable, the walker never reads this file
 `;
-    writeFileSync7(archiveFile, (existsSync22(archiveFile) ? readFileSync21(archiveFile, "utf8") : header) + toArchive.map(formatRecord).join("\n") + "\n", "utf8");
+    writeFileSync8(archiveFile, (existsSync22(archiveFile) ? readFileSync22(archiveFile, "utf8") : header) + toArchive.map(formatRecord).join("\n") + "\n", "utf8");
   }
-  for (const f of [join23(ctx.graphDir, DECISIONS_FILE), join23(ctx.graphDir, GRAPH_FILE), join23(ctx.graphDir, "proposals.ctx")]) rewrite(f);
+  for (const f of [join24(ctx.graphDir, DECISIONS_FILE), join24(ctx.graphDir, GRAPH_FILE), join24(ctx.graphDir, "proposals.ctx")]) rewrite(f);
   const res = { archived: [...ids], droppedProposals };
   if (toArchive.length) res.archiveFile = archiveFile;
   return res;
 }
 function loadArchive(graphDir) {
-  const dir = join23(graphDir, "archive");
+  const dir = join24(graphDir, "archive");
   if (!existsSync22(dir)) return [];
   const out = [];
-  for (const f of readdirSync5(dir).filter((x) => x.endsWith(".ctx")).sort()) out.push(...parseText(readFileSync21(join23(dir, f), "utf8"), join23(dir, f)));
+  for (const f of readdirSync5(dir).filter((x) => x.endsWith(".ctx")).sort()) out.push(...parseText(readFileSync22(join24(dir, f), "utf8"), join24(dir, f)));
   return out;
 }
 function timeline(ctx, node) {
@@ -30156,7 +30233,7 @@ function findAdr(root, num) {
   const f = files[0];
   if (!f) return void 0;
   try {
-    return { file: f, text: readFileSync21(toAbsolute(root, f), "utf8") };
+    return { file: f, text: readFileSync22(toAbsolute(root, f), "utf8") };
   } catch {
     return void 0;
   }
@@ -30190,7 +30267,7 @@ __export(present_exports, {
   run: () => run
 });
 import { existsSync as existsSync23 } from "node:fs";
-import { join as join24 } from "node:path";
+import { join as join25 } from "node:path";
 function fileContext(ctx, path, opts = {}) {
   const g = needGraph(ctx);
   const w = walk(g, path, { maxDecisions: 4 });
@@ -30296,7 +30373,7 @@ function commitRefusal(ctx) {
 }
 function commitGraph(ctx, message) {
   const dir = ctx.graphDir;
-  const files = [GRAPH_FILE, PROPOSALS_FILE, "decisions.ctx"].map((f) => join24(dir, f)).filter((f) => existsSync23(f));
+  const files = [GRAPH_FILE, PROPOSALS_FILE, "decisions.ctx"].map((f) => join25(dir, f)).filter((f) => existsSync23(f));
   const person = gitPerson(ctx.root);
   git(ctx.root, ["add", "--", ...files]);
   const out = git(ctx.root, ["commit", "-q", "-m", message, "--trailer", `Ctx-Ratified-By: ${person}`, "--", ...files]);
@@ -30380,8 +30457,8 @@ var cli_exports = {};
 __export(cli_exports, {
   run: () => run2
 });
-import { existsSync as existsSync24, mkdirSync as mkdirSync6, readFileSync as readFileSync22, writeFileSync as writeFileSync8 } from "node:fs";
-import { join as join25, resolve as resolve11 } from "node:path";
+import { existsSync as existsSync24, mkdirSync as mkdirSync6, readFileSync as readFileSync23, writeFileSync as writeFileSync9 } from "node:fs";
+import { join as join26, resolve as resolve11 } from "node:path";
 async function run2(args, env) {
   if (args.cmd === "init") return init(args, env);
   if (args.cmd === "ratify") return doRatify(args, env);
@@ -30391,7 +30468,7 @@ async function run2(args, env) {
 async function init(args, env) {
   const repoOpt = str(args.flags.repo);
   const ctx = openRepo({ ...repoOpt ? { repo: repoOpt } : {}, ...str(args.flags.graph) ? { graph: str(args.flags.graph) } : {} });
-  const target = ctx.graphDir ?? join25(ctx.root, ".ctx");
+  const target = ctx.graphDir ?? join26(ctx.root, ".ctx");
   const minFiles = str(args.flags["min-files"]);
   const maxModules = str(args.flags["max-modules"]);
   const result = bootstrap(ctx, { ...minFiles ? { minFiles: Number(minFiles) } : {}, ...maxModules ? { maxModules: Number(maxModules) } : {} });
@@ -30447,12 +30524,12 @@ async function init(args, env) {
   }
   if (args.flags.write) {
     mkdirSync6(target, { recursive: true });
-    const graphFile = join25(target, GRAPH_FILE);
+    const graphFile = join26(target, GRAPH_FILE);
     if (!existsSync24(graphFile)) {
       const header = `# Context Graph, bootstrapped ${today3} by ctx init. Everything here is a proposal until ratified (ctx ratify).
 `;
-      writeFileSync8(graphFile, header + all.map(formatRecord).join("\n") + "\n", "utf8");
-      if (!existsSync24(join25(target, "config.toml"))) writeFileSync8(join25(target, "config.toml"), CONFIG_TEMPLATE.replace("{RATIFIERS}", JSON.stringify(gitPerson(ctx.root))), "utf8");
+      writeFileSync9(graphFile, header + all.map(formatRecord).join("\n") + "\n", "utf8");
+      if (!existsSync24(join26(target, "config.toml"))) writeFileSync9(join26(target, "config.toml"), CONFIG_TEMPLATE.replace("{RATIFIERS}", JSON.stringify(gitPerson(ctx.root))), "utf8");
       console.log(`wrote ${graphFile} (${all.length} records) and config.toml`);
       const ins = appendInstructionBlock(ctx.root);
       if (ins.status === "appended") console.log(`appended the Context Graph block to ${ins.file}`);
@@ -30461,8 +30538,19 @@ async function init(args, env) {
 
 ${INSTRUCTION_BLOCK}`);
     } else {
-      for (const r of all) appendRecord(join25(target, PROPOSALS_FILE), r);
-      console.log(`appended ${all.length} proposal(s) to ${join25(target, PROPOSALS_FILE)}`);
+      const newModules = all.filter((r) => r.kind === "L" && !ctx.graph?.logicals.has(r.id));
+      const ofNew = new Set(newModules.map((l) => l.id));
+      for (const l of newModules) {
+        const globs = all.filter((r) => r.kind === "M" && r.logical === l.id).map((m) => m.glob);
+        const parent = all.find((r) => r.kind === "E" && r.rel === "in" && r.from === l.id)?.to;
+        addModule(ctx, { id: l.id, name: l.name, globs, parent, agreed: false }, today3);
+      }
+      const rest = all.filter(
+        (r) => !(r.kind === "L" && ofNew.has(r.id)) && !(r.kind === "M" && ofNew.has(r.logical)) && !(r.kind === "E" && r.rel === "in" && ofNew.has(r.from))
+      );
+      for (const r of rest) appendRecord(join26(target, PROPOSALS_FILE), r);
+      if (newModules.length) console.log(`added ${newModules.length} module(s) to ${join26(target, GRAPH_FILE)}, their containment edges proposed: ${newModules.map((l) => l.id).join(", ")}`);
+      console.log(`appended ${rest.length} proposal(s) to ${join26(target, PROPOSALS_FILE)}`);
     }
   }
   return 0;
@@ -30524,7 +30612,7 @@ async function pack(args, env) {
     const text = exportPack(g, name, str(args.flags.version) ?? "1");
     const out = str(args.flags.out);
     if (out) {
-      writeFileSync8(resolve11(out), text, "utf8");
+      writeFileSync9(resolve11(out), text, "utf8");
       console.log(`wrote ${resolve11(out)}`);
     } else process.stdout.write(text);
     return 0;
@@ -30540,7 +30628,7 @@ async function pack(args, env) {
 }
 function hasCodeKitLayers(root) {
   try {
-    const c = JSON.parse(readFileSync22(join25(root, ".claude", "code-kit.json"), "utf8"));
+    const c = JSON.parse(readFileSync23(join26(root, ".claude", "code-kit.json"), "utf8"));
     return Array.isArray(c.layers) && c.layers.length > 0;
   } catch {
     return false;
@@ -30560,6 +30648,7 @@ var init_cli2 = __esm({
     init_conformance();
     init_packs2();
     init_ratify();
+    init_modules();
     init_tool_adapters();
     CONFIG_TEMPLATE = `# Context Graph configuration. See docs/design-spec.md \xA717.
 [repo]
@@ -30569,7 +30658,7 @@ default_branch = "main"
 # A lead that runs without a person watching may ratify some kinds on its own (ctx ratify --delegated):
 # [delegate]
 # ratifier = "<agent identity>"
-# may_ratify = ["guidance"]   # of guidance, enforced, concepts, retirements
+# may_ratify = ["guidance"]   # of guidance, enforced, concepts, retirements, modules
 
 [slice]
 enabled = true            # true | false (observe-only) | "random:0.5"
@@ -30604,8 +30693,8 @@ packs = ["auto"]
 
 // src/gate/gate.ts
 import { execFileSync as execFileSync3 } from "node:child_process";
-import { existsSync as existsSync25, readFileSync as readFileSync23 } from "node:fs";
-import { join as join26, relative as relative4 } from "node:path";
+import { existsSync as existsSync25, readFileSync as readFileSync24 } from "node:fs";
+import { join as join27, relative as relative4 } from "node:path";
 function runGate(ctx, opts) {
   const root = ctx.root;
   const graphRel = graphRelativeDir(ctx);
@@ -30734,7 +30823,7 @@ function runGate(ctx, opts) {
     const stale = [];
     for (const f of changedFiles2) {
       if (exemptFromCards(f, ctx.config.cardsExclude)) continue;
-      const text = opts.head ? git(root, ["show", `${opts.head}:${f}`]) : readFileIfFile(join26(root, f));
+      const text = opts.head ? git(root, ["show", `${opts.head}:${f}`]) : readFileIfFile(join27(root, f));
       if (text === void 0) continue;
       const card = atHead.cards.get(f);
       if (!card || card.hash !== contentHash(text)) stale.push(`${f}${card ? "  (card is stale)" : "  (no card)"}`);
@@ -30832,7 +30921,7 @@ function formatGate(report) {
 }
 function readFileIfFile(file) {
   try {
-    return existsSync25(file) ? readFileSync23(file, "utf8") : void 0;
+    return existsSync25(file) ? readFileSync24(file, "utf8") : void 0;
   } catch {
     return void 0;
   }
@@ -30910,8 +30999,8 @@ async function run4(args, env) {
   if (args.cmd === "retire") {
     const target = args.positional[0];
     const reason = str(args.flags.reason);
-    if (!target || !reason) throw new Error('ctx retire <k-id|c-id> --reason "<why>" [--succ <id>]');
-    const r = retire(ctx, target, reason, str(args.flags.succ));
+    if (!target || !reason) throw new Error('ctx retire <k-id|c-id> --reason "<why>" [--succ <id>] [--delegated]');
+    const r = retire(ctx, target, reason, str(args.flags.succ), { delegated: args.flags.delegated === true });
     console.log(`retired ${r.record.target}${r.record.succ ? ` -> ${r.record.succ}` : ""}`);
     if (r.needsTrailer) console.log(`this retirement needs ratification; include in the commit:
   ${r.trailer}`);
@@ -34613,9 +34702,9 @@ var init_wrapper = __esm({
 });
 
 // src/overlay/server.ts
-import { createReadStream, existsSync as existsSync26, mkdirSync as mkdirSync7, readdirSync as readdirSync6, readFileSync as readFileSync24, statSync as statSync6, unlinkSync, watch, writeFileSync as writeFileSync9 } from "node:fs";
+import { createReadStream, existsSync as existsSync26, mkdirSync as mkdirSync7, readdirSync as readdirSync6, readFileSync as readFileSync25, statSync as statSync6, unlinkSync, watch, writeFileSync as writeFileSync10 } from "node:fs";
 import { createServer } from "node:http";
-import { extname, join as join27, resolve as resolve12 } from "node:path";
+import { extname, join as join28, resolve as resolve12 } from "node:path";
 function eventKey(env) {
   return `${env.session}|${env.ts}|${env.t}|${env.who}|${JSON.stringify(env.p)}`;
 }
@@ -34626,7 +34715,7 @@ async function startServer(opts) {
   const clients = /* @__PURE__ */ new Map();
   const boot = Date.now();
   const providers = /* @__PURE__ */ new Map();
-  const viewDir = opts.viewDir ?? join27(packageRoot(), "view", "dist");
+  const viewDir = opts.viewDir ?? join28(packageRoot(), "view", "dist");
   const state = (hash) => {
     let s = repos.get(hash);
     if (!s) {
@@ -34705,12 +34794,12 @@ async function startServer(opts) {
   };
   let watcher;
   if (!opts.hosted) {
-    const obsDir = join27(ctxHome(), "observations");
+    const obsDir = join28(ctxHome(), "observations");
     mkdirSync7(obsDir, { recursive: true });
     for (const hash of readdirSync6(obsDir)) {
-      const dir = join27(obsDir, hash);
+      const dir = join28(obsDir, hash);
       if (!statSync6(dir).isDirectory()) continue;
-      for (const f of readdirSync6(dir).filter((x) => x.endsWith(".jsonl")).sort((a, b) => statSync6(join27(dir, a)).mtimeMs - statSync6(join27(dir, b)).mtimeMs)) readNew(join27(dir, f), hash);
+      for (const f of readdirSync6(dir).filter((x) => x.endsWith(".jsonl")).sort((a, b) => statSync6(join28(dir, a)).mtimeMs - statSync6(join28(dir, b)).mtimeMs)) readNew(join28(dir, f), hash);
     }
     for (const r of opts.repos ?? []) state(repoHash(r)).root = findRepoRoot(r);
     try {
@@ -34718,7 +34807,7 @@ async function startServer(opts) {
         if (!name || !String(name).endsWith(".jsonl")) return;
         const rel = String(name);
         const hash = rel.split(/[\\/]/)[0];
-        readNew(join27(obsDir, rel), hash);
+        readNew(join28(obsDir, rel), hash);
       });
     } catch {
     }
@@ -34802,10 +34891,10 @@ async function startServer(opts) {
       return;
     }
     let file = url.pathname === "/" ? "/index.html" : url.pathname;
-    const abs = join27(viewDir, file);
+    const abs = join28(viewDir, file);
     if (existsSync26(abs) && statSync6(abs).isFile()) {
       res.setHeader("content-type", MIME[extname(abs)] ?? "application/octet-stream");
-      res.end(readFileSync24(abs));
+      res.end(readFileSync25(abs));
       return;
     }
     if (url.pathname === "/" || url.pathname === "/index.html") {
@@ -34845,11 +34934,11 @@ async function startServer(opts) {
   });
   const addr = server.address();
   const port = typeof addr === "object" && addr ? addr.port : opts.port;
-  const serveFile = join27(ctxHome(), "serve.json");
+  const serveFile = join28(ctxHome(), "serve.json");
   const registered = !opts.hosted && opts.register !== false;
   if (registered) {
     mkdirSync7(ctxHome(), { recursive: true });
-    writeFileSync9(serveFile, JSON.stringify({ port, pid: process.pid, startedAt: (/* @__PURE__ */ new Date()).toISOString() }), "utf8");
+    writeFileSync10(serveFile, JSON.stringify({ port, pid: process.pid, startedAt: (/* @__PURE__ */ new Date()).toISOString() }), "utf8");
   }
   const prune = setInterval(() => {
     for (const s of repos.values()) pruneOld(s, retentionMs);
@@ -35404,34 +35493,34 @@ var init_report = __esm({
 
 // src/bench/runner.ts
 import { execFileSync as execFileSync4, spawnSync as spawnSync2 } from "node:child_process";
-import { copyFileSync, existsSync as existsSync27, mkdirSync as mkdirSync8, readFileSync as readFileSync25, rmSync, writeFileSync as writeFileSync10, appendFileSync as appendFileSync3 } from "node:fs";
-import { join as join28 } from "node:path";
+import { copyFileSync, existsSync as existsSync27, mkdirSync as mkdirSync8, readFileSync as readFileSync26, rmSync, writeFileSync as writeFileSync11, appendFileSync as appendFileSync3 } from "node:fs";
+import { join as join29 } from "node:path";
 async function runBench(ctx, tasks, opts) {
   const log = opts.log ?? (() => void 0);
   const root = ctx.root;
   const stamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-").slice(0, 19);
-  const dir = opts.outDir ?? join28(ctx.graphDir && !ctx.graphDir.startsWith(root) ? ctx.graphDir : join28(root, ".ctx"), "bench", "results", stamp);
+  const dir = opts.outDir ?? join29(ctx.graphDir && !ctx.graphDir.startsWith(root) ? ctx.graphDir : join29(root, ".ctx"), "bench", "results", stamp);
   mkdirSync8(dir, { recursive: true });
-  const runsFile = join28(dir, "runs.jsonl");
+  const runsFile = join29(dir, "runs.jsonl");
   const selected = opts.tasks?.length ? tasks.filter((t) => opts.tasks.includes(t.id)) : tasks;
   if (!selected.length) throw new Error("no tasks selected");
-  writeFileSync10(join28(dir, "meta.json"), JSON.stringify({ startedAt: (/* @__PURE__ */ new Date()).toISOString(), repo: root, harness: opts.harness, arms: opts.arms, runs: opts.runs, tasks: selected.map((t) => t.id) }, null, 2));
+  writeFileSync11(join29(dir, "meta.json"), JSON.stringify({ startedAt: (/* @__PURE__ */ new Date()).toISOString(), repo: root, harness: opts.harness, arms: opts.arms, runs: opts.runs, tasks: selected.map((t) => t.id) }, null, 2));
   const records = [];
-  const wtRoot = join28(ctxHome(), "bench", repoHash(root));
+  const wtRoot = join29(ctxHome(), "bench", repoHash(root));
   mkdirSync8(wtRoot, { recursive: true });
   for (const task of selected) {
     for (const arm of opts.arms) {
-      for (let run9 = 1; run9 <= opts.runs; run9++) {
-        const label = `${task.id} ${arm} #${run9}`;
-        const wt = join28(wtRoot, `${task.id}-${arm}-${run9}`);
+      for (let run10 = 1; run10 <= opts.runs; run10++) {
+        const label = `${task.id} ${arm} #${run10}`;
+        const wt = join29(wtRoot, `${task.id}-${arm}-${run10}`);
         rmWorktree(root, wt);
         log(`${label}: worktree at ${task.base}`);
         execFileSync4("git", ["worktree", "add", "--detach", "-f", wt, task.base], { cwd: root, stdio: "ignore" });
         const started = Date.now();
-        const rec = { task: task.id, stratum: task.stratum, arm, harness: opts.harness, run: run9, startedAt: new Date(started).toISOString(), durationMs: 0, passed: null, checkExit: null, tokensIn: null, tokensOut: null, turns: null, toolCalls: 0, reads: 0, edits: 0, rework: 0, testFailures: 0, slicesInjected: 0, callersLoaded: 0, callersTotal: 0, darkTotal: 0, reach: 0, decisions: [], session: null, harnessError: null };
+        const rec = { task: task.id, stratum: task.stratum, arm, harness: opts.harness, run: run10, startedAt: new Date(started).toISOString(), durationMs: 0, passed: null, checkExit: null, tokensIn: null, tokensOut: null, turns: null, toolCalls: 0, reads: 0, edits: 0, rework: 0, testFailures: 0, slicesInjected: 0, callersLoaded: 0, callersTotal: 0, darkTotal: 0, reach: 0, decisions: [], session: null, harnessError: null };
         try {
           const env = prepareArm(ctx, task, arm, wt, opts.harness);
-          const session = `bench-${task.id}-${arm}-${run9}-${stamp}`;
+          const session = `bench-${task.id}-${arm}-${run10}-${stamp}`;
           env.CTX_SESSION = session;
           const h = runHarness(opts, task, wt, env, session, log);
           rec.session = h.session;
@@ -35442,7 +35531,7 @@ async function runBench(ctx, tasks, opts) {
           const check2 = spawnSync2("sh", ["-c", task.check], { cwd: wt, encoding: "utf8", timeout: opts.timeoutMs ?? 10 * 6e4, env: { ...process.env, CI: "1" } });
           rec.checkExit = check2.status;
           rec.passed = check2.status === 0;
-          writeFileSync10(join28(dir, `${task.id}-${arm}-${run9}.check.log`), `${check2.stdout ?? ""}
+          writeFileSync11(join29(dir, `${task.id}-${arm}-${run10}.check.log`), `${check2.stdout ?? ""}
 ${check2.stderr ?? ""}`);
           if (h.session) collectMetrics(rec, new ObservationStore(wt, h.session).readAll().length ? new ObservationStore(wt, h.session) : new ObservationStore(root, h.session));
         } catch (e) {
@@ -35462,26 +35551,26 @@ ${check2.stderr ?? ""}`);
 function prepareArm(ctx, task, arm, wt, harness) {
   const env = { ...process.env, CLAUDE_PROJECT_DIR: wt };
   delete env.CTX_GRAPH_DIR;
-  const inTree = join28(wt, ".ctx");
+  const inTree = join29(wt, ".ctx");
   if (arm === "A") {
     if (existsSync27(inTree)) rmSync(inTree, { recursive: true, force: true });
     env.CTX_GRAPH_DIR = "";
     delete env.CTX_GRAPH_DIR;
     return env;
   }
-  const snapshotDir = join28(wt, ".ctx-bench");
+  const snapshotDir = join29(wt, ".ctx-bench");
   mkdirSync8(snapshotDir, { recursive: true });
-  const graphDir = existsSync27(join28(inTree, "graph.ctx")) ? inTree : ctx.graphDir;
+  const graphDir = existsSync27(join29(inTree, "graph.ctx")) ? inTree : ctx.graphDir;
   if (!graphDir) throw new Error("no graph to snapshot for arm " + arm);
   const baseDate = git(ctx.root, ["show", "-s", "--format=%cI", task.base]) ?? "";
   if (!baseDate) throw new Error(`cannot date base commit ${task.base}`);
   const cut = new Date(baseDate).getTime();
-  for (const f of ["graph.ctx", "aliases.ctx", "proposals.ctx"]) if (existsSync27(join28(graphDir, f))) copyFileSync(join28(graphDir, f), join28(snapshotDir, f));
-  const decisionsFile = join28(graphDir, "decisions.ctx");
+  for (const f of ["graph.ctx", "aliases.ctx", "proposals.ctx"]) if (existsSync27(join29(graphDir, f))) copyFileSync(join29(graphDir, f), join29(snapshotDir, f));
+  const decisionsFile = join29(graphDir, "decisions.ctx");
   const kept = [];
   let dropped = 0;
   if (existsSync27(decisionsFile)) {
-    const recs = parseText(readFileSync25(decisionsFile, "utf8"), decisionsFile);
+    const recs = parseText(readFileSync26(decisionsFile, "utf8"), decisionsFile);
     const keptIds = /* @__PURE__ */ new Set();
     for (const r of recs) {
       if (r.kind === "D") {
@@ -35497,11 +35586,11 @@ function prepareArm(ctx, task, arm, wt, harness) {
       } else kept.push(formatRecord(r));
     }
   }
-  writeFileSync10(join28(snapshotDir, "decisions.ctx"), `# temporal cut at ${task.base} (${baseDate}); ${dropped} later decision(s) excluded
+  writeFileSync11(join29(snapshotDir, "decisions.ctx"), `# temporal cut at ${task.base} (${baseDate}); ${dropped} later decision(s) excluded
 ` + kept.join("\n") + (kept.length ? "\n" : ""));
-  const cfg = existsSync27(join28(graphDir, "config.toml")) ? readFileSync25(join28(graphDir, "config.toml"), "utf8") : "";
+  const cfg = existsSync27(join29(graphDir, "config.toml")) ? readFileSync26(join29(graphDir, "config.toml"), "utf8") : "";
   const sliceOn = arm === "C";
-  writeFileSync10(join28(snapshotDir, "config.toml"), cfg.replace(/^\s*enabled\s*=.*$/m, "") + `
+  writeFileSync11(join29(snapshotDir, "config.toml"), cfg.replace(/^\s*enabled\s*=.*$/m, "") + `
 [slice]
 enabled = ${sliceOn}
 `, "utf8");
@@ -35509,9 +35598,9 @@ enabled = ${sliceOn}
   if (existsSync27(inTree)) rmSync(inTree, { recursive: true, force: true });
   if (arm === "B") {
     const g = Graph.load(snapshotDir);
-    const file = join28(wt, harness === "codex" ? "AGENTS.md" : "CLAUDE.md");
-    const prior = existsSync27(file) ? readFileSync25(file, "utf8") : "";
-    writeFileSync10(file, prior + "\n\n" + renderWholeGraph(g), "utf8");
+    const file = join29(wt, harness === "codex" ? "AGENTS.md" : "CLAUDE.md");
+    const prior = existsSync27(file) ? readFileSync26(file, "utf8") : "";
+    writeFileSync11(file, prior + "\n\n" + renderWholeGraph(g), "utf8");
   }
   return env;
 }
@@ -35528,7 +35617,7 @@ function renderWholeGraph(g) {
   return lines.join("\n") + "\n";
 }
 function adapterDir(name) {
-  const dir = join28(packageRoot(), "adapters", name);
+  const dir = join29(packageRoot(), "adapters", name);
   if (!existsSync27(dir)) throw new Error(`adapter directory not found at ${dir}; the benchmark needs the full package or a clone`);
   return dir;
 }
@@ -35629,13 +35718,13 @@ var cli_exports5 = {};
 __export(cli_exports5, {
   run: () => run6
 });
-import { existsSync as existsSync28, mkdirSync as mkdirSync9, readFileSync as readFileSync26, readdirSync as readdirSync7, writeFileSync as writeFileSync11 } from "node:fs";
-import { join as join29, resolve as resolve13 } from "node:path";
+import { existsSync as existsSync28, mkdirSync as mkdirSync9, readFileSync as readFileSync27, readdirSync as readdirSync7, writeFileSync as writeFileSync12 } from "node:fs";
+import { join as join30, resolve as resolve13 } from "node:path";
 async function run6(args, env) {
   const sub = args.positional[0];
   const ctx = openFromArgs(args);
-  const benchDir = ctx.graphDir && !ctx.graphDir.startsWith(ctx.root) ? join29(ctx.graphDir, "bench") : join29(ctx.root, ".ctx", "bench");
-  const corpusFile = str(args.flags.corpus) ?? join29(benchDir, "tasks.ctx");
+  const benchDir = ctx.graphDir && !ctx.graphDir.startsWith(ctx.root) ? join30(ctx.graphDir, "bench") : join30(ctx.root, ".ctx", "bench");
+  const corpusFile = str(args.flags.corpus) ?? join30(benchDir, "tasks.ctx");
   if (sub === "corpus") {
     const { tasks, skipped } = proposeCorpus(ctx, { ...str(args.flags.since) ? { since: str(args.flags.since) } : {}, ...str(args.flags.limit) ? { limit: Number(str(args.flags.limit)) } : {}, ...str(args.flags["test-command"]) ? { testCommand: str(args.flags["test-command"]) } : {} });
     if (env.json) {
@@ -35646,14 +35735,14 @@ async function run6(args, env) {
     for (const t of tasks) console.log(`  ${t.id}  ${t.stratum.padEnd(18)} ${t.prompt.split("\n")[0]?.slice(0, 70)}`);
     if (args.flags.write) {
       mkdirSync9(benchDir, { recursive: true });
-      writeFileSync11(corpusFile, formatCorpus(tasks), "utf8");
+      writeFileSync12(corpusFile, formatCorpus(tasks), "utf8");
       console.log(`wrote ${corpusFile}`);
     } else console.log(`pass --write to save to ${corpusFile}`);
     return 0;
   }
   if (sub === "run") {
     if (!existsSync28(corpusFile)) throw new Error(`no corpus at ${corpusFile}; run ctx bench corpus --write first`);
-    const tasks = parseCorpus(readFileSync26(corpusFile, "utf8"));
+    const tasks = parseCorpus(readFileSync27(corpusFile, "utf8"));
     const arms = (str(args.flags.arms) ?? "A,C").split(",").map((a) => a.trim().toUpperCase());
     for (const a of arms) if (!["A", "B", "C"].includes(a)) throw new Error(`unknown arm ${a}`);
     const harness = str(args.flags.harness) ?? "claude";
@@ -35673,8 +35762,8 @@ async function run6(args, env) {
       }
     });
     const report = buildReport(r.records);
-    writeFileSync11(join29(r.dir, "report.md"), formatReport(report), "utf8");
-    writeFileSync11(join29(r.dir, "report.json"), JSON.stringify(report, null, 2), "utf8");
+    writeFileSync12(join30(r.dir, "report.md"), formatReport(report), "utf8");
+    writeFileSync12(join30(r.dir, "report.json"), JSON.stringify(report, null, 2), "utf8");
     if (env.json) console.log(JSON.stringify({ dir: r.dir, report }, null, 2));
     else {
       console.log("");
@@ -35686,12 +35775,12 @@ async function run6(args, env) {
   if (sub === "report") {
     let dir = str(args.flags.dir);
     if (!dir) {
-      const results = join29(benchDir, "results");
+      const results = join30(benchDir, "results");
       const runs = existsSync28(results) ? readdirSync7(results).sort() : [];
       if (!runs.length) throw new Error(`no results under ${results}`);
-      dir = join29(results, runs[runs.length - 1]);
+      dir = join30(results, runs[runs.length - 1]);
     }
-    const records = readFileSync26(join29(dir, "runs.jsonl"), "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
+    const records = readFileSync27(join30(dir, "runs.jsonl"), "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
     const report = buildReport(records);
     if (env.json) console.log(JSON.stringify(report, null, 2));
     else console.log(formatReport(report));
@@ -35716,14 +35805,14 @@ ctx bench report [--dir <results dir>]`;
 
 // src/cli/doctor.ts
 import { execFileSync as execFileSync5 } from "node:child_process";
-import { existsSync as existsSync29, readFileSync as readFileSync27, readdirSync as readdirSync8, statSync as statSync7 } from "node:fs";
+import { existsSync as existsSync29, readFileSync as readFileSync28, readdirSync as readdirSync8, statSync as statSync7 } from "node:fs";
 import { homedir as homedir4 } from "node:os";
-import { join as join30, resolve as resolve14 } from "node:path";
+import { join as join31, resolve as resolve14 } from "node:path";
 function runDoctor(ctx, opts = {}) {
   const out = [];
   const now = opts.now ?? Date.now();
-  const claudeDir = opts.claudeDir ?? process.env.CLAUDE_CONFIG_DIR ?? join30(homedir4(), ".claude");
-  const sourceVersion = readVersion(join30(packageRoot(), "package.json"));
+  const claudeDir = opts.claudeDir ?? process.env.CLAUDE_CONFIG_DIR ?? join31(homedir4(), ".claude");
+  const sourceVersion = readVersion(join31(packageRoot(), "package.json"));
   const g = ctx.graph;
   if (!g) out.push({ level: "fail", text: `no graph for ${ctx.root}: run ctx init --write (or ctx link a graph kept elsewhere); hooks observe but inject nothing` });
   else {
@@ -35735,20 +35824,20 @@ function runDoctor(ctx, opts = {}) {
     if (ks.length && proposed === ks.length && !g.decisions.size) out.push({ level: "warn", text: "every rule is still proposed and no decision has been recorded: the graph has not started earning its content yet" });
   }
   if (!isOnPath("ctx")) out.push({ level: "warn", text: `the ctx command is not on the PATH: the instruction block tells agents to run ctx commands; install it with ${scriptCommand()} install cli, or npm i -g @warren-dean/context-graph` });
-  const ins = ["AGENTS.md", "CLAUDE.md"].find((f) => existsSync29(join30(ctx.root, f)));
+  const ins = ["AGENTS.md", "CLAUDE.md"].find((f) => existsSync29(join31(ctx.root, f)));
   if (!ins) out.push({ level: "warn", text: "no AGENTS.md or CLAUDE.md: the agent is never told to hydrate before reading; ctx install instructions writes the block once one exists" });
-  else if (!readFileSync27(join30(ctx.root, ins), "utf8").includes(INSTRUCTION_HEADING)) out.push({ level: "warn", text: `${ins} lacks the Context Graph block: run ctx install instructions` });
+  else if (!readFileSync28(join31(ctx.root, ins), "utf8").includes(INSTRUCTION_HEADING)) out.push({ level: "warn", text: `${ins} lacks the Context Graph block: run ctx install instructions` });
   else out.push({ level: "ok", text: `${ins} carries the Context Graph block` });
   let installedAt;
-  const installed = readJson(join30(claudeDir, "plugins", "installed_plugins.json"));
+  const installed = readJson(join31(claudeDir, "plugins", "installed_plugins.json"));
   const entry = installed?.plugins?.["context-graph@context-graph"]?.[0];
   if (!entry) out.push({ level: "warn", text: "Claude Code plugin not installed (no context-graph@context-graph in installed_plugins.json); /plugin marketplace add <path> then /plugin install context-graph@context-graph" });
   else {
     installedAt = Date.parse(entry.lastUpdated ?? entry.installedAt ?? "") || void 0;
-    const settings = readJson(join30(claudeDir, "settings.json"));
+    const settings = readJson(join31(claudeDir, "settings.json"));
     const enabled = settings?.enabledPlugins?.["context-graph@context-graph"];
     if (enabled === false) out.push({ level: "fail", text: "Claude Code plugin is installed but disabled in settings.json" });
-    const hooksFile = entry.installPath ? join30(entry.installPath, "hooks", "hooks.json") : void 0;
+    const hooksFile = entry.installPath ? join31(entry.installPath, "hooks", "hooks.json") : void 0;
     const hooks = hooksFile ? readJson(hooksFile) : void 0;
     const pre = hooks?.hooks?.PreToolUse?.map((h) => h.matcher).join("|") ?? "";
     const stale = sourceVersion && entry.version && entry.version !== sourceVersion;
@@ -35761,15 +35850,15 @@ function runDoctor(ctx, opts = {}) {
     if (old.length) out.push({ level: "fail", text: `${old.length} of ${procs.length} running Claude Code session${procs.length === 1 ? "" : "s"} started before the plugin was installed or last updated (${new Date(installedAt).toLocaleString()}) and never loaded its hooks: exit each and start it again with claude --resume (pids ${old.map((p) => p.pid).join(", ")})` });
     else out.push({ level: "ok", text: `${procs.length} running Claude Code session${procs.length === 1 ? "" : "s"}, all started after the plugin was installed` });
   }
-  const obsDir = join30(ctxHome(), "observations", repoHash(ctx.root));
+  const obsDir = join31(ctxHome(), "observations", repoHash(ctx.root));
   const dayAgo = now - 24 * 36e5;
   const recent = [];
   if (existsSync29(obsDir)) {
     for (const f of readdirSync8(obsDir).filter((x) => x.endsWith(".jsonl"))) {
-      const file = join30(obsDir, f);
+      const file = join31(obsDir, f);
       if (statSync7(file).mtimeMs < dayAgo) continue;
       const row = { session: f.replace(/\.jsonl$/, ""), harness: /* @__PURE__ */ new Set(), events: 0, last: 0, edits: 0, slices: 0, cards: 0 };
-      for (const line of readFileSync27(file, "utf8").split("\n")) {
+      for (const line of readFileSync28(file, "utf8").split("\n")) {
         if (!line.trim()) continue;
         try {
           const e = JSON.parse(line);
@@ -35806,7 +35895,7 @@ function formatDoctor(lines) {
 }
 function readJson(file) {
   try {
-    return JSON.parse(readFileSync27(file, "utf8"));
+    return JSON.parse(readFileSync28(file, "utf8"));
   } catch {
     return void 0;
   }
@@ -35855,8 +35944,8 @@ __export(guide_exports, {
   nextStep: () => nextStep,
   run: () => run7
 });
-import { existsSync as existsSync30, readFileSync as readFileSync28 } from "node:fs";
-import { join as join31, resolve as resolve15 } from "node:path";
+import { existsSync as existsSync30, readFileSync as readFileSync29 } from "node:fs";
+import { join as join32, resolve as resolve15 } from "node:path";
 function changedFiles(ctx) {
   const root = ctx.root;
   const branch = git(root, ["branch", "--show-current"]) ?? "";
@@ -35865,7 +35954,7 @@ function changedFiles(ctx) {
   for (const list of [base ? git(root, ["diff", "--name-only", base]) : void 0, git(root, ["diff", "--name-only", "HEAD"]), git(root, ["ls-files", "--others", "--exclude-standard"])]) {
     for (const f of (list ?? "").split("\n").filter(Boolean)) out.add(f);
   }
-  return [...out].filter((f) => existsSync30(join31(root, f)));
+  return [...out].filter((f) => existsSync30(join32(root, f)));
 }
 function cardsReport(ctx, opts = {}) {
   const g = ctx.graph;
@@ -35904,8 +35993,8 @@ function nextStep(ctx, opts = {}) {
       return result("cards", `The last session (${session}) still owes ${[decisions.length ? `${decisions.length} decision(s) (${decisions.slice(0, 3).join(", ")})` : "", cards.length ? `${cards.length} card(s) (${cards.slice(0, 3).join(", ")})` : ""].filter(Boolean).join(" and ")}.`);
     }
   }
-  const ins = ["AGENTS.md", "CLAUDE.md"].find((f) => existsSync30(join31(ctx.root, f)));
-  if (ins && !readFileSync28(join31(ctx.root, ins), "utf8").includes(INSTRUCTION_HEADING)) {
+  const ins = ["AGENTS.md", "CLAUDE.md"].find((f) => existsSync30(join32(ctx.root, f)));
+  if (ins && !readFileSync29(join32(ctx.root, ins), "utf8").includes(INSTRUCTION_HEADING)) {
     return result("init", `${ins} has no Context Graph block, so agents are never told to hydrate before they read, or how the loop works.`, { command: "ctx install instructions" });
   }
   const changed = cardsReport(ctx, { changed: true });
@@ -35997,6 +36086,77 @@ var init_propose2 = __esm({
   }
 });
 
+// src/cli/module.ts
+var module_exports = {};
+__export(module_exports, {
+  run: () => run9
+});
+async function run9(args, env) {
+  const ctx = openFromArgs(args);
+  const g = needGraph(ctx);
+  const id = args.positional[0];
+  const paths = str(args.flags.paths);
+  if (!id || !paths) throw new Error(USAGE2);
+  const globs = paths.split(/[\s,]+/).filter(Boolean);
+  const delegated = args.flags.delegated === true;
+  const reason = str(args.flags.reason)?.trim();
+  const delegate = ctx.config.delegate;
+  if (delegated) {
+    const refuse = !delegate ? "This repository delegates no ratification ([delegate] ratifier isn't set in .ctx/config.toml). Leave --delegated out to add the module with its edge proposed." : !delegate.mayRatify.includes("modules") ? `The delegated ratifier may ratify ${delegate.mayRatify.join(", ") || "nothing"}, not modules. Leave --delegated out to add the module with its edge proposed, or add "modules" to [delegate] may_ratify.` : !reason ? 'A delegated module needs --reason "<why these paths are their own module>".' : void 0;
+    if (refuse) {
+      console.error(refuse);
+      return 1;
+    }
+  }
+  const parent = str(args.flags.in) ?? currentModule(g, globs);
+  const m = { id, name: str(args.flags.name), globs, parent: parent === id ? void 0 : parent, agreed: delegated };
+  const problem = moduleProblem(g, m);
+  if (problem) {
+    console.error(problem);
+    return 1;
+  }
+  const r = addModule(ctx, m);
+  const trailer = delegated ? `Ctx-Ratified-By: ${delegate.ratifier} (delegated)` : null;
+  if (env.json) {
+    console.log(
+      JSON.stringify(
+        {
+          module: id,
+          paths: globs,
+          parent: r.edge?.to ?? null,
+          edge: r.edge ? r.edge.proposed ? "proposed" : "agreed" : null,
+          trailer,
+          ...delegated ? { reason } : {}
+        },
+        null,
+        2
+      )
+    );
+    return 0;
+  }
+  const lines = [...r.mappings, r.logical, r.edge].filter(Boolean).map((x) => `  ${formatRecord(x)}`);
+  console.log(`added ${id} to graph.ctx:
+${lines.join("\n")}`);
+  if (r.edge?.proposed)
+    console.log(
+      `Its containment edge is proposed: its files inherit ${r.edge.to}'s rules through it until a person ratifies it (ctx ratify "${id} in ${r.edge.to}").`
+    );
+  if (trailer) console.log(`Commit it with the trailer:
+  ${trailer}
+(${reason})`);
+  return 0;
+}
+var USAGE2;
+var init_module = __esm({
+  "src/cli/module.ts"() {
+    "use strict";
+    init_modules();
+    init_write();
+    init_main();
+    USAGE2 = 'ctx module <L:id> --paths "<glob> [<glob>\u2026]" [--in <L:parent>] [--name "<name>"] [--delegated --reason "<why>"]';
+  }
+});
+
 // src/cli/commands.ts
 async function extraCommands(args, env) {
   switch (args.cmd) {
@@ -36025,6 +36185,8 @@ async function extraCommands(args, env) {
       return (await Promise.resolve().then(() => (init_present(), present_exports))).run(args, env);
     case "propose":
       return (await Promise.resolve().then(() => (init_propose2(), propose_exports))).run(args, env);
+    case "module":
+      return (await Promise.resolve().then(() => (init_module(), module_exports))).run(args, env);
     default:
       return void 0;
   }
@@ -36036,8 +36198,8 @@ var init_commands = __esm({
 });
 
 // src/cli/main.ts
-import { copyFileSync as copyFileSync2, existsSync as existsSync31, lstatSync as lstatSync2, mkdirSync as mkdirSync10, readdirSync as readdirSync9, readFileSync as readFileSync29, symlinkSync, unlinkSync as unlinkSync2 } from "node:fs";
-import { join as join32, resolve as resolve16 } from "node:path";
+import { copyFileSync as copyFileSync2, existsSync as existsSync31, lstatSync as lstatSync2, mkdirSync as mkdirSync10, readdirSync as readdirSync9, readFileSync as readFileSync30, symlinkSync, unlinkSync as unlinkSync2 } from "node:fs";
+import { join as join33, resolve as resolve16 } from "node:path";
 function parseArgs(argv) {
   const positional = [];
   const flags = {};
@@ -36062,8 +36224,8 @@ function str(v) {
   return typeof v === "string" ? v : void 0;
 }
 function readInput(arg) {
-  if (!arg || arg === "-") return readFileSync29(0, "utf8");
-  return readFileSync29(arg, "utf8");
+  if (!arg || arg === "-") return readFileSync30(0, "utf8");
+  return readFileSync30(arg, "utf8");
 }
 function latestSession(root) {
   return ObservationStore.sessions(root)[0]?.session;
@@ -36086,7 +36248,7 @@ async function main() {
         console.log(ctxVersion2());
         return 0;
       }
-      console.log(USAGE2);
+      console.log(USAGE3);
       return 0;
     case "version":
       console.log(ctxVersion2());
@@ -36322,7 +36484,7 @@ async function main() {
       const ctx = openFromArgs(args);
       const g = needGraph(ctx);
       const from = ctx.graphDir;
-      const dest = join32(ctx.root, ".ctx");
+      const dest = join33(ctx.root, ".ctx");
       if (resolve16(from) === resolve16(dest)) {
         console.log(`the graph already lives in ${dest}`);
         return 0;
@@ -36331,11 +36493,11 @@ async function main() {
       mkdirSync10(dest, { recursive: true });
       const copied = [];
       for (const f of readdirSync9(from)) {
-        if (!lstatSync2(join32(from, f)).isFile()) continue;
-        copyFileSync2(join32(from, f), join32(dest, f));
+        if (!lstatSync2(join33(from, f)).isFile()) continue;
+        copyFileSync2(join33(from, f), join33(dest, f));
         copied.push(f);
       }
-      const link = join32(ctxHome(), "graphs", repoHash(ctx.root));
+      const link = join33(ctxHome(), "graphs", repoHash(ctx.root));
       if (isSymlink(link)) unlinkSync2(link);
       console.log(`moved the graph into ${dest} (${copied.join(", ")}): ${g.logicals.size} modules, ${g.constraints.size} rules, ${g.decisions.size} decisions`);
       console.log(`${from} is no longer read for this repository. Commit .ctx so every checkout and teammate carries it:
@@ -36347,10 +36509,10 @@ async function main() {
       if (!graph) throw new Error("ctx link --graph <dir> [--repo <dir>]");
       const ctx = openRepo({ ...str(args.flags.repo) ? { repo: str(args.flags.repo) } : {} });
       const target = resolve16(graph);
-      if (!existsSync31(join32(target, "graph.ctx"))) throw new Error(`${target} has no graph.ctx`);
-      const linkDir = join32(ctxHome(), "graphs");
+      if (!existsSync31(join33(target, "graph.ctx"))) throw new Error(`${target} has no graph.ctx`);
+      const linkDir = join33(ctxHome(), "graphs");
       mkdirSync10(linkDir, { recursive: true });
-      const link = join32(linkDir, repoHash(ctx.root));
+      const link = join33(linkDir, repoHash(ctx.root));
       if (existsSync31(link) || isSymlink(link)) unlinkSync2(link);
       symlinkSync(target, link);
       console.log(`${ctx.root}
@@ -36431,11 +36593,11 @@ ${INSTRUCTION_BLOCK}`);
       return 0;
     }
     default: {
-      const handled = await extraCommands(args, { json, usage: USAGE2 });
+      const handled = await extraCommands(args, { json, usage: USAGE3 });
       if (handled !== void 0) return handled;
       console.error(`unknown command: ${args.cmd}
 
-${USAGE2}`);
+${USAGE3}`);
       return 1;
     }
   }
@@ -36451,7 +36613,7 @@ function todayIso() {
   const d = /* @__PURE__ */ new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
-var USAGE2;
+var USAGE3;
 var init_main = __esm({
   "src/cli/main.ts"() {
     init_hook();
@@ -36481,7 +36643,7 @@ var init_main = __esm({
     init_commands();
     init_doctor();
     init_version();
-    USAGE2 = `ctx \u2014 Context Graph
+    USAGE3 = `ctx \u2014 Context Graph
 
 Start here
   ctx next [--json]                                the one thing to do now, and the skill that does it
@@ -36502,6 +36664,8 @@ Graph
   ctx ratify <id>... --commit                      the person: ratify and commit the graph with their trailer
   ctx drop <id> --reason "<why>" [--commit]        the person: turn a proposal down, with the reason kept
   ctx proposals                                    proposed rules and concepts, with their evidence
+  ctx module <L:id> --paths "<glob>\u2026" [--in <L:parent>] [--name "\u2026"] [--delegated --reason "\u2026"]
+                                                   give paths their own module, so rules can attach to them
   ctx propose <path|L:module> "<rule>" [--id x] [--test <path>] [--rule <checkable>]
                                                    propose a rule for a path's module; a person ratifies it
   ctx file <path> [--agent <id>]                   a file's card, rules, decisions, and whether an agent understood it

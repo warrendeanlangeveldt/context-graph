@@ -19,11 +19,11 @@ import { violationsFor } from './conformance.js';
  */
 export interface RatifyResult { ratified: string[]; missing: string[]; legacy: DRecord[]; trailer: string }
 
-/** The kind of a proposed record, for the delegated ratifier's rules; edges are never delegated. */
+/** The kind of a proposed record, for the delegated ratifier's rules: a containment edge is a module's (`modules`); other edges are never delegated. */
 function kindOf(rec: GraphRecord): DelegateKind | 'edges' | undefined {
   if (rec.kind === 'K' && rec.mode === 'G?') return rec.test ? 'enforced' : 'guidance';
   if (rec.kind === 'C' && rec.proposed) return 'concepts';
-  if (rec.kind === 'E' && rec.proposed) return 'edges';
+  if (rec.kind === 'E' && rec.proposed) return rec.rel === 'in' ? 'modules' : 'edges';
   return undefined;
 }
 
@@ -92,7 +92,8 @@ export function ratify(
       } else if (rec.kind === 'C') { out = { ...rec }; delete (out as { proposed?: boolean }).proposed; delete (out as { since?: string }).since; }
       else if (rec.kind === 'E') { out = { ...rec }; delete (out as { proposed?: boolean }).proposed; delete (out as { since?: string }).since; }
       ratified.push(key ?? raw);
-      if (delegate) {
+      // A delegated edge is attributed by the commit trailer alone: a decision must serve a rule or concept.
+      if (delegate && rec.kind !== 'E') {
         const kind = kindOf(rec)!;
         const d: DRecord = {
           kind: 'D', id: graph.nextDecisionId(), date: today, who: `${delegate.ratifier}/delegated`, sha: '-', branch: 'ratify',
