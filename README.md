@@ -295,6 +295,8 @@ ctx check --conformance                     # violations of rule-bearing constra
 
 Concepts and enforced constraints need a commit trailer `Ctx-Ratified-By: <person>` from an identity listed under `[repo] ratifiers`; the gate checks it.
 
+**Proposing a rule.** Any agent, or you, can propose a rule for a path's module: `ctx propose src/billing/invoice.ts "Money is stored as integer cents"` (or the MCP tool `propose`). Name the module as `L:…` instead of a path if you like; add `--test <path>` for a test that checks it, or `--rule` for a checkable rule. It goes into `proposals.ctx` and applies as proposed until a person ratifies it.
+
 **Proposals, ratifying and dropping, as the person.** `ctx proposals` lists the proposed rules and concepts with their evidence: decisions that served each, decisions that overrode it, and current violations of a checkable rule.
 
 - **`ctx ratify <id>... --commit`** ratifies, then commits only the graph's files with your `Ctx-Ratified-By` trailer.

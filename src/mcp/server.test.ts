@@ -50,7 +50,7 @@ describe('the MCP server, through a real MCP client', () => {
 
   it('lists every tool', async () => {
     const { tools } = await client.listTools();
-    expect(tools.map((t) => t.name).sort()).toEqual(['applies', 'card', 'check', 'coverage', 'history', 'hydrate', 'record', 'slice', 'slice_patch', 'why']);
+    expect(tools.map((t) => t.name).sort()).toEqual(['applies', 'card', 'check', 'coverage', 'history', 'hydrate', 'propose', 'record', 'slice', 'slice_patch', 'why']);
   });
 
   it('serves the slice, records a decision and writes a card', async () => {
@@ -58,6 +58,8 @@ describe('the MCP server, through a real MCP client', () => {
     expect(await call('slice', { path: 'src/a.ts' })).toContain('no side effects at import  [G src.pure]');
     expect(await call('record', { node: 'src/a.ts', serves: 'K:nope', text: 'x' })).toContain('applicable: src/a.ts, L:src, L:repo, src.pure');
     expect(await call('record', { node: 'src/a.ts', serves: 'src.pure', text: 'a stays a constant' })).toMatch(/^recorded d-\w+ on src\/a\.ts -> src\.pure/);
+    expect(await call('propose', { target: 'src/a.ts', text: 'Dates are stored in UTC' })).toMatch(/^proposed \S+ on L:src: Dates are stored in UTC/);
+    expect(await call('propose', { target: 'src/a.ts', text: 'Dates are stored in UTC' })).toMatch(/^rejected: L:src already has this rule proposed/);
     expect(await call('why', { node: 'src/a.ts' })).toContain('a stays a constant');
     expect(await call('card', { path: 'src/a.ts', text: 'Holds a; importing it runs nothing.' })).toMatch(/^card src\/a\.ts @ \w+/);
     expect(readFileSync(join(repo, '.ctx/cards.ctx'), 'utf8')).toContain('Holds a; importing it runs nothing.');
