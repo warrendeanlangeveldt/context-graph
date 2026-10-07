@@ -25,8 +25,8 @@ export async function run(args: Args, env: { json: boolean }): Promise<number> {
   if (args.cmd === 'retire') {
     const target = args.positional[0];
     const reason = str(args.flags.reason);
-    if (!target || !reason) throw new Error('ctx retire <k-id|c-id> --reason "<why>" [--succ <id>]');
-    const r = retire(ctx, target, reason, str(args.flags.succ));
+    if (!target || !reason) throw new Error('ctx retire <k-id|c-id> --reason "<why>" [--succ <id>] [--delegated]');
+    const r = retire(ctx, target, reason, str(args.flags.succ), { delegated: args.flags.delegated === true });
     console.log(`retired ${r.record.target}${r.record.succ ? ` -> ${r.record.succ}` : ''}`);
     if (r.needsTrailer) console.log(`this retirement needs ratification; include in the commit:\n  ${r.trailer}`);
     return 0;

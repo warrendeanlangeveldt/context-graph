@@ -129,11 +129,26 @@ export function bootstrap(ctx: RepoContext, opts: BootstrapOptions = {}): Bootst
     used.add(id);
     return id;
   };
-  // A graph that already names its modules was curated: the tree scan must not second-guess it. Nothing new
-  // is proposed as a module, and every rule, note, and binding attaches to the modules the graph has.
+  // A graph that already names its modules was curated: the tree scan doesn't second-guess the modules it
+  // has. It proposes a module only for a folder nothing claims but the root mapping or a parent folder's
+  // glob (one the project grew since), with its containment edge proposed for a person to ratify.
   const existing = ctx.graph;
   const curated = Boolean(existing && existing.mappings.some((m) => m.glob !== '**'));
-  if (curated) { notes.push(`the graph already defines ${existing!.logicals.size} modules; proposals attach to them and no new modules are proposed`); candidates = []; }
+  if (curated) {
+    const own = new Set(existing!.mappings.map((m) => m.glob));
+    candidates = candidates.filter((c) => {
+      if (own.has(`${c.dir}/**`)) return false;
+      const claim = existing!.mapPath(`${c.dir}/__ctx_probe__.ts`);
+      if (!claim || claim.glob === '**') return true;
+      return claim.glob.endsWith('/**') && c.dir.startsWith(`${claim.glob.slice(0, -3)}/`);
+    });
+    for (const id of existing!.logicals.keys()) used.add(id);
+    notes.push(
+      candidates.length
+        ? `the graph already defines ${existing!.logicals.size} modules; ${candidates.length} folder(s) it doesn't map yet are proposed as new modules, with their containment edges proposed`
+        : `the graph already defines ${existing!.logicals.size} modules, and maps every folder that looks like one`,
+    );
+  }
   for (const c of [...candidates].sort((a, b) => a.dir.split('/').length - b.dir.split('/').length || a.dir.localeCompare(b.dir))) ids.set(c.dir, idFor(c.dir));
   for (const c of candidates) {
     const id = ids.get(c.dir)!;
@@ -153,7 +168,9 @@ export function bootstrap(ctx: RepoContext, opts: BootstrapOptions = {}): Bootst
     while (d && d !== '.') { const p = ids.get(d); if (p) return p; d = dirname(d); }
     return rootId;
   };
-  for (const c of candidates) edges.push({ kind: 'E', from: ids.get(c.dir)!, rel: 'in', to: parentOf(c.dir), line: 0 });
+
+  for (const c of candidates)
+    edges.push({ kind: 'E', from: ids.get(c.dir)!, rel: 'in', to: parentOf(c.dir), line: 0, ...(curated ? { proposed: true, since: today } : {}) });
 
   // 2. Import graph -> dependency edges between modules.
   const index = buildImportIndex(root);

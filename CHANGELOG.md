@@ -2,6 +2,18 @@
 
 What changed in each release of Context Graph, newest first. Versions follow the plugin manifests and the npm package `@warren-dean/context-graph`. Each release is also on [GitHub Releases](https://github.com/warrendeanlangeveldt/context-graph/releases).
 
+## 0.3.2 (2026-10-07)
+
+Gaps found while an autonomous lead gives each engineering pattern its own rule:
+
+- **`ctx module <L:id> --paths "<glob>…"`** gives paths their own module, so a rule can attach to them alone.
+  - Its mappings go ahead of any broader one that would claim the same paths.
+  - It sits in the module its paths belonged to, or `--in`.
+  - Its containment edge is proposed. With `modules` in `[delegate] may_ratify`, the lead adds it agreed with `--delegated --reason`.
+- **A module's proposed containment edge is walked** while it has no agreed one, so its files keep the parent's rules until the edge is ratified. The delegated ratifier may ratify containment edges under `modules`; other edges still go to the person.
+- **`ctx retire --delegated --reason`** records a retirement as the delegated ratifier's, checked against `may_ratify`, instead of under the git user as `/human`.
+- **`ctx init` on a curated graph** proposes modules for folders nothing maps yet, with their containment edges proposed, written ahead of the root mapping.
+
 ## 0.3.1 (2026-10-07)
 
 - **`ctx propose <path> "<rule>"`, and the MCP tool `propose`:** propose a rule for a path's module, or for a module named as `L:…`.

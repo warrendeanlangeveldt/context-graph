@@ -119,19 +119,35 @@ export function hygieneReport(ctx: RepoContext): HygieneFinding[] {
 
 // ---- retirement ---------------------------------------------------------------------
 
-export function retire(ctx: RepoContext, target: string, reason: string, succ?: string): { record: ZRecord; needsTrailer: boolean; trailer: string } {
+/**
+ * Retires a rule or concept, signed by the person, or with `delegated` by the project's delegated
+ * ratifier: attributed to it, and only for what [delegate] may_ratify covers when a retirement needs
+ * ratifying (a concept, or an enforced rule).
+ */
+export function retire(
+  ctx: RepoContext,
+  target: string,
+  reason: string,
+  succ?: string,
+  opts: { delegated?: boolean } = {},
+): { record: ZRecord; needsTrailer: boolean; trailer: string } {
   const g = ctx.graph;
   if (!g || !ctx.graphDir) throw new Error('no graph');
   if (!g.targetExists(target)) throw new Error(`${target} is not a constraint or concept`);
   if (g.isRetired(target)) throw new Error(`${target} is already retired`);
   if (succ && !g.targetExists(succ)) throw new Error(`successor ${succ} does not exist`);
-  const who = `${gitPerson(ctx.root)}/human`;
+  const needs = target.startsWith('C:') || g.constraints.get(target)?.mode === 'E';
+  const delegate = opts.delegated ? ctx.config.delegate : null;
+  if (opts.delegated && !delegate) throw new Error("This repository delegates no ratification ([delegate] ratifier isn't set in .ctx/config.toml). A person retires it.");
+  if (delegate && needs && !delegate.mayRatify.includes('retirements'))
+    throw new Error(`The delegated ratifier may ratify ${delegate.mayRatify.join(', ') || 'nothing'}, not retirements; a person retires ${target}.`);
+  const who = delegate ? `${delegate.ratifier}/delegated` : `${gitPerson(ctx.root)}/human`;
   const record: ZRecord = { kind: 'Z', target, date: new Date().toISOString().slice(0, 10), who, reason, line: 0 };
   if (succ) record.succ = succ;
   appendRecord(join(ctx.graphDir, GRAPH_FILE), record);
   const k = g.constraints.get(target);
   const needsTrailer = target.startsWith('C:') || k?.mode === 'E';
-  return { record, needsTrailer, trailer: `Ctx-Ratified-By: ${gitPerson(ctx.root)}` };
+  return { record, needsTrailer, trailer: `Ctx-Ratified-By: ${delegate ? `${delegate.ratifier} (delegated)` : gitPerson(ctx.root)}` };
 }
 
 // ---- archival ------------------------------------------------------------------------

@@ -23,6 +23,8 @@ export async function extraCommands(args: Args, env: { json: boolean; usage: str
       return (await import('./present.js')).run(args, env);
     case 'propose':
       return (await import('./propose.js')).run(args, env);
+    case 'module':
+      return (await import('./module.js')).run(args, env);
     default:
       return undefined;
   }

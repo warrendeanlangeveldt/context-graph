@@ -69,9 +69,9 @@ export interface Config {
   cardsExclude: string[];
 }
 
-/** What a delegated ratifier may ratify: guidance rules, enforced rules, concepts, and retirements of either. */
-export type DelegateKind = 'guidance' | 'enforced' | 'concepts' | 'retirements';
-export const DELEGATE_KINDS: readonly DelegateKind[] = ['guidance', 'enforced', 'concepts', 'retirements'];
+/** What a delegated ratifier may ratify: guidance rules, enforced rules, concepts, retirements of either, and modules (a module's containment edge). */
+export type DelegateKind = 'guidance' | 'enforced' | 'concepts' | 'retirements' | 'modules';
+export const DELEGATE_KINDS: readonly DelegateKind[] = ['guidance', 'enforced', 'concepts', 'retirements', 'modules'];
 
 export interface RepoContext {
   root: string;
