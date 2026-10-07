@@ -288,12 +288,24 @@ A decision's commit is read from git (`git blame` on `decisions.ctx`) when it is
 ```sh
 ctx gate --base origin/main [--run-tests]   # in CI: opposed arrows, double supersession, stale basis, context moved, ratification, cards
 ctx hygiene                                 # proposals from evidence; never retires
-ctx retire <id> --reason "<why>" [--succ <id>]
+ctx retire <id> --reason "<why>" [--succ <id>] [--delegated]
+ctx module <L:id> --paths "<glob>…" [--in <L:parent>] [--name "…"] [--delegated --reason "…"]
 ctx gc                                      # archive inactive records older than the threshold
 ctx check --conformance                     # violations of rule-bearing constraints, minus recorded legacy exceptions
 ```
 
 Concepts and enforced constraints need a commit trailer `Ctx-Ratified-By: <person>` from an identity listed under `[repo] ratifiers`; the gate checks it.
+
+**Giving paths their own module.** A rule attaches to a module, never to a glob. So when some paths need rules of their own, give them a module first:
+
+```sh
+ctx module L:billing --paths "src/billing/** src/invoices/**" --name "Billing"
+```
+
+- **Mappings:** it writes the mappings ahead of any broader one that would claim the same paths, since a path belongs to the first mapping that matches it.
+- **Parent:** the module sits in the module those paths belonged to, or `--in L:parent`.
+- **Edge:** its containment edge is proposed until a person ratifies it, and its files inherit the parent's rules through it meanwhile. With `modules` in `[delegate] may_ratify`, the lead adds it agreed, with `--delegated --reason "…"`.
+- **On a graph that already names its modules,** `ctx init` proposes modules for the folders nothing maps yet, other than the root or a parent folder's glob, in the same way.
 
 **Proposing a rule.** Any agent, or you, can propose a rule for a path's module: `ctx propose src/billing/invoice.ts "Money is stored as integer cents"` (or the MCP tool `propose`). Name the module as `L:…` instead of a path if you like; add `--test <path>` for a test that checks it, or `--rule` for a checkable rule. It goes into `proposals.ctx` and applies as proposed until a person ratifies it.
 
@@ -311,11 +323,12 @@ Concepts and enforced constraints need a commit trailer `Ctx-Ratified-By: <perso
 ```toml
 [delegate]
 ratifier = "sidequest-lead"          # the agent identity in its trailer
-may_ratify = ["guidance", "concepts"]  # of guidance, enforced, concepts, retirements; default guidance
+may_ratify = ["guidance", "concepts"]  # of guidance, enforced, concepts, retirements, modules; default guidance
 ```
 
 - The lead runs `ctx ratify <id>... --delegated --reason "<why it should hold>"`.
-- It's all or nothing: if any record is of a kind outside `may_ratify`, nothing is ratified, and the person decides. Proposed edges always go to the person.
+- It's all or nothing: if any record is of a kind outside `may_ratify`, nothing is ratified, and the person decides. A module's containment edge is `modules`; any other proposed edge goes to the person.
+- It retires the same way: `ctx retire <id> --reason "<why>" --delegated` is recorded as `<ratifier>/delegated`, and a retirement that needs ratifying (a concept, an enforced rule) needs `retirements` in `may_ratify`.
 - Each ratified record gets a decision by `<ratifier>/delegated`, reading `ratified <id> (delegated: <kind>): <reason>`, so the why travels with the graph.
 - The commit carries `Ctx-Ratified-By: <ratifier> (delegated)`. The gate accepts that trailer only for the kinds delegated, and never counts it as a person's.
 - It's read only from the repository's own config. Without `[delegate]`, `--delegated` is refused. The gate also reports each file the branch changed that has no card matching its content (`[gate] cards = "warn"`, or `"fail"`, or `"off"`), so the loop holds for changes made outside a session too.

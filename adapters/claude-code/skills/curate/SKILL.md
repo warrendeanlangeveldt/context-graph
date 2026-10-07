@@ -30,7 +30,8 @@ For hygiene findings, give the signal, the evidence and ctx's proposal, and ask 
 - **Ratify:** `ctx ratify <id>...`.
 - **Reword:** edit the record's text in `.ctx/graph.ctx`, keeping its id, then ratify it.
 - **Drop a proposal:** delete its line.
-- **Retire a ratified rule or concept:** `ctx retire <id> --reason "<why>" [--succ <successor>]`. Decisions that served it stay in force through its successor, or show as orphaned when there is none.
+- **Give paths their own module** when a rule should hold for them and not for everything around them: `ctx module <L:id> --paths "<glob>…" [--in <L:parent>]`. Its containment edge is proposed; ratify it like any proposal.
+- **Retire a ratified rule or concept:** `ctx retire <id> --reason "<why>" [--succ <successor>]` (with `--delegated` for the lead, within `[delegate] may_ratify`). Decisions that served it stay in force through its successor, or show as orphaned when there is none.
 - **Archive:** `ctx gc` moves inactive records older than the threshold into `.ctx/archive/`. Nothing is lost; `ctx history <node> --timeline` still shows them.
 
 ## 4. Commit

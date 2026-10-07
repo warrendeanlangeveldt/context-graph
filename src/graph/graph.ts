@@ -128,8 +128,14 @@ export class Graph {
     return this.matchers.find((m) => m.match(p))?.rec;
   }
 
+  /**
+   * The modules `node` sits in. A module with no agreed containment edge walks up through its proposed
+   * one: cut off from its parent, its files would lose every rule the parent carries.
+   */
   parentsOf(node: string): string[] {
-    return this.edges.filter((e) => e.rel === 'in' && e.from === node && !e.proposed).map((e) => e.to);
+    const contains = this.edges.filter((e) => e.rel === 'in' && e.from === node);
+    const agreed = contains.filter((e) => !e.proposed);
+    return (agreed.length ? agreed : contains).map((e) => e.to);
   }
 
   conceptsOf(node: string): string[] {

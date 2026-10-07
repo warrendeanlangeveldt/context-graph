@@ -3,7 +3,7 @@ import { join, resolve } from 'node:path';
 import { needGraph, openFromArgs, str, type Args } from '../cli/main.js';
 import { openRepo } from '../core/context.js';
 import { GRAPH_FILE, Graph, PROPOSALS_FILE } from '../graph/graph.js';
-import type { GraphRecord } from '../graph/records.js';
+import type { ERecord, GraphRecord, LRecord, MRecord } from '../graph/records.js';
 import { appendRecord, formatRecord } from '../graph/write.js';
 import { gitPerson } from '../util/git.js';
 import { INSTRUCTION_BLOCK, appendInstructionBlock } from './instructions.js';
@@ -11,6 +11,7 @@ import { bootstrap, newRecordsOnly } from './bootstrap.js';
 import { conformanceReport, violationsFor } from './conformance.js';
 import { detectBindings, exportPack, instantiate, loadPacks } from './packs.js';
 import { ratify } from './ratify.js';
+import { addModule } from '../graph/modules.js';
 import { toolAdapters } from '../tool-adapters/index.js';
 
 const CONFIG_TEMPLATE = `# Context Graph configuration. See docs/design-spec.md §17.
@@ -21,7 +22,7 @@ default_branch = "main"
 # A lead that runs without a person watching may ratify some kinds on its own (ctx ratify --delegated):
 # [delegate]
 # ratifier = "<agent identity>"
-# may_ratify = ["guidance"]   # of guidance, enforced, concepts, retirements
+# may_ratify = ["guidance"]   # of guidance, enforced, concepts, retirements, modules
 
 [slice]
 enabled = true            # true | false (observe-only) | "random:0.5"
@@ -136,8 +137,21 @@ async function init(args: Args, env: { json: boolean }): Promise<number> {
       else if (ins.status === 'present') console.log(`${ins.file} already carries the Context Graph block`);
       else console.log(`no AGENTS.md or CLAUDE.md to carry the Context Graph block; add this to your agent instructions:\n\n${INSTRUCTION_BLOCK}`);
     } else {
-      for (const r of all) appendRecord(join(target, PROPOSALS_FILE), r);
-      console.log(`appended ${all.length} proposal(s) to ${join(target, PROPOSALS_FILE)}`);
+      // New modules go into graph.ctx, their mappings ahead of the broader ones that would claim their
+      // paths (a path maps to the first mapping that matches); the rest waits in proposals.ctx.
+      const newModules = all.filter((r): r is LRecord => r.kind === 'L' && !ctx.graph?.logicals.has(r.id));
+      const ofNew = new Set(newModules.map((l) => l.id));
+      for (const l of newModules) {
+        const globs = all.filter((r): r is MRecord => r.kind === 'M' && r.logical === l.id).map((m) => m.glob);
+        const parent = all.find((r): r is ERecord => r.kind === 'E' && r.rel === 'in' && r.from === l.id)?.to;
+        addModule(ctx, { id: l.id, name: l.name, globs, parent, agreed: false }, today);
+      }
+      const rest = all.filter(
+        (r) => !(r.kind === 'L' && ofNew.has(r.id)) && !(r.kind === 'M' && ofNew.has(r.logical)) && !(r.kind === 'E' && r.rel === 'in' && ofNew.has(r.from)),
+      );
+      for (const r of rest) appendRecord(join(target, PROPOSALS_FILE), r);
+      if (newModules.length) console.log(`added ${newModules.length} module(s) to ${join(target, GRAPH_FILE)}, their containment edges proposed: ${newModules.map((l) => l.id).join(', ')}`);
+      console.log(`appended ${rest.length} proposal(s) to ${join(target, PROPOSALS_FILE)}`);
     }
   }
   return 0;
