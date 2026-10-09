@@ -107,7 +107,7 @@ The card rendered, rules as chips, and the neighbourhood graph from `ctx neighbo
 **Lane:** lead
 **Requirements:** VIEW-3
 **Depends on:** ST-8
-**Status:** todo
+**Status:** done
 
 Proposals with evidence and sparklines; ratify, drop and defer on keys.
 

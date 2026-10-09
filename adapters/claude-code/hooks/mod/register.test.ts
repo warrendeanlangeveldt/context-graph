@@ -466,3 +466,26 @@ test('VIEW-2 the File tab draws the card as Markdown and the neighbourhood, and 
   expect(await ui.find({ type: 'Text', text: 'Esc: back' })).toBeDefined();
   await ui.unmount();
 });
+
+// --- the proposals queue ----------------------------------------------------------------------------
+
+test('VIEW-3 each proposal has its sparklines; r ratifies, d drops and f defers the selected one', async ($, on) => {
+  const w = project();
+  w.proposals[0] = { ...w.proposals[0], servedOn: ['2026-10-01', '2026-10-02', '2026-10-03'], overriddenOn: ['2026-10-03'] };
+  await start($, on, w);
+  await ctx($);
+  const ui = await mountPane($, PANE);
+  await press($, 'tab-proposals', PANE);
+  expect((await ui.find({ key: 'spark-src.small' }))?.text).toMatch(/served\s+▁+.*overridden\s*▁+/);
+  await press($, 'move-next', PANE);
+  expect((await ui.find({ key: 'key-defer' }))?.props.hotkey).toBe('f');
+  await press($, 'key-defer', PANE);
+  // Deferred, src.small goes to the back: C:events is first now.
+  const order = (await ui.findAll({ type: 'Text' })).map((x) => x.text).filter((x) => x === 'src.small' || x === 'C:events');
+  expect(order).toEqual(['C:events', 'src.small']);
+  expect(await ui.find({ type: 'Text', text: 'deferred' })).toBeDefined();
+  expect((await ui.find({ key: 'key-ratify' }))?.props.label).toBe('Ratify C:events');
+  await press($, 'key-ratify', PANE);
+  expect(w.acts).toEqual([['ratify', 'C:events', '--commit']]);
+  await ui.unmount();
+});

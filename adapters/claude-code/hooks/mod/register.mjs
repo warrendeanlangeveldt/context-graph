@@ -21,6 +21,7 @@ let model = {
 };
 let followed = null; // the file the pane follows: { path, agentId, pinned? }; pinned by /graph <path>
 let paneUi = { ...DEFAULT_UI }; // the pane's tab, selection, and where Esc goes back to (VIEW-5)
+const deferred = new Set(); // proposals the person put to the back of the queue this session (VIEW-3)
 let activity = 0; // tool calls seen: coverage changes with them
 let dropping = null; // the open Drop confirmation: { proposal, reason, error }
 let act = null; // the session's actions, made at session start
@@ -315,6 +316,8 @@ export function register(on) {
     const view = {
       ...model,
       ui: paneUi,
+      deferred,
+      now: await $.clock.now(),
       health: healthNow(),
       followed: followed && {
         ...followed,
@@ -343,6 +346,12 @@ export function register(on) {
         act.reload();
       },
       onSettings: () => act.settings(),
+      // VIEW-3: defer puts a proposal at the back of the queue for the session; again brings it back.
+      onDefer: (p) => {
+        if (deferred.has(p.id)) deferred.delete(p.id);
+        else deferred.add(p.id);
+        $.ui.invalidate('ui.render');
+      },
       // VIEW-2: a neighbour opens in the File tab; Escape comes back to this file.
       onNeighbour: (path) => {
         const from = followed;

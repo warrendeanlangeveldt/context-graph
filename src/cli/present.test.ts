@@ -95,7 +95,7 @@ describe('what the Context Graph pane shows, and the person\'s acts', () => {
   it('RAT-1 lists proposals with the evidence a person decides on', () => {
     writeFileSync(join(repo, '.ctx/decisions.ctx'), readFileSync(join(repo, '.ctx/decisions.ctx'), 'utf8') + 'D d-0002 2026-10-02 warren/claude - main src/a.ts ->K src.small small\nD d-0003 2026-10-03 warren/claude - main src/b.ts ->K src.pure !K src.small too small to split\n');
     const list = proposals(openRepo({ repo }));
-    expect(list.find((p) => p.id === 'src.small')).toMatchObject({ kind: 'guidance', served: 1, overridden: 1 });
+    expect(list.find((p) => p.id === 'src.small')).toMatchObject({ kind: 'guidance', served: 1, overridden: 1, servedOn: ['2026-10-02'], overriddenOn: ['2026-10-03'] });
     expect(list.find((p) => p.id === 'C:events')).toMatchObject({ kind: 'concepts' });
   });
 

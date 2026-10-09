@@ -4,6 +4,7 @@
 // `claude plugin test`.
 
 import { DEFAULT_UI, frame, healthOf } from './views/frame.mjs';
+import { proposalsQueue, queueKeys } from './views/proposals.mjs';
 
 export const PANE_ID = 'context-graph';
 export const DROP_ID = 'context-graph-drop';
@@ -31,7 +32,6 @@ export function followedPath(call, root) {
   return path.startsWith(prefix) ? path.slice(prefix.length) : null;
 }
 
-const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 const who = (agentType) => agentType ?? 'the main session';
 
 // The pane's layout: a heading per section, then rows of a fixed-width label and its value.
@@ -58,14 +58,6 @@ function layout({ Box, Text }) {
 }
 
 const ruleKind = (r) => (r.mode === 'G?' ? 'proposed' : r.test ? 'enforced' : 'guidance');
-const evidence = (p) => {
-  const parts = [];
-  if (p.served) parts.push(`served by ${plural(p.served, 'decision', 'decisions')}`);
-  if (p.overridden) parts.push(`overridden by ${plural(p.overridden, 'decision', 'decisions')}`);
-  if (p.violations) parts.push(`${plural(p.violations, 'file breaks', 'files break')} it now`);
-  else if (p.violations === 0) parts.push('no file breaks it');
-  return parts.length ? parts.join(', ') : 'no decision has cited it yet';
-};
 
 /** FILE-2 to FILE-4: the followed file. */
 /** Each rule kind's chip (VIEW-2): its word on a background colour. */
@@ -203,45 +195,6 @@ function fileSection(followed, file, els, { onLanes, onWriteCard, onModuleCards,
   return rows;
 }
 
-/** RAT-1: every proposal with its evidence, and Ratify and Drop; the selected one marked (VIEW-5). */
-function proposalsSection(proposals, els, { onRatify, onDrop }, selected = -1) {
-  const { Box, Button } = els;
-  const { text, heading } = layout(els);
-  if (!proposals.length) return [heading('Proposals'), text('None waiting.', { dimColor: true })];
-  return [
-    heading('Proposals', `${plural(proposals.length, 'waits', 'wait')} for you to ratify or drop`),
-    ...proposals.map((p, i) =>
-      Box({
-        key: `proposal-${p.id}`,
-        flexDirection: 'column',
-        borderStyle: i === selected ? 'bold' : 'round',
-        ...(i === selected ? { borderColor: 'cyan' } : {}),
-        paddingX: 1,
-        children: [
-          Box({
-            flexDirection: 'row',
-            columnGap: 2,
-            children: [
-              text(p.id, { bold: true }),
-              text(`${p.kind === 'concepts' ? 'concept' : `rule (${p.kind})`}${p.module ? ` on ${p.module}` : ''}`, { dimColor: true }),
-            ],
-          }),
-          text(p.text),
-          text(`Evidence: ${evidence(p)}`, { dimColor: true }),
-          Box({
-            flexDirection: 'row',
-            columnGap: 2,
-            children: [
-              Button({ key: `ratify-${p.id}`, label: 'Ratify', onPress: () => onRatify(p) }),
-              Button({ key: `drop-${p.id}`, label: 'Drop…', onPress: () => onDrop(p) }),
-            ],
-          }),
-        ],
-      }),
-    ),
-  ];
-}
-
 /** COV-1 and COV-3: each agent's coverage as a table, with edits made without understanding marked; the selected agent marked (VIEW-5). */
 function coverageSection(agents, types, els, selected = -1) {
   const { Box } = els;
@@ -285,12 +238,14 @@ export function contextPane(model, els, handlers) {
   const ui = model.ui ?? DEFAULT_UI;
   const body = (tab) =>
     tab === 'proposals'
-      ? proposalsSection(model.proposals, els, handlers, ui.selected)
+      ? proposalsQueue(model.proposals, els, handlers, { selected: ui.selected, deferred: model.deferred ?? new Set(), now: model.now })
       : tab === 'coverage'
         ? coverageSection(model.agents, model.types ?? {}, els, ui.selected)
         : fileSection(model.followed, model.file, els, handlers, model.neighbours ?? null);
+  const keys =
+    ui.tab === 'proposals' ? queueKeys(model.proposals, els, handlers, { selected: ui.selected, deferred: model.deferred ?? new Set() }) : [];
   return frame(
-    { health: model.health ?? healthOf({ proposals: model.proposals.length }), notice: model.notice, ui, body },
+    { health: model.health ?? healthOf({ proposals: model.proposals.length }), notice: model.notice, ui, body, keys },
     els,
     handlers,
   );

@@ -30464,10 +30464,16 @@ function proposals(ctx) {
   const g = needGraph(ctx);
   const index = loadOrBuildImportIndex(ctx.root);
   const decisions = [...g.decisions.values()];
-  const evidence = (id) => ({
-    served: decisions.filter((d) => d.serves === id).length,
-    overridden: decisions.filter((d) => d.overrides === id).length
-  });
+  const evidence = (id) => {
+    const serving = decisions.filter((d) => d.serves === id);
+    const overriding = decisions.filter((d) => d.overrides === id);
+    return {
+      served: serving.length,
+      overridden: overriding.length,
+      servedOn: serving.map((d) => d.date).sort(),
+      overriddenOn: overriding.map((d) => d.date).sort()
+    };
+  };
   const rules = [...g.constraints.values()].filter((k) => k.mode === "G?" && !g.isRetired(k.id)).map((k) => ({
     id: k.id,
     kind: k.test ? "enforced" : "guidance",

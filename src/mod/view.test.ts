@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { NO_GRAPH, contextPane, followedPath } from '../../adapters/claude-code/hooks/mod/view.mjs';
 // @ts-expect-error: the mod is plain JavaScript beside the bundled CLI, outside the TypeScript build
 import { DEFAULT_UI, bandHealth, closeGoesBack, healthOf, moved } from '../../adapters/claude-code/hooks/mod/views/frame.mjs';
+// @ts-expect-error: the mod is plain JavaScript beside the bundled CLI, outside the TypeScript build
+import { queueOrder, spark } from '../../adapters/claude-code/hooks/mod/views/proposals.mjs';
 
 /** Stand-ins for the elements `$.ui.resolve` gives the mod. */
 type Node = { type: string; props: Record<string, unknown>; children: Node[] | string[] };
@@ -146,5 +148,14 @@ describe('the Context Graph mod: what it draws', () => {
     const walk = (n: Node | string) => { if (typeof n === 'string') return; if (n.type === 'Button') buttons.push(String(n.props.label)); (n.children as Node[]).forEach(walk); };
     walk(labels);
     expect(buttons).toEqual(['◐ src/b.ts', '○ lib/c.ts ✗ src.no-lib', '● src/d.ts']);
+  });
+
+  it('VIEW-3 a sparkline of decisions a week a bar, and deferred proposals at the back of the queue', () => {
+    const now = Date.parse('2026-10-10T12:00:00Z');
+    expect(spark([], now)).toBe('▁▁▁▁▁▁▁▁');
+    expect(spark(['2026-10-09', '2026-10-08', '2026-10-01', '2026-06-01'], now)).toBe('▁▁▁▁▁▁▅█');
+    expect(spark(['2026-09-01'], now, 8)).toBe('▁▁█▁▁▁▁▁');
+    const ps = [{ id: 'a' }, { id: 'b' }, { id: 'c' }];
+    expect(queueOrder(ps, new Set(['a'])).map((p: { id: string }) => p.id)).toEqual(['b', 'c', 'a']);
   });
 });
