@@ -1,7 +1,7 @@
 # Context Graph in the session (a mod)
 
-**Status:** ready
-**Updated:** 2026-10-06
+**Status:** specified
+**Updated:** 2026-10-09
 
 ## Problem
 
@@ -38,13 +38,23 @@ In the Claude Code terminal or Desktop app, a person running Context Graph:
 
 ## Scope
 
-| Area                     | Spec                          | First release                                                                                   | Later                            |
-| ------------------------ | ----------------------------- | ----------------------------------------------------------------------------------------------- | -------------------------------- |
-| The file being worked on | `specs/01-current-file.md`    | Card, rules, decisions, understood or not, following the agent's reads and edits; code-kit link | Pinning a file                   |
-| Ratify and drop          | `specs/02-ratify-and-drop.md` | Proposals with their evidence; Ratify and Drop as the person's acts; the band's count           | Rewording a proposal in the pane |
-| Coverage per agent       | `specs/03-coverage.md`        | Per agent: read in full, only searched, edited, cards written                                   | History across sessions          |
+| Area                     | Spec                          | First release                                                                                                 | Later                            |
+| ------------------------ | ----------------------------- | ------------------------------------------------------------------------------------------------------------- | -------------------------------- |
+| The file being worked on | `specs/01-current-file.md`    | Card, rules, decisions, understood or not, following the agent's reads and edits; code-kit link               | Pinning a file                   |
+| Ratify and drop          | `specs/02-ratify-and-drop.md` | Proposals with their evidence; Ratify and Drop as the person's acts; the band's count                         | Rewording a proposal in the pane |
+| Card writer              | `specs/04-card-writer.md`     | A background agent, opt-in, writing owed and missing cards from full reads                                    |                                  |
+| Curator                  | `specs/05-curator.md`         | A background agent, opt-in, proposing rules from evidence and flagging overridden ones                        |                                  |
+| Read-assist              | `specs/06-read-assist.md`     | A refused edit's reading list, delivered to the agent, with progress                                          |                                  |
+| Side questions           | `specs/07-side-questions.md`  | `/why` answered beside the conversation, from the graph                                                       |                                  |
+| Graph explorer           | `specs/08-graph-explorer.md`  | Modules with rules, activity and coverage; a coverage heat map                                                |                                  |
+| Panes v2 and settings    | `specs/09-panes.md`           | Tabs, rendered card, neighbourhood graph, proposals queue, band health, transcript tags, `[harness]` settings |                                  |
+| Coverage per agent       | `specs/03-coverage.md`        | Per agent: read in full, only searched, edited, cards written                                                 | History across sessions          |
 
 **Quality targets:** refreshes within 2 seconds of a read or edit; no model calls; keyboard-usable; readable in light and dark terminals.
+
+## The harness (2026-10-09)
+
+Specs 04–09 grow the mod into Context Graph's half of a continuous engineering harness, specified with code-kit's (code-kit `docs/brief.md`, which holds the shared framing and decisions: in-session, two cooperating mods, background agents opt-in and paused near the plan's limit, settings in the project config, the person's acts only on a press). They're built after code-kit's harness, then joined by code-kit's combined lane view (its spec 13). v1's non-goal "no model calls" no longer holds for the card writer, curator and side questions, which are opt-in.
 
 ## Decision log
 
