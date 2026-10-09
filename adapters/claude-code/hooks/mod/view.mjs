@@ -100,13 +100,27 @@ function neighbourhood(n, els, onNeighbour) {
   });
 }
 
-function fileSection(followed, file, els, { onLanes, onWriteCard, onModuleCards, onNeighbour = () => {} }, near = null) {
+function fileSection(followed, file, els, { onLanes, onWriteCard, onModuleCards, onNeighbour = () => {}, onWhy = null }, near = null) {
   const { Box, Button } = els;
   const { text, heading, row } = layout(els);
   const by = followed ? `${followed.agentType ? `last touched by ${followed.agentType}` : 'last touched by the main session'}` : null;
   if (!followed) return [heading('File'), text('No file yet. The pane follows the file an agent last reads or edits.', { dimColor: true })];
   if (!file) return [heading('File', by), row('Path', followed.path, { bold: true }), text('Reading it…', { dimColor: true })];
-  const rows = [heading('File', by), row('Path', file.path, { bold: true })];
+  const rows = [
+    heading('File', by),
+    row(
+      'Path',
+      Box({
+        flexDirection: 'row',
+        columnGap: 2,
+        children: [
+          text(file.path, { bold: true }),
+          // ASKQ: a side question on the file in view.
+          ...(onWhy ? [Button({ key: 'why-file', label: 'Why?', hotkey: 'w', plain: true, onPress: () => onWhy(file.path) })] : []),
+        ],
+      }),
+    ),
+  ];
   // A card to write, or one gone stale, is a press away: the lead runs the cards skill on the file.
   const cardButton = (label) => Button({ key: 'write-card', label, onPress: () => onWriteCard(file.path) });
   rows.push(

@@ -12,6 +12,7 @@ import { DEFAULT_UI, bandHealth, closeGoesBack, healthOf, moved } from './views/
 import { assistCard, editTag, readingList, readingMessage } from './views/assist.mjs';
 import { BATCH, cardJobs, cardWriterLine, cardWriterSpec, pausedAt, startCardWriterPrompt } from './card-writer.mjs';
 import { curatorDue, curatorLine, curatorSpec, flaggedRules, startCuratorPrompt } from './curator.mjs';
+import { WHY_ID, sourcesOf, targetsOf, whyPane, whyPrompt } from './why.mjs';
 
 let model = {
   kind: null,
@@ -35,6 +36,7 @@ const cardWriter = { agent: null, model: null, writing: [], agentId: null };
 const asked = []; // paths queued for the card writer from the pane (CARDW-4)
 // The curator (spec 05): its agent, whether it's running, and the decision count at its last run.
 const curator = { agent: null, model: null, running: false, baseline: null, asked: false };
+let asking = null; // the side question in its pane (spec 07): { question, sources, answer?, error?, ms?, usage?, pending }
 const editedAt = {}; // path → when an agent last edited it: a file still moving waits (CARDW-1)
 let settingRowsNow = []; // ctx settings --json, read on each refresh
 let rateLimits = []; // the session's limits, as session.measure last gave them (CARDW-5)
@@ -60,6 +62,9 @@ export function register(on) {
         immediate: true,
       })
       .catch((err) => $.ui.log(`Context Graph: /graph isn't available in this session: ${err?.message ?? err}`));
+    await $.command
+      .register({ name: 'why', description: 'Ask Context Graph why: a path, a module, a rule or a question, answered beside the conversation', argumentHint: '<path, module, rule or question>', immediate: true })
+      .catch((err) => $.ui.log(`Context Graph: /why isn't available in this session: ${err?.message ?? err}`));
     await $.command
       .register({ name: 'graph-settings', description: "Context Graph's harness: the card writer, curator and side questions", immediate: true })
       .catch((err) => $.ui.log(`Context Graph: /graph-settings isn't available in this session: ${err?.message ?? err}`));
@@ -228,6 +233,40 @@ export function register(on) {
           curator.running = false;
         });
         return true;
+      },
+      // ASKQ-1 to ASKQ-3: a side question, answered from the graph's records in a pane of its own.
+      why: async (question) => {
+        const q = question.trim();
+        if (!q) return { text: 'Ask with /why <path, module, rule or question>.' };
+        if (model.kind !== 'graph') await act.reload();
+        if (model.kind === 'none') return { text: NO_GRAPH };
+        if (!setting('side_questions', true)) return { text: 'Side questions are off: /graph-settings turns them on.' };
+        const found = [];
+        for (const target of targetsOf(q)) {
+          const r = await json('why', target);
+          if (r) found.push(r);
+        }
+        const sources = sourcesOf(found);
+        asking = { question: q, sources, pending: sources.length > 0 };
+        await $.ui.open({ id: WHY_ID, title: 'Why', focus: true, closeOnEscape: true });
+        if (!sources.length) {
+          // ASKQ-3: nothing in the graph names it, so there is nothing to answer from, and no call is made.
+          asking = { ...asking, empty: true, error: `The graph holds nothing on ${targetsOf(q).join(', ') || 'that'}: no card, rule or decision names it.` };
+          $.ui.invalidate('ui.render');
+          return {};
+        }
+        $.ui.invalidate('ui.render');
+        // The side call: over the session's own context (it shares the prompt cache), or the model set.
+        const started = await $.clock.now();
+        const prompt = whyPrompt(q, sources);
+        const chosen = setting('side_questions_model', '');
+        const reply = await (chosen ? $.model.complete({ model: chosen, prompt }) : $.model.fork({ prompt })).catch((err) => ({ isAnswered: false, reason: String(err?.message ?? err) }));
+        const ms = (await $.clock.now()) - started;
+        asking = reply.isAnswered
+          ? { ...asking, pending: false, answer: reply.text, usage: reply.usage, ms }
+          : { ...asking, pending: false, error: `No answer: ${reply.reason}${reply.status ? ` (${reply.status})` : ''}`, ms };
+        $.ui.invalidate('ui.render');
+        return {};
       },
       curateNow: async () => {
         curator.asked = true;
@@ -405,6 +444,10 @@ export function register(on) {
     return next(e);
   });
 
+  on('command.run', { command: 'why' }, async ($, e) =>
+    act ? act.why(e.args ?? '') : { text: 'Context Graph is still starting; try /why again in a moment.' },
+  );
+
   on('command.run', { command: 'graph-settings' }, async ($, e) =>
     act ? act.settings() : { text: 'Context Graph is still starting; try /graph-settings again in a moment.' },
   );
@@ -549,6 +592,7 @@ export function register(on) {
       },
       onSettings: () => act.settings(),
       onCurate: () => act.curateNow(),
+      onWhy: (path) => act.why(path),
       // VIEW-3: defer puts a proposal at the back of the queue for the session; again brings it back.
       onDefer: (p) => {
         if (deferred.has(p.id)) deferred.delete(p.id);
@@ -588,6 +632,15 @@ export function register(on) {
     }
     return next(e);
   });
+
+  // ASKQ-1: the answer's pane; a source that is a file opens in the Context pane.
+  on('ui.render', { component: 'Pane', requestId: WHY_ID }, async ($, e) =>
+    whyPane(asking, $.ui.resolve(e), {
+      onSource: (s) => {
+        if (s.kind === 'card') act?.toggle(s.id);
+      },
+    }),
+  );
 
   on('ui.render', { component: 'Pane', requestId: SETTINGS_ID }, async ($, e) =>
     settingsView(settingRows, pendingSetting, $.ui.resolve(e), {

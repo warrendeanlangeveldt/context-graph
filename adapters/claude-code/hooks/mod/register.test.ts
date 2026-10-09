@@ -60,6 +60,16 @@ function project() {
     registered: [] as any[],
     limits: [] as any[],
     hygiene: [] as any[],
+    whys: {
+      'src/a.ts': {
+        node: 'src/a.ts',
+        card: { text: 'Holds a.' },
+        constraints: [{ id: 'src.pure', mode: 'G', text: 'no side effects' }],
+        decisions: [{ id: 'd-0003', date: '2026-10-03', who: 'warren/claude', text: 'keep a constant' }],
+      },
+    } as Record<string, any>,
+    asked: [] as any[],
+    reply: { isAnswered: true, text: 'Because of [src.pure]: a stays pure.', usage: { input_tokens: 100, output_tokens: 20, cache_read_input_tokens: 900, cache_creation_input_tokens: 0 } } as any,
     sent: [] as { to: any; text: string }[],
     neighbours: {
       'src/a.ts': { path: 'src/a.ts', card: 'current', breaks: [], imports: [{ path: 'src/b.ts', card: 'missing', breaks: [] }], importers: [] },
@@ -76,6 +86,7 @@ function stub(on: any, w: World) {
     const sub = argv[2];
     if (sub === 'info') return ran(0, JSON.stringify(w.info));
     if (sub === 'hygiene') return ran(0, JSON.stringify(w.hygiene));
+    if (sub === 'why') return w.whys[argv[3]] ? ran(0, JSON.stringify(w.whys[argv[3]])) : ran(1, '', `ctx why <node>`);
     if (sub === 'proposals') return ran(0, JSON.stringify(w.proposals));
     if (sub === 'cards' && argv.includes('--changed')) return ran(0, JSON.stringify(w.changed));
     if (sub === 'cards' && argv.includes('--module')) return ran(0, JSON.stringify(w.moduleCards));
@@ -112,6 +123,14 @@ function stub(on: any, w: World) {
   on('ui.render', () => ({ type: 'Box', props: {}, children: [] }));
   on('tool.call', { tool: 'Read' }, () => ({ result: { type: 'text', file: {} } }));
   on('tool.call', { tool: 'Edit' }, () => (w.editRefusal ? { deny: w.editRefusal } : { result: {} }));
+  on('model.fork', ($: any, e: any) => {
+    w.asked.push({ fork: true, prompt: e.prompt });
+    return { value: w.reply };
+  });
+  on('model.complete', ($: any, e: any) => {
+    w.asked.push({ model: e.model, prompt: e.prompt });
+    return { value: w.reply };
+  });
   on('agent.register', ($: any, e: any) => {
     w.registered.push(e);
     return { value: { agent: `context-graph:${e.name}` } };
@@ -763,4 +782,68 @@ test('CUR-1 Curate now runs it at the next idle turn; CUR-4 not past the pause p
   await $.session.measure({ context: {} as any, rateLimits: [{ kind: 'five_hour', percentUsed: 40 }], changed: ['rateLimits'] });
   await leadTurn($, clock, 't-2');
   expect(w.prompts[0]).toMatch(/curator.*Review the latest decisions/);
+});
+
+// --- side questions ---------------------------------------------------------------------------------
+
+const WHY = 'context-graph-why';
+
+test("ASKQ-1 and ASKQ-2 /why answers beside the conversation from the graph's records, with its cost", async ($, on) => {
+  const w = project();
+  await start($, on, w);
+  await $.command.run({ command: 'why', args: 'src/a.ts' });
+  expect(w.opened).toContain(WHY);
+  expect(w.asked).toHaveLength(1);
+  expect(w.asked[0].fork).toBe(true);
+  expect(w.asked[0].prompt).toMatch(/- \[src\.pure\] \(rule\) no side effects/);
+  expect(w.asked[0].prompt).toMatch(/- \[d-0003\] \(decision\) 2026-10-03 warren\/claude: keep a constant/);
+  expect(w.asked[0].prompt).toMatch(/don't guess/);
+  const ui = await mountPane($, WHY);
+  expect((await ui.find({ type: 'Markdown' }))?.props.text).toBe('Because of [src.pure]: a stays pure.');
+  expect((await ui.find({ type: 'Text', text: /tokens in/ }))?.text).toMatch(/s · 1,000 tokens in, 20 out \(900 from the cache\)$/);
+  expect(await ui.find({ key: 'source-src.pure' })).toBeDefined();
+  // A source that is a file opens in the Context pane.
+  await press($, 'source-src/a.ts', WHY);
+  expect(w.opened).toContain(PANE);
+  await ui.unmount();
+  // The lead's conversation gains nothing.
+  expect(w.prompts).toEqual([]);
+});
+
+test('ASKQ-3 when the graph holds nothing on it, it says so, and no call is made', async ($, on) => {
+  const w = project();
+  await start($, on, w);
+  await $.command.run({ command: 'why', args: 'why is billing/cents.ts like this?' });
+  expect(w.asked).toEqual([]);
+  const ui = await mountPane($, WHY);
+  expect(await ui.find({ type: 'Text', text: 'The graph holds nothing on billing/cents.ts: no card, rule or decision names it.' })).toBeDefined();
+  await ui.unmount();
+});
+
+test('ASKQ with a model set the side call is that model; with side questions off, /why says so', async ($, on) => {
+  const w = project();
+  w.settings = [
+    { key: 'side_questions', value: true, default: true, about: '' },
+    { key: 'side_questions_model', value: 'haiku', default: '', about: '' },
+  ];
+  const clock = await start($, on, w);
+  await $.command.run({ command: 'why', args: 'src/a.ts' });
+  expect(w.asked[0]).toMatchObject({ model: 'haiku' });
+  w.settings[0].value = false;
+  await $.tool.call({ tool: 'Read', tool_use_id: 'r1', file_path: '/work/src/b.ts' } as any);
+  await clock.advance(2000);
+  const said = await $.command.run({ command: 'why', args: 'src/a.ts' });
+  expect(String((said as any)?.text)).toMatch(/Side questions are off/);
+});
+
+test('ASKQ the file in view has Why? on w', async ($, on) => {
+  const w = project();
+  await start($, on, w);
+  await $.tool.call({ tool: 'Read', tool_use_id: 'r1', file_path: '/work/src/a.ts', agentId: 'agent-web' } as any);
+  await ctx($);
+  const ui = await mountPane($, PANE);
+  expect((await ui.find({ key: 'why-file' }))?.props.hotkey).toBe('w');
+  await press($, 'why-file', PANE);
+  expect(w.asked).toHaveLength(1);
+  await ui.unmount();
 });

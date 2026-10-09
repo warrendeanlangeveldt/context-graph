@@ -143,7 +143,7 @@ The background agent proposing rules from evidence and flagging overridden ones.
 **Lane:** lead
 **Requirements:** ASKQ-1, ASKQ-2, ASKQ-3
 **Depends on:** ST-8
-**Status:** todo
+**Status:** done
 
 `/why`, answered beside the conversation from the graph, with its cost.
 

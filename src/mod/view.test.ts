@@ -12,6 +12,8 @@ import { describeMissing } from '../enforce/read-before-edit.js';
 import { cardJobs, cardWriterLine, pausedAt } from '../../adapters/claude-code/hooks/mod/card-writer.mjs';
 // @ts-expect-error: the mod is plain JavaScript beside the bundled CLI, outside the TypeScript build
 import { curatorDue, curatorLine, flaggedRules } from '../../adapters/claude-code/hooks/mod/curator.mjs';
+// @ts-expect-error: the mod is plain JavaScript beside the bundled CLI, outside the TypeScript build
+import { costText, sourcesOf, targetsOf } from '../../adapters/claude-code/hooks/mod/why.mjs';
 
 /** Stand-ins for the elements `$.ui.resolve` gives the mod. */
 type Node = { type: string; props: Record<string, unknown>; children: Node[] | string[] };
@@ -208,5 +210,18 @@ describe('the Context Graph mod: what it draws', () => {
     expect(curatorLine({ on: true, decisions: 20, baseline: 10 })).toBe('Curator: due when the lead is idle');
     expect(curatorLine({ on: true, running: true })).toBe('Curator: reviewing the decisions');
     expect(flaggedRules([{ signal: 'overridden-in-practice', target: 'a', evidence: ['d'], proposal: 'p' }, { signal: 'dormant', target: 'b', evidence: [], proposal: '' }])).toEqual([{ rule: 'a', evidence: ['d'], proposal: 'p' }]);
+  });
+
+  it('ASKQ the nodes a question names, the records an answer rests on, and its cost', () => {
+    expect(targetsOf('src/billing/invoice.ts')).toEqual(['src/billing/invoice.ts']);
+    expect(targetsOf('why does L:billing keep billing.cents, and src/a.ts?')).toEqual(['L:billing', 'billing.cents', 'src/a.ts']);
+    expect(targetsOf('why is this so slow')).toEqual([]);
+    const sources = sourcesOf([
+      { node: 'src/a.ts', card: { text: 'Holds a.' }, constraints: [{ id: 'src.pure', mode: 'G', text: 'pure' }, { id: 'src.small', mode: 'G?', text: 'small' }], decisions: [{ id: 'd-1', date: '2026-10-01', who: 'w', text: 'kept' }] },
+      { node: 'L:src', card: null, constraints: [{ id: 'src.pure', mode: 'G', text: 'pure' }], decisions: [] },
+    ]);
+    expect(sources.map((s: { kind: string; id: string }) => `${s.kind}:${s.id}`)).toEqual(['card:src/a.ts', 'rule:src.pure', 'proposed rule:src.small', 'decision:d-1']);
+    expect(costText(4200, { input_tokens: 100, output_tokens: 20, cache_read_input_tokens: 900, cache_creation_input_tokens: 0 })).toBe('4.2 s · 1,000 tokens in, 20 out (900 from the cache)');
+    expect(costText(1500, undefined)).toBe('1.5 s');
   });
 });
