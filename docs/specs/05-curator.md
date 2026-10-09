@@ -7,7 +7,7 @@
 
 ## In scope
 
-- A background agent, off until turned on, that reviews the session's decisions and the graph's evidence after every 10 new decisions, and at the session's end.
+- A background agent, off until turned on, that reviews the session's decisions and the graph's evidence after every 10 new decisions, and when the person asks (Curate now). (Not at the session's end: a mod can't start an agent once the session is ending.)
 - It proposes rules with `ctx propose` and modules with `ctx module` (proposed edge), and flags rules overridden three or more times since they were ratified.
 
 ## Requirements

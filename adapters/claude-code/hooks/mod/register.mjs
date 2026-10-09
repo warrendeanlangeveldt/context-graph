@@ -10,7 +10,8 @@ import { DROP_ID, NO_GRAPH, PANE_ID, contextPane, dropPane, followedPath, parseJ
 import { SETTINGS_ID, settingsView } from './views/settings.mjs';
 import { DEFAULT_UI, bandHealth, closeGoesBack, healthOf, moved } from './views/frame.mjs';
 import { assistCard, editTag, readingList, readingMessage } from './views/assist.mjs';
-import { BATCH, CARD_WRITER, cardJobs, cardWriterLine, cardWriterSpec, pausedAt, startCardWriterPrompt } from './card-writer.mjs';
+import { BATCH, cardJobs, cardWriterLine, cardWriterSpec, pausedAt, startCardWriterPrompt } from './card-writer.mjs';
+import { curatorDue, curatorLine, curatorSpec, flaggedRules, startCuratorPrompt } from './curator.mjs';
 
 let model = {
   kind: null,
@@ -32,6 +33,8 @@ const EDIT_TOOLS = new Set(['Edit', 'MultiEdit', 'Write', 'NotebookEdit']);
 // The card writer (spec 04): its registered agent, the batch it's writing, and what the person asked for.
 const cardWriter = { agent: null, model: null, writing: [], agentId: null };
 const asked = []; // paths queued for the card writer from the pane (CARDW-4)
+// The curator (spec 05): its agent, whether it's running, and the decision count at its last run.
+const curator = { agent: null, model: null, running: false, baseline: null, asked: false };
 const editedAt = {}; // path → when an agent last edited it: a file still moving waits (CARDW-1)
 let settingRowsNow = []; // ctx settings --json, read on each refresh
 let rateLimits = []; // the session's limits, as session.measure last gave them (CARDW-5)
@@ -97,6 +100,8 @@ export function register(on) {
         const proposals = (await json('proposals')) ?? [];
         // VIEW-1: the share of files with a current card.
         const cards = await json('cards');
+        // CUR-2: the rules hygiene flags as overridden.
+        const flagged = flaggedRules(await json('hygiene'));
         // Spec 04: the harness settings, and the branch's changed files without a current card.
         settingRowsNow = (await json('settings')) ?? settingRowsNow;
         const changed = setting('card_writer', false) ? await json('cards', '--changed') : null;
@@ -124,10 +129,15 @@ export function register(on) {
           cards,
           neighbours,
           changed,
+          flagged,
+          decisions: info.counts?.decisions ?? 0,
         };
+        // CUR-1: decisions are counted from the session's start.
+        if (curator.baseline === null) curator.baseline = model.decisions;
         // The batch the card writer took is done with a file once its card is current.
         if (cards) cardWriter.writing = cardWriter.writing.filter((p) => !cards.fresh.includes(p));
         await act.registerCardWriter();
+        await act.registerCurator();
         $.ui.invalidate('ui.render');
       },
       // What a refresh waits on: the graph's files, the followed file, and the session's tool calls.
@@ -192,13 +202,45 @@ export function register(on) {
             })
           )?.agent ?? null;
       },
+      registerCurator: async () => {
+        const wanted = setting('curator_model', '');
+        if (curator.model === wanted) return;
+        curator.model = wanted;
+        curator.agent =
+          (
+            await $.agent.register(curatorSpec({ ctx: cli, model: wanted || undefined })).catch((err) => {
+              $.ui.log(`Context Graph: the curator isn't available: ${err?.message ?? err}`);
+              return null;
+            })
+          )?.agent ?? null;
+      },
+      // CUR-1, CUR-4: after 10 new decisions (or when the person asks), with the lead idle and the plan
+      // below the pause point, the lead is asked to start the curator. True when it asked.
+      curatorStep: async () => {
+        if (!curator.agent || leadTurn || pausedAt(rateLimits, setting('pause_at_percent', 80)).paused) return false;
+        const due = curatorDue({ on: setting('curator', false), running: curator.running, decisions: model.decisions ?? 0, baseline: curator.baseline ?? 0, asked: curator.asked });
+        if (!due) return false;
+        const since = (model.decisions ?? 0) - (curator.baseline ?? 0);
+        curator.running = true;
+        curator.asked = false;
+        $.ui.invalidate('ui.render');
+        $.prompt.submit({ text: startCuratorPrompt({ agent: curator.agent, since: since || 'latest' }) }).catch(() => {
+          curator.running = false;
+        });
+        return true;
+      },
+      curateNow: async () => {
+        curator.asked = true;
+        model = { ...model, notice: { ok: true, text: 'The curator runs when the lead is next idle.' } };
+        $.ui.invalidate('ui.render');
+      },
       // CARDW-1, CARDW-5: with the lead idle, the card writer on and the plan below its pause point,
       // the lead is asked to start it on the next batch.
       cardWriterStep: async () => {
-        if (!setting('card_writer', false) || !cardWriter.agent || cardWriter.writing.length || leadTurn) return;
-        if (pausedAt(rateLimits, setting('pause_at_percent', 80)).paused) return;
+        if (!setting('card_writer', false) || !cardWriter.agent || cardWriter.writing.length || leadTurn) return false;
+        if (pausedAt(rateLimits, setting('pause_at_percent', 80)).paused) return false;
         const jobs = act.cardJobsNow(await $.clock.now()).slice(0, BATCH);
-        if (!jobs.length) return;
+        if (!jobs.length) return false;
         cardWriter.writing = jobs.map((j) => j.path);
         for (const j of jobs) {
           const at = asked.indexOf(j.path);
@@ -208,6 +250,7 @@ export function register(on) {
         $.prompt.submit({ text: startCardWriterPrompt({ agent: cardWriter.agent, jobs }) }).catch(() => {
           cardWriter.writing = [];
         });
+        return true;
       },
       cardJobsNow: (now) =>
         cardJobs({
@@ -415,9 +458,15 @@ export function register(on) {
     if (e.agentId) {
       const agent = ((await $.agent.list()) ?? []).find((a) => a.id === e.agentId);
       if (agent && cardWriter.agent && agent.type === cardWriter.agent) cardWriter.writing = [];
+      // The curator has reported: its next run counts from here.
+      if (agent && curator.agent && agent.type === curator.agent) {
+        curator.running = false;
+        curator.baseline = model.decisions ?? curator.baseline;
+      }
     } else if (!leadTurn || leadTurn === e.turnId) {
       leadTurn = null;
-      await act?.cardWriterStep().catch(() => {});
+      // One background agent started per idle turn: the card writer's batch first, then the curator.
+      if (act && !(await act.cardWriterStep().catch(() => false))) await act.curatorStep().catch(() => {});
     }
     return res;
   });
@@ -456,6 +505,13 @@ export function register(on) {
       ...model,
       ui: paneUi,
       deferred,
+      curatorLine: curatorLine({
+        on: setting('curator', false),
+        ...plan,
+        running: curator.running,
+        decisions: model.decisions ?? 0,
+        baseline: curator.baseline ?? 0,
+      }),
       cardWriterLine: cardWriterLine({
         on: setting('card_writer', false),
         ...plan,
@@ -492,6 +548,7 @@ export function register(on) {
         act.reload();
       },
       onSettings: () => act.settings(),
+      onCurate: () => act.curateNow(),
       // VIEW-3: defer puts a proposal at the back of the queue for the session; again brings it back.
       onDefer: (p) => {
         if (deferred.has(p.id)) deferred.delete(p.id);

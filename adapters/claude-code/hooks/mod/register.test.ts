@@ -59,6 +59,7 @@ function project() {
     moduleCards: { fresh: [], stale: [], missing: [] } as any,
     registered: [] as any[],
     limits: [] as any[],
+    hygiene: [] as any[],
     sent: [] as { to: any; text: string }[],
     neighbours: {
       'src/a.ts': { path: 'src/a.ts', card: 'current', breaks: [], imports: [{ path: 'src/b.ts', card: 'missing', breaks: [] }], importers: [] },
@@ -74,6 +75,7 @@ function stub(on: any, w: World) {
     const ran = (exitCode: number, stdout: string, stderr = '') => ({ value: { exitCode, stdout, stderr } });
     const sub = argv[2];
     if (sub === 'info') return ran(0, JSON.stringify(w.info));
+    if (sub === 'hygiene') return ran(0, JSON.stringify(w.hygiene));
     if (sub === 'proposals') return ran(0, JSON.stringify(w.proposals));
     if (sub === 'cards' && argv.includes('--changed')) return ran(0, JSON.stringify(w.changed));
     if (sub === 'cards' && argv.includes('--module')) return ran(0, JSON.stringify(w.moduleCards));
@@ -115,6 +117,7 @@ function stub(on: any, w: World) {
     return { value: { agent: `context-graph:${e.name}` } };
   });
   on('session.usage', () => ({ value: { startedAt: 0, context: {}, rateLimits: w.limits } }));
+  on('session.measure', ($: any, e: any) => ({ changed: e.changed }));
   on('turn.start', ($: any, e: any) => e);
   on('turn.complete', () => ({ text: '' }));
   on('session.send', ($: any, e: any) => {
@@ -674,4 +677,90 @@ test("CARDW-5 past the pause point (code-kit's, when it sets one) no batch start
   await press($, 'tab-coverage', PANE);
   expect(await ui.find({ type: 'Text', text: 'Card writer: paused, the plan at 75%' })).toBeDefined();
   await ui.unmount();
+});
+
+// --- the curator ------------------------------------------------------------------------------------
+
+function curating(decisions = 5) {
+  const w = project();
+  w.settings = [
+    { key: 'curator', value: true, default: false, about: '' },
+    { key: 'curator_model', value: '', default: '', about: '' },
+    { key: 'pause_at_percent', value: 80, default: 80, about: '' },
+  ];
+  w.info = { ...w.info, counts: { decisions, rules: 4 } };
+  return w;
+}
+const moreDecisions = async ($: any, w: any, clock: any, n: number) => {
+  w.info = { ...w.info, counts: { ...w.info.counts, decisions: n } };
+  await $.tool.call({ tool: 'Read', tool_use_id: `r${n}`, file_path: '/work/src/a.ts' } as any);
+  await clock.advance(2000);
+};
+
+test('CUR-1 and CUR-3 after 10 new decisions, the lead starts the curator, which only proposes', async ($, on) => {
+  const w = curating(5);
+  const clock = await start($, on, w);
+  expect(w.registered.find((s) => s.name === 'curator')).toMatchObject({ disallowedTools: ['Edit', 'MultiEdit', 'Write', 'NotebookEdit'] });
+  expect(w.registered.find((s) => s.name === 'curator').prompt).toMatch(/never edit files, ratify, drop, retire or change settings/);
+  await moreDecisions($, w, clock, 14);
+  await leadTurn($, clock);
+  expect(w.prompts).toEqual([]);
+  await moreDecisions($, w, clock, 15);
+  await leadTurn($, clock, 't-2');
+  expect(w.prompts).toEqual([
+    'Start Context Graph\'s curator in the background: use the Agent tool with subagent_type "context-graph:curator", run_in_background true, description "Curate the graph (Context Graph)", and the prompt "Review the 10 decisions recorded since you last ran and the graph\'s evidence; propose the rules they show." Then carry on; it only proposes.',
+  ]);
+  // Its report ends its run; the next counts from there.
+  w.running = [{ id: 'cu1', type: 'context-graph:curator', status: 'completed' }];
+  await $.turn.complete({ turnId: 't-cu', agentId: 'cu1', answer: 'proposed one', durationMs: 1, isAborted: false } as any);
+  await leadTurn($, clock, 't-3');
+  expect(w.prompts).toHaveLength(1);
+});
+
+test('CUR-1 the card writer goes first when both are due; the curator the turn after', async ($, on) => {
+  const w = curating(5);
+  w.settings.push({ key: 'card_writer', value: true, default: false, about: '' });
+  w.agents = [{ agent: 'agent-web', agentType: 'web-engineer', read: [], searched: [], edited: [], cardsOwed: ['src/a.ts'] }];
+  const clock = await start($, on, w);
+  await moreDecisions($, w, clock, 20);
+  await leadTurn($, clock);
+  expect(w.prompts).toHaveLength(1);
+  expect(w.prompts[0]).toMatch(/card writer/);
+  await leadTurn($, clock, 't-2');
+  expect(w.prompts[1]).toMatch(/curator/);
+});
+
+test('CUR-2 a rule overridden again and again is flagged in the pane and the health line, never retired', async ($, on) => {
+  const w = curating(5);
+  w.hygiene = [
+    { signal: 'overridden-since-ratified', target: 'src.small', evidence: ['d-1 2026-10-01 w: split it', 'd-2 2026-10-02 w: split it again', 'd-3 2026-10-03 w: and again'], proposal: 'reword src.small to match how the team works, or retire it (ctx retire src.small --reason ...)', level: 'propose' },
+    { signal: 'expired-proposal', target: 'x', evidence: [], proposal: '', level: 'propose' },
+  ];
+  await start($, on, w);
+  await ctx($);
+  const ui = await mountPane($, PANE);
+  expect(await ui.find({ type: 'Text', text: /1 rule overridden/ })).toBeDefined();
+  await press($, 'tab-proposals', PANE);
+  expect((await ui.find({ key: 'flagged-src.small' }))?.text).toMatch(/d-3 2026-10-03.*reword src.small/);
+  expect(await ui.find({ key: 'flagged-x' })).toBeUndefined();
+  await ui.unmount();
+  expect(w.acts).toEqual([]);
+});
+
+test('CUR-1 Curate now runs it at the next idle turn; CUR-4 not past the pause point', async ($, on) => {
+  const w = curating(5);
+  const clock = await start($, on, w);
+  await ctx($);
+  const ui = await mountPane($, PANE);
+  await press($, 'tab-proposals', PANE);
+  expect(await ui.find({ type: 'Text', text: 'Curator: runs after 10 more decisions' })).toBeDefined();
+  await press($, 'curate-now', PANE);
+  await ui.unmount();
+  w.limits = [{ kind: 'five_hour', percentUsed: 90 }];
+  await $.session.measure({ context: {} as any, rateLimits: w.limits, changed: ['rateLimits'] });
+  await leadTurn($, clock);
+  expect(w.prompts).toEqual([]);
+  await $.session.measure({ context: {} as any, rateLimits: [{ kind: 'five_hour', percentUsed: 40 }], changed: ['rateLimits'] });
+  await leadTurn($, clock, 't-2');
+  expect(w.prompts[0]).toMatch(/curator.*Review the latest decisions/);
 });

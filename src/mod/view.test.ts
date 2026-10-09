@@ -10,6 +10,8 @@ import { progressText, readingList, readingMessage } from '../../adapters/claude
 import { describeMissing } from '../enforce/read-before-edit.js';
 // @ts-expect-error: the mod is plain JavaScript beside the bundled CLI, outside the TypeScript build
 import { cardJobs, cardWriterLine, pausedAt } from '../../adapters/claude-code/hooks/mod/card-writer.mjs';
+// @ts-expect-error: the mod is plain JavaScript beside the bundled CLI, outside the TypeScript build
+import { curatorDue, curatorLine, flaggedRules } from '../../adapters/claude-code/hooks/mod/curator.mjs';
 
 /** Stand-ins for the elements `$.ui.resolve` gives the mod. */
 type Node = { type: string; props: Record<string, unknown>; children: Node[] | string[] };
@@ -194,5 +196,17 @@ describe('the Context Graph mod: what it draws', () => {
     expect(cardWriterLine({ on: true, paused: true, percent: 82 })).toBe('Card writer: paused, the plan at 82%');
     expect(cardWriterLine({ on: true, writing: ['a', 'b', 'c', 'd'], waiting: ['e'] })).toBe('Card writer: writing 4 (a, b, c, …), 1 waiting');
     expect(cardWriterLine({ on: true, waiting: ['e'] })).toBe('Card writer: 1 waiting for the lead to be idle');
+  });
+
+  it('CUR-1 and CUR-2 when the curator is due, its line, and the rules hygiene flags', () => {
+    expect(curatorDue({ on: true, running: false, decisions: 19, baseline: 10, asked: false })).toBe(false);
+    expect(curatorDue({ on: true, running: false, decisions: 20, baseline: 10, asked: false })).toBe(true);
+    expect(curatorDue({ on: true, running: true, decisions: 40, baseline: 10, asked: true })).toBe(false);
+    expect(curatorDue({ on: false, running: false, decisions: 40, baseline: 0, asked: true })).toBe(false);
+    expect(curatorDue({ on: true, running: false, decisions: 0, baseline: 0, asked: true })).toBe(true);
+    expect(curatorLine({ on: true, decisions: 13, baseline: 10 })).toBe('Curator: runs after 7 more decisions');
+    expect(curatorLine({ on: true, decisions: 20, baseline: 10 })).toBe('Curator: due when the lead is idle');
+    expect(curatorLine({ on: true, running: true })).toBe('Curator: reviewing the decisions');
+    expect(flaggedRules([{ signal: 'overridden-in-practice', target: 'a', evidence: ['d'], proposal: 'p' }, { signal: 'dormant', target: 'b', evidence: [], proposal: '' }])).toEqual([{ rule: 'a', evidence: ['d'], proposal: 'p' }]);
   });
 });

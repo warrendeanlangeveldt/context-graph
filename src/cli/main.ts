@@ -148,7 +148,9 @@ async function main(): Promise<number> {
 
     case 'info': {
       const ctx = openFromArgs(args);
-      const info = { root: ctx.root, repoHash: repoHash(ctx.root), graphDir: ctx.graphDir ?? null, config: ctx.config, ctxHome: ctxHome(), branch: currentBranch(ctx.root), person: gitPerson(ctx.root) };
+      // counts: the graph's size, for the mod (the curator runs after every 10 new decisions, CUR-1).
+      const counts = ctx.graph ? { decisions: ctx.graph.decisions.size, rules: ctx.graph.constraints.size } : null;
+      const info = { root: ctx.root, repoHash: repoHash(ctx.root), graphDir: ctx.graphDir ?? null, config: ctx.config, ctxHome: ctxHome(), branch: currentBranch(ctx.root), person: gitPerson(ctx.root), counts };
       console.log(json ? JSON.stringify(info, null, 2) : Object.entries(info).map(([k, v]) => `${k.padEnd(10)} ${typeof v === 'object' && v !== null ? JSON.stringify(v) : String(v)}`).join('\n'));
       return 0;
     }

@@ -39,6 +39,21 @@ export function hygieneReport(ctx: RepoContext): HygieneFinding[] {
     }
   }
 
+  // CUR-2: an agreed rule overridden overrideStreak (3) or more times since it was ratified, the streak or
+  // not: flagged with the overriding decisions, to reword or retire. Only a person or the delegated
+  // ratifier decides; nothing here retires it.
+  for (const k of g.constraints.values()) {
+    if (k.mode === 'G?' || g.isRetired(k.id)) continue;
+    if (out.some((f) => f.target === k.id && f.signal === 'overridden-in-practice')) continue;
+    const since = k.since ?? '';
+    const overriding = [...g.decisions.values()]
+      .filter((d) => g.isActiveDecision(d) && d.overrides === k.id && d.date >= since && !/^legacy:/.test(d.text))
+      .sort((a, b) => a.date.localeCompare(b.date));
+    if (overriding.length >= cfg.overrideStreak) {
+      out.push({ signal: 'overridden-since-ratified', target: k.id, evidence: overriding.map((d) => `${d.id} ${d.date} ${d.who}: ${d.text}`), proposal: `reword ${k.id} to match how the team works, or retire it (ctx retire ${k.id} --reason ...)`, level: 'propose' });
+    }
+  }
+
   // Unreachable attachments.
   for (const k of g.constraints.values()) {
     if (g.isRetired(k.id)) continue;

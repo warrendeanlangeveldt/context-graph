@@ -196,6 +196,26 @@ function fileSection(followed, file, els, { onLanes, onWriteCard, onModuleCards,
   return rows;
 }
 
+/** CUR-2: the agreed rules overridden again and again, with the decisions that overrode them, to reword or retire. */
+function overriddenSection(flagged, els) {
+  const { Box } = els;
+  const { text, heading } = layout(els);
+  if (!flagged.length) return [];
+  return [
+    heading('Overridden', 'agreed rules the team keeps overriding: reword or retire them'),
+    ...flagged.map((f) =>
+      Box({
+        key: `flagged-${f.rule}`,
+        flexDirection: 'column',
+        borderStyle: 'round',
+        borderColor: 'yellow',
+        paddingX: 1,
+        children: [text(f.rule, { bold: true }), ...f.evidence.map((e) => text(e, { dimColor: true })), text(f.proposal, { color: 'yellow' })],
+      }),
+    ),
+  ];
+}
+
 /** COV-1 and COV-3: each agent's coverage as a table, with edits made without understanding marked; the selected agent marked (VIEW-5). */
 function coverageSection(agents, types, els, selected = -1, assists = []) {
   const { Box } = els;
@@ -246,7 +266,25 @@ export function contextPane(model, els, handlers) {
   const ui = model.ui ?? DEFAULT_UI;
   const body = (tab) =>
     tab === 'proposals'
-      ? proposalsQueue(model.proposals, els, handlers, { selected: ui.selected, deferred: model.deferred ?? new Set(), now: model.now })
+      ? [
+          ...proposalsQueue(model.proposals, els, handlers, { selected: ui.selected, deferred: model.deferred ?? new Set(), now: model.now }),
+          ...overriddenSection(model.flagged ?? [], els),
+          ...(model.curatorLine
+            ? [
+                els.Box({
+                  key: 'curator',
+                  flexDirection: 'row',
+                  columnGap: 2,
+                  children: [
+                    els.Text({ dimColor: true, children: [model.curatorLine] }),
+                    ...(handlers.onCurate && !/off|reviewing/.test(model.curatorLine)
+                      ? [els.Button({ key: 'curate-now', label: 'Curate now', plain: true, onPress: handlers.onCurate })]
+                      : []),
+                  ],
+                }),
+              ]
+            : []),
+        ]
       : tab === 'coverage'
         ? [
             ...(model.cardWriterLine ? [els.Text({ key: 'card-writer', dimColor: true, children: [model.cardWriterLine] })] : []),

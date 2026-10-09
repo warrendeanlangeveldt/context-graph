@@ -30172,6 +30172,15 @@ function hygieneReport(ctx) {
     }
   }
   for (const k of g.constraints.values()) {
+    if (k.mode === "G?" || g.isRetired(k.id)) continue;
+    if (out.some((f) => f.target === k.id && f.signal === "overridden-in-practice")) continue;
+    const since = k.since ?? "";
+    const overriding = [...g.decisions.values()].filter((d) => g.isActiveDecision(d) && d.overrides === k.id && d.date >= since && !/^legacy:/.test(d.text)).sort((a, b) => a.date.localeCompare(b.date));
+    if (overriding.length >= cfg.overrideStreak) {
+      out.push({ signal: "overridden-since-ratified", target: k.id, evidence: overriding.map((d) => `${d.id} ${d.date} ${d.who}: ${d.text}`), proposal: `reword ${k.id} to match how the team works, or retire it (ctx retire ${k.id} --reason ...)`, level: "propose" });
+    }
+  }
+  for (const k of g.constraints.values()) {
     if (g.isRetired(k.id)) continue;
     if (isPathId(k.attachedTo) && !g.mapPath(k.attachedTo)) out.push({ signal: "unreachable", target: k.id, evidence: [`attached to ${k.attachedTo}, which no mapping reaches`], proposal: "add a mapping, or retire with reason unmapped", level: "propose" });
     if (!isPathId(k.attachedTo) && !g.nodeExists(k.attachedTo)) out.push({ signal: "unreachable", target: k.id, evidence: [`attached to ${k.attachedTo}, which does not exist`], proposal: "attach to an existing node, or retire", level: "propose" });
@@ -36534,7 +36543,8 @@ async function main() {
       return 0;
     case "info": {
       const ctx = openFromArgs(args);
-      const info = { root: ctx.root, repoHash: repoHash(ctx.root), graphDir: ctx.graphDir ?? null, config: ctx.config, ctxHome: ctxHome(), branch: currentBranch(ctx.root), person: gitPerson(ctx.root) };
+      const counts = ctx.graph ? { decisions: ctx.graph.decisions.size, rules: ctx.graph.constraints.size } : null;
+      const info = { root: ctx.root, repoHash: repoHash(ctx.root), graphDir: ctx.graphDir ?? null, config: ctx.config, ctxHome: ctxHome(), branch: currentBranch(ctx.root), person: gitPerson(ctx.root), counts };
       console.log(json ? JSON.stringify(info, null, 2) : Object.entries(info).map(([k, v]) => `${k.padEnd(10)} ${typeof v === "object" && v !== null ? JSON.stringify(v) : String(v)}`).join("\n"));
       return 0;
     }

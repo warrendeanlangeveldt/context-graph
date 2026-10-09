@@ -134,7 +134,7 @@ The background agent writing owed and missing cards from full reads.
 **Lane:** lead
 **Requirements:** CUR-1, CUR-2, CUR-3, CUR-4
 **Depends on:** ST-7
-**Status:** todo
+**Status:** done
 
 The background agent proposing rules from evidence and flagging overridden ones.
 
