@@ -1,11 +1,11 @@
 # Context Graph design specification
 
-| | |
-|---|---|
+|              |                                                            |
+| ------------ | ---------------------------------------------------------- |
 | Working name | Context Graph. Rename freely; nothing below depends on it. |
-| Status | Draft for review |
-| Date | 2026-09-07 |
-| Author | Warren Langeveldt, drafted with Claude |
+| Status       | Draft for review                                           |
+| Date         | 2026-09-07                                                 |
+| Author       | Warren Langeveldt, drafted with Claude                     |
 
 ## 1. Purpose
 
@@ -35,20 +35,20 @@ The two halves close a loop. The observation shows what context was built. The g
 
 ## 3. Vocabulary
 
-| Term | Meaning |
-|---|---|
-| Physical node | A file or an exported symbol. Identified by repository-relative path, optionally `#symbol`. Never authored; derived from the tree. |
-| Logical node | A module, package, contract, or seam. Identified by a short slug. Authored or proposed. |
-| Conceptual node | A domain concept or architectural principle. Identified by a short slug. Authored by a person, optionally pointing at an ADR. |
-| Mapping | A glob-to-logical-node rule that turns a path into its containing module. |
-| Constraint | A statement attached to a node, with a mode. |
-| Mode | `E` enforced (a test exists), `G` guided (injected before edits), `R` recorded (history only). |
-| Decision | A dated, attributed record of what changed and why, pointing at a constraint or concept. |
-| Supersession | An edge stating that one decision replaces another. Decisions are never deleted. |
-| Provisional | A decision on a branch that has not merged. |
-| Slice | The rendered, imperative context injected before an edit. |
-| Observation event | One normalised record of an agent touching a file, with access mode. |
-| Coverage | For one edit, the set of applicable graph nodes that were in the agent's context, versus the set that applied. |
+| Term              | Meaning                                                                                                                            |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Physical node     | A file or an exported symbol. Identified by repository-relative path, optionally `#symbol`. Never authored; derived from the tree. |
+| Logical node      | A module, package, contract, or seam. Identified by a short slug. Authored or proposed.                                            |
+| Conceptual node   | A domain concept or architectural principle. Identified by a short slug. Authored by a person, optionally pointing at an ADR.      |
+| Mapping           | A glob-to-logical-node rule that turns a path into its containing module.                                                          |
+| Constraint        | A statement attached to a node, with a mode.                                                                                       |
+| Mode              | `E` enforced (a test exists), `G` guided (injected before edits), `R` recorded (history only).                                     |
+| Decision          | A dated, attributed record of what changed and why, pointing at a constraint or concept.                                           |
+| Supersession      | An edge stating that one decision replaces another. Decisions are never deleted.                                                   |
+| Provisional       | A decision on a branch that has not merged.                                                                                        |
+| Slice             | The rendered, imperative context injected before an edit.                                                                          |
+| Observation event | One normalised record of an agent touching a file, with access mode.                                                               |
+| Coverage          | For one edit, the set of applicable graph nodes that were in the agent's context, versus the set that applied.                     |
 
 ## 4. Architecture
 
@@ -204,17 +204,17 @@ D d-0418 2026-08-29 warren/claude -        feature/liaison  L:orchestration  ->C
 
 Fields:
 
-| Field | Rule |
-|---|---|
-| `d-id` | Monotonic per repository, assigned by the recorder. |
-| `date` | ISO date. |
-| `who` | `person/agent`. Person from git identity. Agent from the adapter. |
-| `sha` | Commit that carried the change, or `-` while uncommitted. A post-commit hook rewrites `-` to the SHA. |
-| `branch` | Branch at time of recording. Provisional until merged. |
-| `node` | Path, `path#symbol`, or a logical or conceptual id. A decision may attach to a module when no single file is the anchor. |
-| `->` | Mandatory. The constraint or concept the decision serves. |
-| `!` | Optional. A constraint the decision deliberately overrides. Must name an existing constraint. |
-| text | Free text. Kept short. |
+| Field    | Rule                                                                                                                     |
+| -------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `d-id`   | Monotonic per repository, assigned by the recorder.                                                                      |
+| `date`   | ISO date.                                                                                                                |
+| `who`    | `person/agent`. Person from git identity. Agent from the adapter.                                                        |
+| `sha`    | Commit that carried the change, or `-` while uncommitted. A post-commit hook rewrites `-` to the SHA.                    |
+| `branch` | Branch at time of recording. Provisional until merged.                                                                   |
+| `node`   | Path, `path#symbol`, or a logical or conceptual id. A decision may attach to a module when no single file is the anchor. |
+| `->`     | Mandatory. The constraint or concept the decision serves.                                                                |
+| `!`      | Optional. A constraint the decision deliberately overrides. Must name an existing constraint.                            |
+| text     | Free text. Kept short.                                                                                                   |
 
 **`S` supersession.** Never delete a decision.
 
@@ -295,6 +295,7 @@ When the harness supplies a line range with the edit (most do), the walker looks
 ### 7.4 Context through imports
 
 The walk follows containment: a file sees the rules of its own module and of the modules above it. But a rule is often obeyed somewhere other than where it is written: the rule about what an event must carry sits on the module that defines events, and it is kept or broken in the service that records them. So before an edit, each file the edited file imports contributes, under `from what it imports` in the slice:
+
 - its own decisions;
 - the ratified rules of its module that the edited file does not already see, grouped under that module.
 
@@ -323,16 +324,16 @@ Every touch an agent makes is normalised to one event:
 
 ### 8.1 Access modes
 
-| Mode | Meaning | How it is detected |
-|---|---|---|
-| `full` | Whole file entered context | Read tool without range; `cat`; `sed -n 1,$p` |
-| `range` | A line range entered context | Read with offset and limit; `sed -n a,bp`; `head`; `tail` |
-| `grep` | Only matching lines entered context | Grep tool; `grep`, `rg`, `ag` in shell |
-| `name` | Only the path entered context | Directory listings; `ls`; `find`; `git ls-files`; import paths in another read file |
-| `edit` | A region was changed | Edit tool; `sed -i`; patch application |
-| `write` | The file was created or replaced | Write tool; heredoc redirection; `cp` over an existing path |
-| `delegated` | A subagent touched it; nothing entered the parent's context except the subagent's report | Subagent transcripts, attributed by parent session |
-| `summarized` | Earlier context was compacted; the file survives only as a summary | Compaction events from the harness |
+| Mode         | Meaning                                                                                  | How it is detected                                                                  |
+| ------------ | ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `full`       | Whole file entered context                                                               | Read tool without range; `cat`; `sed -n 1,$p`                                       |
+| `range`      | A line range entered context                                                             | Read with offset and limit; `sed -n a,bp`; `head`; `tail`                           |
+| `grep`       | Only matching lines entered context                                                      | Grep tool; `grep`, `rg`, `ag` in shell                                              |
+| `name`       | Only the path entered context                                                            | Directory listings; `ls`; `find`; `git ls-files`; import paths in another read file |
+| `edit`       | A region was changed                                                                     | Edit tool; `sed -i`; patch application                                              |
+| `write`      | The file was created or replaced                                                         | Write tool; heredoc redirection; `cp` over an existing path                         |
+| `delegated`  | A subagent touched it; nothing entered the parent's context except the subagent's report | Subagent transcripts, attributed by parent session                                  |
+| `summarized` | Earlier context was compacted; the file survives only as a summary                       | Compaction events from the harness                                                  |
 
 Shell parsing is mandatory. In a representative long session the tool mix was Bash 964, Edit 134, Read 57, Write 29. An observer that only watches the dedicated read tool misses most of the context being built. The Bash parser recognises `cat`, `head`, `tail`, `sed -n`, `grep`, `rg`, `ag`, `ls`, `find`, `git show`, `git diff`, `git log -p`, pipes, and redirections, and maps each to a mode. Unrecognised commands emit a `name` event for every path-like argument and an `unparsed` flag.
 
@@ -344,7 +345,13 @@ When an `edit` or `write` event arrives, the observer snapshots the context stat
 {
   "edit": "evt-1193",
   "path": "api/src/platform/core/orchestration/blackboard.ts",
-  "applicable": ["L:orchestration", "L:platform-core", "C:engine-pure", "K:orch.store-mutation", "d-0417"],
+  "applicable": [
+    "L:orchestration",
+    "L:platform-core",
+    "C:engine-pure",
+    "K:orch.store-mutation",
+    "d-0417"
+  ],
   "loaded": {
     "api/src/platform/core/orchestration/blackboard.ts": "range",
     "api/src/platform/core/orchestration/blackboard.test.ts": "grep"
@@ -434,18 +441,28 @@ The plugin depends on three interfaces and ships at least one implementation of 
 
 ```ts
 interface EmbeddingProvider {
-  id: string;            // e.g. "local:nomic-embed-text", "openai:text-embedding-3-large"
+  id: string; // e.g. "local:nomic-embed-text", "openai:text-embedding-3-large"
   dimensions: number;
   embed(texts: string[]): Promise<Float32Array[]>;
 }
 
 interface Chunker {
-  chunk(path: string, content: string): Chunk[];   // symbol-boundary aware
+  chunk(path: string, content: string): Chunk[]; // symbol-boundary aware
 }
 
 interface VectorStore {
-  upsert(items: { id: string; vector: Float32Array; meta: Record<string, unknown> }[]): Promise<void>;
-  query(vector: Float32Array, k: number, filter?: Record<string, unknown>): Promise<{ id: string; score: number }[]>;
+  upsert(
+    items: {
+      id: string;
+      vector: Float32Array;
+      meta: Record<string, unknown>;
+    }[],
+  ): Promise<void>;
+  query(
+    vector: Float32Array,
+    k: number,
+    filter?: Record<string, unknown>,
+  ): Promise<{ id: string; score: number }[]>;
   remove(ids: string[]): Promise<void>;
 }
 ```
@@ -466,18 +483,18 @@ Git detects textual overlap. Decision conflicts are semantic and usually touch d
 
 ### 11.1 Checks
 
-| Check | Condition | Severity |
-|---|---|---|
-| Opposed arrows | Branch serves K; main since overrode K. Or the reverse. | Fail |
-| Double supersession | Branch supersedes D1; main already superseded D1 with D2. | Fail |
-| Stale basis | A branch decision's `->` target changed on main since the branch point. | Warn (configurable to fail) |
-| Context moved | Branch edited a path; main changed a constraint applicable to that path. | Warn |
-| Enforced constraints | Run every `test:` on the merged tree. | Fail on test failure |
-| Unratified proposals | Branch adds `C` or `E` records, or `G?` constraints, without ratification. | Fail for `C` and `E`; `G?` merges as proposed |
-| Unlinked provenance | Decisions with `sha` still `-`. | Warn |
-| Orphaned basis | An active decision whose `->` or `!` target is retired with no successor. | Warn until superseded or re-pointed |
-| Unratified retirement | A `Z` on a `C` or `E` record without a ratification trailer. | Fail |
-| Coverage | Any edit in the branch recorded with zero callers loaded and no decision. | Warn |
+| Check                 | Condition                                                                  | Severity                                      |
+| --------------------- | -------------------------------------------------------------------------- | --------------------------------------------- |
+| Opposed arrows        | Branch serves K; main since overrode K. Or the reverse.                    | Fail                                          |
+| Double supersession   | Branch supersedes D1; main already superseded D1 with D2.                  | Fail                                          |
+| Stale basis           | A branch decision's `->` target changed on main since the branch point.    | Warn (configurable to fail)                   |
+| Context moved         | Branch edited a path; main changed a constraint applicable to that path.   | Warn                                          |
+| Enforced constraints  | Run every `test:` on the merged tree.                                      | Fail on test failure                          |
+| Unratified proposals  | Branch adds `C` or `E` records, or `G?` constraints, without ratification. | Fail for `C` and `E`; `G?` merges as proposed |
+| Unlinked provenance   | Decisions with `sha` still `-`.                                            | Warn                                          |
+| Orphaned basis        | An active decision whose `->` or `!` target is retired with no successor.  | Warn until superseded or re-pointed           |
+| Unratified retirement | A `Z` on a `C` or `E` record without a ratification trailer.               | Fail                                          |
+| Coverage              | Any edit in the branch recorded with zero callers loaded and no decision.  | Warn                                          |
 
 ### 11.2 Output
 
@@ -535,19 +552,19 @@ WS   /v1/{repo}/stream             event stream for the synapse view
 
 An MCP server exposes the graph to any harness that speaks MCP. Hooks push; MCP pulls. Both are needed: push for the deterministic floor at edit time, pull for the agent's own traversal when the slice is not enough (§9.3), and for audit and explanation. Every pull is observed as a `reach` event so the difference between what was pushed and what the agent went and found is visible in the synapse view.
 
-| Tool | Purpose |
-|---|---|
+| Tool                          | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ctx.hydrate(scope, budget?)` | One bounded briefing for a file, module (`L:`), concept (`C:`), or task description: the slice per distinct chain, callers with the lines that use each file and whether they are already in context, decision history behind the rules in force, what the session already holds, hints, and teammates' open files. Drop order under budget: hints, callee lists, older decisions, caller usage lines, callers beyond three, live lines, files beyond three; rules are never dropped. Observed as a `reach` event plus `range` touches for the caller lines returned. Optionally run at prompt time for the paths and module ids a prompt names (`slice.hydrate_on_prompt`, off by default). |
-| `ctx.slice(path, range?)` | The rendered slice for a path. Same output the hook injects. |
-| `ctx.why(rule)` | For a constraint or concept id, every decision that serves or overrides it, wherever it was recorded. For a path or module, the decisions on it. |
-| `ctx.slice_patch(patch)` | Slices for every file named in a unified patch, concatenated under the budget. Used by harnesses whose edits arrive as patches. |
-| `ctx.why(node)` | Active decisions on a node with full text and provenance. |
-| `ctx.history(node, limit?)` | All decisions including superseded, newest first. |
-| `ctx.applies(path)` | The applicable set as ids, for audit. |
-| `ctx.record(decision)` | Record a decision. Validates and returns the id or the rejection. |
-| `ctx.check(branch?)` | Run the merge gate locally against main. |
-| `ctx.coverage(session?)` | Coverage records for the current or a named session. |
-| `ctx.propose(record)` | Propose an `L`, `G?`, or `C` record for ratification. |
+| `ctx.slice(path, range?)`     | The rendered slice for a path. Same output the hook injects.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `ctx.why(rule)`               | For a constraint or concept id, every decision that serves or overrides it, wherever it was recorded. For a path or module, the decisions on it.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `ctx.slice_patch(patch)`      | Slices for every file named in a unified patch, concatenated under the budget. Used by harnesses whose edits arrive as patches.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `ctx.why(node)`               | Active decisions on a node with full text and provenance.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `ctx.history(node, limit?)`   | All decisions including superseded, newest first.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `ctx.applies(path)`           | The applicable set as ids, for audit.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `ctx.record(decision)`        | Record a decision. Validates and returns the id or the rejection.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `ctx.check(branch?)`          | Run the merge gate locally against main.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `ctx.coverage(session?)`      | Coverage records for the current or a named session.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `ctx.propose(record)`         | Propose an `L`, `G?`, or `C` record for ratification.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 
 Resource: `ctx://graph` returns the chain and constraints for the whole repository as a compact text document, for the rare case an agent needs the forest.
 
@@ -579,21 +596,30 @@ The observation stream drives a graph visualisation of the codebase. Its purpose
 One JSON envelope per message, over WebSocket:
 
 ```json
-{ "t": "edit", "seq": 48213, "ts": "2026-09-07T03:14:07.221Z",
-  "session": "8a2a30aa", "who": "warren/claude", "branch": "feature/liaison",
-  "p": { "path": "api/src/platform/core/orchestration/blackboard.ts", "range": [340, 420] } }
+{
+  "t": "edit",
+  "seq": 48213,
+  "ts": "2026-09-07T03:14:07.221Z",
+  "session": "8a2a30aa",
+  "who": "warren/claude",
+  "branch": "feature/liaison",
+  "p": {
+    "path": "api/src/platform/core/orchestration/blackboard.ts",
+    "range": [340, 420]
+  }
+}
 ```
 
-| `t` | Payload |
-|---|---|
-| `touch` | The §8 event: path, mode, range, bytes, origin. |
-| `edit` | Same, for `edit` and `write` modes, emitted separately so the view can pulse. |
-| `slice` | `path`, `applicable` node ids, `tokens`, `rendered` text. |
-| `reach` | Nodes the agent consulted through the query surface beyond the slice, with the tool used. |
-| `decision` | The `D` record as written. |
-| `coverage` | The §8.2 record. |
-| `session` | `start` or `end`, `harness`, `cwd`, `worktree`, `arm` (injection on, off, or randomised assignment). |
-| `compact` | `paths` that were summarised. |
+| `t`        | Payload                                                                                              |
+| ---------- | ---------------------------------------------------------------------------------------------------- |
+| `touch`    | The §8 event: path, mode, range, bytes, origin.                                                      |
+| `edit`     | Same, for `edit` and `write` modes, emitted separately so the view can pulse.                        |
+| `slice`    | `path`, `applicable` node ids, `tokens`, `rendered` text.                                            |
+| `reach`    | Nodes the agent consulted through the query surface beyond the slice, with the tool used.            |
+| `decision` | The `D` record as written.                                                                           |
+| `coverage` | The §8.2 record.                                                                                     |
+| `session`  | `start` or `end`, `harness`, `cwd`, `worktree`, `arm` (injection on, off, or randomised assignment). |
+| `compact`  | `paths` that were summarised.                                                                        |
 
 `seq` is monotonic per server. A client that disconnects reconnects with `since=<seq>` and misses nothing that is still in the buffer. Server-sent events would carry the same envelope if a deployment cannot hold a WebSocket; the view treats the transport as a detail.
 
@@ -621,16 +647,16 @@ The encodings and the stream exist to answer four questions, and the design is j
 
 Every adapter provides the following, or declares which it cannot:
 
-| Capability | Needed for | Required |
-|---|---|---|
-| Pre-edit interception with context injection | Slice | Yes, or a substitute |
-| Post-tool observation with full tool input | Observation | Yes |
-| Turn-end block until a condition is met | Decision recording | Yes, or a substitute |
-| Session start context | Loading the alias table and chain summary | Preferred |
-| Transcript access with full tool arguments | Offline observation, replay | Preferred |
-| Subagent attribution | `delegated` mode | Preferred |
-| Compaction signal | `summarized` mode | Preferred |
-| MCP client | Query surface | Yes |
+| Capability                                   | Needed for                                | Required             |
+| -------------------------------------------- | ----------------------------------------- | -------------------- |
+| Pre-edit interception with context injection | Slice                                     | Yes, or a substitute |
+| Post-tool observation with full tool input   | Observation                               | Yes                  |
+| Turn-end block until a condition is met      | Decision recording                        | Yes, or a substitute |
+| Session start context                        | Loading the alias table and chain summary | Preferred            |
+| Transcript access with full tool arguments   | Offline observation, replay               | Preferred            |
+| Subagent attribution                         | `delegated` mode                          | Preferred            |
+| Compaction signal                            | `summarized` mode                         | Preferred            |
+| MCP client                                   | Query surface                             | Yes                  |
 
 Where a harness lacks pre-edit interception, the substitute is instruction plus tool: the harness's instruction file directs the agent to call `ctx.slice` before every edit, and the observer verifies from the transcript that it did, recording a `slice_injected: false` finding when it did not.
 
@@ -676,20 +702,20 @@ Environment available to every hook: `CLAUDE_PROJECT_DIR` (repository root, stab
 
 Every hook receives `session_id`, `transcript_path`, `cwd`, `hook_event_name`, and, when fired inside a subagent, `agent_id` and `agent_type`. Tool events add `tool_name`, `tool_input`, and `tool_use_id`.
 
-| Need | Event | Matcher | Hook type | Mechanism |
-|---|---|---|---|---|
-| Slice before a tool edit | `PreToolUse` | `Edit\|Write\|MultiEdit\|NotebookEdit` | `mcp_tool` | Calls `ctx.slice` with `${tool_input.file_path}`. Returns `additionalContext`. No shell spawn. |
-| Slice before a shell edit | `PreToolUse` | `Bash` | `command` | Parses `tool_input.command`; if it writes a path (`sed -i`, heredoc redirection, `patch`, `cp` onto an existing file), resolves the targets and returns the slice as `additionalContext`. |
-| Observation | `PostToolUse` | `*` | `command`, `async: true` | Normalises `tool_name` plus `tool_input` to one §8 event per touched path. Never blocks; the reference marks this event non-blockable, which is the behaviour wanted. |
-| Failed attempts | `PostToolUseFailure` | `*` | `command`, `async: true` | Same event with `mode: failed`. |
-| Turn-end decision demand | `Stop` | `""` | `command` | Computes pending nodes. If any, exits 2 with a reason that lists them and the `ctx.record` shape. Claude records through MCP, then the next `Stop` passes. |
-| Subagent turn-end | `SubagentStop` | `""` | `command` | Same as `Stop`, decisions attributed with `agent_id`. |
-| Session context | `SessionStart` | `startup\|resume\|clear\|fork` | `command` | Plain-text stdout is added as context on this event. Emits the alias table, the top-level chain summary, and the instruction to call `ctx.slice` before shell-driven edits. |
-| Compaction signal | `SessionStart` | `compact` | `command` | Emits a `summarized` event for every path read so far in the session, then re-emits the alias table. |
-| Delegated attribution | `SubagentStart` / `SubagentStop` | `*` | `command`, `async: true` | Opens and closes a delegation window keyed on `agent_id`; touches inside it carry `mode: delegated` for the parent session. |
-| External writes | `FileChanged` | `*` | `command`, `async: true` | `file_path` and `change_type` for writes that no tool call explains. |
-| Live findings into the session | monitor | | `monitors/monitors.json` | Runs `ctx-overlay-tail` in the background; each stdout line notifies Claude. This is the push channel for cross-branch conflicts from §12. |
-| Worktree awareness | `WorktreeCreate` / `WorktreeRemove` | `*` | `command`, `async: true` | Records `worktree_path` so branch attribution is correct per worktree. |
+| Need                           | Event                               | Matcher                                | Hook type                | Mechanism                                                                                                                                                                                 |
+| ------------------------------ | ----------------------------------- | -------------------------------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Slice before a tool edit       | `PreToolUse`                        | `Edit\|Write\|MultiEdit\|NotebookEdit` | `mcp_tool`               | Calls `ctx.slice` with `${tool_input.file_path}`. Returns `additionalContext`. No shell spawn.                                                                                            |
+| Slice before a shell edit      | `PreToolUse`                        | `Bash`                                 | `command`                | Parses `tool_input.command`; if it writes a path (`sed -i`, heredoc redirection, `patch`, `cp` onto an existing file), resolves the targets and returns the slice as `additionalContext`. |
+| Observation                    | `PostToolUse`                       | `*`                                    | `command`, `async: true` | Normalises `tool_name` plus `tool_input` to one §8 event per touched path. Never blocks; the reference marks this event non-blockable, which is the behaviour wanted.                     |
+| Failed attempts                | `PostToolUseFailure`                | `*`                                    | `command`, `async: true` | Same event with `mode: failed`.                                                                                                                                                           |
+| Turn-end decision demand       | `Stop`                              | `""`                                   | `command`                | Computes pending nodes. If any, exits 2 with a reason that lists them and the `ctx.record` shape. Claude records through MCP, then the next `Stop` passes.                                |
+| Subagent turn-end              | `SubagentStop`                      | `""`                                   | `command`                | Same as `Stop`, decisions attributed with `agent_id`.                                                                                                                                     |
+| Session context                | `SessionStart`                      | `startup\|resume\|clear\|fork`         | `command`                | Plain-text stdout is added as context on this event. Emits the alias table, the top-level chain summary, and the instruction to call `ctx.slice` before shell-driven edits.               |
+| Compaction signal              | `SessionStart`                      | `compact`                              | `command`                | Emits a `summarized` event for every path read so far in the session, then re-emits the alias table.                                                                                      |
+| Delegated attribution          | `SubagentStart` / `SubagentStop`    | `*`                                    | `command`, `async: true` | Opens and closes a delegation window keyed on `agent_id`; touches inside it carry `mode: delegated` for the parent session.                                                               |
+| External writes                | `FileChanged`                       | `*`                                    | `command`, `async: true` | `file_path` and `change_type` for writes that no tool call explains.                                                                                                                      |
+| Live findings into the session | monitor                             |                                        | `monitors/monitors.json` | Runs `ctx-overlay-tail` in the background; each stdout line notifies Claude. This is the push channel for cross-branch conflicts from §12.                                                |
+| Worktree awareness             | `WorktreeCreate` / `WorktreeRemove` | `*`                                    | `command`, `async: true` | Records `worktree_path` so branch attribution is correct per worktree.                                                                                                                    |
 
 `hooks/hooks.json`, abbreviated:
 
@@ -699,25 +725,60 @@ Every hook receives `session_id`, `transcript_path`, `cwd`, `hook_event_name`, a
     "PreToolUse": [
       {
         "matcher": "Edit|Write|MultiEdit|NotebookEdit",
-        "hooks": [{ "type": "mcp_tool", "server": "ctx", "tool": "slice",
-                    "input": { "path": "${tool_input.file_path}" } }]
+        "hooks": [
+          {
+            "type": "mcp_tool",
+            "server": "ctx",
+            "tool": "slice",
+            "input": { "path": "${tool_input.file_path}" }
+          }
+        ]
       },
       {
         "matcher": "Bash",
-        "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/ctx-hook", "timeout": 5 }]
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/ctx-hook",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "PostToolUse": [
-      { "matcher": "*",
-        "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/ctx-hook", "async": true }] }
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/ctx-hook",
+            "async": true
+          }
+        ]
+      }
     ],
     "Stop": [
-      { "matcher": "",
-        "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/ctx-hook", "timeout": 10 }] }
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/ctx-hook",
+            "timeout": 10
+          }
+        ]
+      }
     ],
     "SessionStart": [
-      { "matcher": "startup|resume|clear|fork|compact",
-        "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/ctx-hook" }] }
+      {
+        "matcher": "startup|resume|clear|fork|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/ctx-hook"
+          }
+        ]
+      }
     ]
   }
 }
@@ -749,17 +810,17 @@ The plugin repository carries a `.claude-plugin/marketplace.json`. Individuals i
 
 #### Contract coverage
 
-| §15.0 capability | Claude Code |
-|---|---|
-| Pre-edit interception with context injection | Yes. `PreToolUse` with `additionalContext`. |
-| Post-tool observation with full input | Yes. `PostToolUse` with `tool_input`. |
-| Turn-end block | Yes. `Stop` is blockable by exit 2 or `permissionDecision: deny`. |
-| Session start context | Yes. `SessionStart` plain-text stdout. |
-| Transcript with full arguments | Yes. `transcript_path` JSONL. |
-| Subagent attribution | Yes. `agent_id` on every event, plus `SubagentStart` and `SubagentStop`. |
-| Compaction signal | Yes. `SessionStart` with `start_reason: compact`. |
-| MCP client | Yes. Bundled server in the plugin. |
-| Live push into session | Yes, beyond contract. Plugin monitors. |
+| §15.0 capability                             | Claude Code                                                              |
+| -------------------------------------------- | ------------------------------------------------------------------------ |
+| Pre-edit interception with context injection | Yes. `PreToolUse` with `additionalContext`.                              |
+| Post-tool observation with full input        | Yes. `PostToolUse` with `tool_input`.                                    |
+| Turn-end block                               | Yes. `Stop` is blockable by exit 2 or `permissionDecision: deny`.        |
+| Session start context                        | Yes. `SessionStart` plain-text stdout.                                   |
+| Transcript with full arguments               | Yes. `transcript_path` JSONL.                                            |
+| Subagent attribution                         | Yes. `agent_id` on every event, plus `SubagentStart` and `SubagentStop`. |
+| Compaction signal                            | Yes. `SessionStart` with `start_reason: compact`.                        |
+| MCP client                                   | Yes. Bundled server in the plugin.                                       |
+| Live push into session                       | Yes, beyond contract. Plugin monitors.                                   |
 
 ### 15.2 Codex adapter
 
@@ -808,18 +869,18 @@ Plugins are not available in the Codex IDE extension. The adapter therefore also
 
 Every hook receives `session_id`, `transcript_path`, `cwd`, `hook_event_name`, `model`, and `permission_mode`; turn-scoped events add `turn_id`; subagent events add `agent_id` and `agent_type`. Tool events add `tool_name`, `tool_use_id`, `tool_input`, and on `PostToolUse`, `tool_response`.
 
-| Need | Event | Matcher | Hook type | Mechanism |
-|---|---|---|---|---|
-| Slice before an edit | `PreToolUse` | `apply_patch` | `mcp_tool` | Calls `ctx.slice_patch` with `${tool_input.command}`. The server parses the patch headers and returns one slice per file as `additionalContext`. |
-| Slice before a shell edit | `PreToolUse` | `Bash` | `command` | Same parser as Claude Code; the write-detecting branch is rarely hit because Codex routes edits through `apply_patch`, but shell redirection remains possible. |
-| Observation of reads | `PostToolUse` | `Bash` | `command`, `async: true` | Shell parser over `tool_input.command`; one event per path with mode `full`, `range`, `grep`, or `name`. |
-| Observation of edits | `PostToolUse` | `apply_patch` | `command`, `async: true` | Patch parser; one event per file. `tool_response` confirms which files applied. |
-| Turn-end decision demand | `Stop` | `""` | `command` | Returns `{"decision":"block","reason":"..."}` listing pending nodes and the `ctx.record` shape. `stop_hook_active: true` on re-entry is Codex's native loop signal; the adapter honours it in addition to its own counter. |
-| Subagent turn-end | `SubagentStop` | `*` | `command` | Same, attributed with `agent_id`. `agent_transcript_path` is available for the transcript adapter. |
-| Session context | `SessionStart` | `startup\|resume\|clear` | `command` | `additionalContext` with the alias table and chain summary. |
-| Compaction signal | `PreCompact` / `PostCompact` | `manual\|auto` | `command`, `async: true` | `PreCompact` snapshots the paths read so far; `PostCompact` emits `summarized` events for them and re-injects the alias table on the following `SessionStart` with source `compact`. Codex exposes both sides of compaction, which Claude Code does not. |
-| Delegated attribution | `SubagentStart` / `SubagentStop` | `*` | `command`, `async: true` | Delegation window keyed on `agent_id`. The `spawn_agent` tool is also visible under the `Agent` alias on `PreToolUse`. |
-| Interrupted turns | `Interrupt` | `""` | `command`, `async: true` | Marks pending decisions as interrupted rather than declined. Hard cap of three seconds on this event. |
+| Need                      | Event                            | Matcher                  | Hook type                | Mechanism                                                                                                                                                                                                                                                |
+| ------------------------- | -------------------------------- | ------------------------ | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Slice before an edit      | `PreToolUse`                     | `apply_patch`            | `mcp_tool`               | Calls `ctx.slice_patch` with `${tool_input.command}`. The server parses the patch headers and returns one slice per file as `additionalContext`.                                                                                                         |
+| Slice before a shell edit | `PreToolUse`                     | `Bash`                   | `command`                | Same parser as Claude Code; the write-detecting branch is rarely hit because Codex routes edits through `apply_patch`, but shell redirection remains possible.                                                                                           |
+| Observation of reads      | `PostToolUse`                    | `Bash`                   | `command`, `async: true` | Shell parser over `tool_input.command`; one event per path with mode `full`, `range`, `grep`, or `name`.                                                                                                                                                 |
+| Observation of edits      | `PostToolUse`                    | `apply_patch`            | `command`, `async: true` | Patch parser; one event per file. `tool_response` confirms which files applied.                                                                                                                                                                          |
+| Turn-end decision demand  | `Stop`                           | `""`                     | `command`                | Returns `{"decision":"block","reason":"..."}` listing pending nodes and the `ctx.record` shape. `stop_hook_active: true` on re-entry is Codex's native loop signal; the adapter honours it in addition to its own counter.                               |
+| Subagent turn-end         | `SubagentStop`                   | `*`                      | `command`                | Same, attributed with `agent_id`. `agent_transcript_path` is available for the transcript adapter.                                                                                                                                                       |
+| Session context           | `SessionStart`                   | `startup\|resume\|clear` | `command`                | `additionalContext` with the alias table and chain summary.                                                                                                                                                                                              |
+| Compaction signal         | `PreCompact` / `PostCompact`     | `manual\|auto`           | `command`, `async: true` | `PreCompact` snapshots the paths read so far; `PostCompact` emits `summarized` events for them and re-injects the alias table on the following `SessionStart` with source `compact`. Codex exposes both sides of compaction, which Claude Code does not. |
+| Delegated attribution     | `SubagentStart` / `SubagentStop` | `*`                      | `command`, `async: true` | Delegation window keyed on `agent_id`. The `spawn_agent` tool is also visible under the `Agent` alias on `PreToolUse`.                                                                                                                                   |
+| Interrupted turns         | `Interrupt`                      | `""`                     | `command`, `async: true` | Marks pending decisions as interrupted rather than declined. Hard cap of three seconds on this event.                                                                                                                                                    |
 
 `hooks/hooks.json`, abbreviated:
 
@@ -827,28 +888,81 @@ Every hook receives `session_id`, `transcript_path`, `cwd`, `hook_event_name`, `
 {
   "hooks": {
     "PreToolUse": [
-      { "matcher": "apply_patch",
-        "hooks": [{ "type": "mcp_tool", "server": "ctx", "tool": "slice_patch",
-                    "input": { "patch": "${tool_input.command}" }, "timeout": 5 }] },
-      { "matcher": "Bash",
-        "hooks": [{ "type": "command", "command": "${PLUGIN_ROOT}/scripts/ctx-hook", "timeout": 5 }] }
+      {
+        "matcher": "apply_patch",
+        "hooks": [
+          {
+            "type": "mcp_tool",
+            "server": "ctx",
+            "tool": "slice_patch",
+            "input": { "patch": "${tool_input.command}" },
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${PLUGIN_ROOT}/scripts/ctx-hook",
+            "timeout": 5
+          }
+        ]
+      }
     ],
     "PostToolUse": [
-      { "matcher": "Bash|apply_patch",
-        "hooks": [{ "type": "command", "command": "${PLUGIN_ROOT}/scripts/ctx-hook", "async": true }] }
+      {
+        "matcher": "Bash|apply_patch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${PLUGIN_ROOT}/scripts/ctx-hook",
+            "async": true
+          }
+        ]
+      }
     ],
     "Stop": [
-      { "hooks": [{ "type": "command", "command": "${PLUGIN_ROOT}/scripts/ctx-hook", "timeout": 10 }] }
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${PLUGIN_ROOT}/scripts/ctx-hook",
+            "timeout": 10
+          }
+        ]
+      }
     ],
     "SessionStart": [
-      { "matcher": "startup|resume|clear|compact",
-        "hooks": [{ "type": "command", "command": "${PLUGIN_ROOT}/scripts/ctx-hook" }] }
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          { "type": "command", "command": "${PLUGIN_ROOT}/scripts/ctx-hook" }
+        ]
+      }
     ],
     "PreCompact": [
-      { "hooks": [{ "type": "command", "command": "${PLUGIN_ROOT}/scripts/ctx-hook", "async": true }] }
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${PLUGIN_ROOT}/scripts/ctx-hook",
+            "async": true
+          }
+        ]
+      }
     ],
     "PostCompact": [
-      { "hooks": [{ "type": "command", "command": "${PLUGIN_ROOT}/scripts/ctx-hook", "async": true }] }
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${PLUGIN_ROOT}/scripts/ctx-hook",
+            "async": true
+          }
+        ]
+      }
     ]
   }
 }
@@ -874,17 +988,17 @@ The bundled MCP server is registered through the plugin's `.mcp.json`, or for us
 
 #### Contract coverage
 
-| §15.0 capability | Codex |
-|---|---|
-| Pre-edit interception with context injection | Yes. `PreToolUse` on `apply_patch` with `additionalContext` and `updatedInput`. |
-| Post-tool observation with full input | Yes. `PostToolUse` with `tool_input` and `tool_response`. Reads require the shell parser. |
-| Turn-end block | Yes. `Stop` with `decision: block` and native `stop_hook_active`. |
-| Session start context | Yes. `SessionStart` with `additionalContext`. |
-| Transcript with full arguments | Yes, with a version pin. Rollout JSONL is documented as unstable. |
-| Subagent attribution | Yes. `agent_id`, `SubagentStart`, `SubagentStop`, `agent_transcript_path`. |
-| Compaction signal | Yes, both sides. `PreCompact` and `PostCompact`. |
-| MCP client | Yes. Tools only. |
-| Live push into session | No native monitor. Substitute: the overlay's findings are returned as `additionalContext` on the next `PreToolUse`, or injected by the app-server for hosted runners. |
+| §15.0 capability                             | Codex                                                                                                                                                                 |
+| -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Pre-edit interception with context injection | Yes. `PreToolUse` on `apply_patch` with `additionalContext` and `updatedInput`.                                                                                       |
+| Post-tool observation with full input        | Yes. `PostToolUse` with `tool_input` and `tool_response`. Reads require the shell parser.                                                                             |
+| Turn-end block                               | Yes. `Stop` with `decision: block` and native `stop_hook_active`.                                                                                                     |
+| Session start context                        | Yes. `SessionStart` with `additionalContext`.                                                                                                                         |
+| Transcript with full arguments               | Yes, with a version pin. Rollout JSONL is documented as unstable.                                                                                                     |
+| Subagent attribution                         | Yes. `agent_id`, `SubagentStart`, `SubagentStop`, `agent_transcript_path`.                                                                                            |
+| Compaction signal                            | Yes, both sides. `PreCompact` and `PostCompact`.                                                                                                                      |
+| MCP client                                   | Yes. Tools only.                                                                                                                                                      |
+| Live push into session                       | No native monitor. Substitute: the overlay's findings are returned as `additionalContext` on the next `PreToolUse`, or injected by the app-server for hosted runners. |
 
 ### 15.3 Shared adapter core
 
@@ -952,19 +1066,19 @@ E {domain} impl C:ports-and-adapters
 
 #### Initial packs
 
-| Pack | Detection | Example constraint proposed |
-|---|---|---|
-| Ports and adapters | `domain`, `application`, `infrastructure` or `core`, `adapters`; interfaces in core implemented outside | Domain never imports infrastructure or frameworks |
-| Kernel and extensions | `core` plus `integrations` plus per-module directories and a registry or bootstrap file | Kernel never imports an extension; extensions never import each other by name; no extension identifier appears in kernel code |
-| Feature slices | `features/<name>` with mixed concerns inside | Cross-feature imports only through a shared kernel or a public index |
-| Event-driven | Event store, aggregate, projection, handler naming | State changes only via events; handlers idempotent; projections rebuildable |
-| Command and query separation | `commands`, `queries`, handler directories | A handler mutates or reads, never both |
-| Monorepo packages | Workspace manifests | Package dependency graph acyclic; imports only via public entry points |
-| Service per directory | Per-service build files | No shared database across services; contracts by schema only |
-| Framework conventions | Framework configuration present | The framework's own layering, for example server code never imports client-only modules |
-| Money and quantities | Currency or amount types, rounding helpers | Integer minor units; no float arithmetic; one named rounding policy |
-| Idempotency and retries | Queue, retry, or outbox code | Side-effecting handlers idempotent by key; retries bounded; ordering assumptions recorded |
-| Configuration and secrets | Environment loading, credential resolvers | No secrets in code; one credential resolver |
+| Pack                         | Detection                                                                                               | Example constraint proposed                                                                                                   |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Ports and adapters           | `domain`, `application`, `infrastructure` or `core`, `adapters`; interfaces in core implemented outside | Domain never imports infrastructure or frameworks                                                                             |
+| Kernel and extensions        | `core` plus `integrations` plus per-module directories and a registry or bootstrap file                 | Kernel never imports an extension; extensions never import each other by name; no extension identifier appears in kernel code |
+| Feature slices               | `features/<name>` with mixed concerns inside                                                            | Cross-feature imports only through a shared kernel or a public index                                                          |
+| Event-driven                 | Event store, aggregate, projection, handler naming                                                      | State changes only via events; handlers idempotent; projections rebuildable                                                   |
+| Command and query separation | `commands`, `queries`, handler directories                                                              | A handler mutates or reads, never both                                                                                        |
+| Monorepo packages            | Workspace manifests                                                                                     | Package dependency graph acyclic; imports only via public entry points                                                        |
+| Service per directory        | Per-service build files                                                                                 | No shared database across services; contracts by schema only                                                                  |
+| Framework conventions        | Framework configuration present                                                                         | The framework's own layering, for example server code never imports client-only modules                                       |
+| Money and quantities         | Currency or amount types, rounding helpers                                                              | Integer minor units; no float arithmetic; one named rounding policy                                                           |
+| Idempotency and retries      | Queue, retry, or outbox code                                                                            | Side-effecting handlers idempotent by key; retries bounded; ordering assumptions recorded                                     |
+| Configuration and secrets    | Environment loading, credential resolvers                                                               | No secrets in code; one credential resolver                                                                                   |
 
 The agent working contract (no placeholders, definition of done, team-agnostic mechanisms) is not a pack. Bootstrap step 4 already extracts it from instruction files, and a pack would duplicate it.
 
@@ -1102,11 +1216,11 @@ The plugin makes a causal claim: sessions with it produce better results with le
 
 The question is not whether context helps. It is whether late and small beats early and whole.
 
-| Arm | What the agent gets |
-|---|---|
-| A: none | The repository as it is, with whatever instruction files it already has. |
+| Arm                     | What the agent gets                                                                                  |
+| ----------------------- | ---------------------------------------------------------------------------------------------------- |
+| A: none                 | The repository as it is, with whatever instruction files it already has.                             |
 | B: whole graph at start | The full graph rendered into the harness's instruction file at session start. No per-edit injection. |
-| C: slice at edit | The plugin as specified: slice before every edit, decision demand at turn end. |
+| C: slice at edit        | The plugin as specified: slice before every edit, decision demand at turn end.                       |
 
 If B matches C, the walker was unnecessary and a larger instruction file would have sufficed. If C beats B, principle 2 holds.
 
@@ -1116,15 +1230,15 @@ Graph quality is a separate variable and is ablated independently: authored grap
 
 Listed in order of how much weight the evaluation places on them.
 
-| Metric | Definition | Kind |
-|---|---|---|
-| Rework | Edits to a file after its first edit in the session; test runs failing before the first green; review rounds on real pull requests. | Outcome |
-| Constraint adherence | Enforced constraint violations, counted by their tests. Guided constraint violations, counted by task-specific checkers written for the benchmark, or by a judge calibrated against human labels on a sample. | Outcome |
-| Cross-session contradiction | Independent sessions given the same task class; count of opposed decisions on the same node, using the merge gate's checks. | Outcome |
-| Time and cost | Wall-clock to green, turns, tool calls, tokens split into read tokens and injected tokens. | Outcome |
-| Hidden test pass rate | Pass rate on the task commit's own tests. | Outcome |
-| Coverage | Applicable nodes not loaded before an edit; callers loaded before an edit; edits made on name-only context. | Mediator |
-| Reach | Pulls beyond the slice per edit. | Mediator |
+| Metric                      | Definition                                                                                                                                                                                                    | Kind     |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| Rework                      | Edits to a file after its first edit in the session; test runs failing before the first green; review rounds on real pull requests.                                                                           | Outcome  |
+| Constraint adherence        | Enforced constraint violations, counted by their tests. Guided constraint violations, counted by task-specific checkers written for the benchmark, or by a judge calibrated against human labels on a sample. | Outcome  |
+| Cross-session contradiction | Independent sessions given the same task class; count of opposed decisions on the same node, using the merge gate's checks.                                                                                   | Outcome  |
+| Time and cost               | Wall-clock to green, turns, tool calls, tokens split into read tokens and injected tokens.                                                                                                                    | Outcome  |
+| Hidden test pass rate       | Pass rate on the task commit's own tests.                                                                                                                                                                     | Outcome  |
+| Coverage                    | Applicable nodes not loaded before an edit; callers loaded before an edit; edits made on name-only context.                                                                                                   | Mediator |
+| Reach                       | Pulls beyond the slice per edit.                                                                                                                                                                              | Mediator |
 
 Mediators move by construction when slices are injected. They are not evidence of value on their own. They matter because if outcomes improve and mediators moved, the causal story is supported; if outcomes improve and mediators did not move, something else explains the improvement.
 
@@ -1205,17 +1319,17 @@ Archival is the only automatic hygiene action, and it only touches what is alrea
 
 `ctx hygiene` reports, with evidence, and proposes. It never retires.
 
-| Signal | Evidence | Proposal |
-|---|---|---|
+| Signal                 | Evidence                                                                                                               | Proposal                                                                                                                     |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | Overridden in practice | A constraint overridden (`!`) in at least `hygiene.override_streak` of its most recent decisions, with none serving it | Retire the constraint, or enforce it and fix the code. Both are offered; the choice is a design decision, not a hygiene one. |
-| Unreachable | A constraint or decision attached to a path or logical node that no mapping reaches | Re-map, or retire with reason `unmapped` |
-| Dormant | No edits to the governed node within `hygiene.dormant_after` | Informational only; dormancy is not staleness |
-| Missing test | An `E` constraint whose `test:` no longer exists | The gate already fails; hygiene proposes the fix or a downgrade to `G` |
-| Deleted path | A decision attached to a path git reports as deleted, not renamed | Archive with note `path-deleted` |
-| Expired proposal | A `G?`, proposed `C`, or proposed edge older than `hygiene.proposal_ttl` without ratification | Drop the proposal. Proposed edges from reach (§9.3) drop automatically; other proposals are listed for a decision. |
-| Superseded ADR | The referenced ADR's status field says superseded | `Z` with successor |
-| Mapping drift | A pack role whose binding no longer detects (§16.1) | Re-bind or retire the binding |
-| Debt trend | Count of legacy decisions per constraint (§16.2), this period against last | Informational; the number that should fall |
+| Unreachable            | A constraint or decision attached to a path or logical node that no mapping reaches                                    | Re-map, or retire with reason `unmapped`                                                                                     |
+| Dormant                | No edits to the governed node within `hygiene.dormant_after`                                                           | Informational only; dormancy is not staleness                                                                                |
+| Missing test           | An `E` constraint whose `test:` no longer exists                                                                       | The gate already fails; hygiene proposes the fix or a downgrade to `G`                                                       |
+| Deleted path           | A decision attached to a path git reports as deleted, not renamed                                                      | Archive with note `path-deleted`                                                                                             |
+| Expired proposal       | A `G?`, proposed `C`, or proposed edge older than `hygiene.proposal_ttl` without ratification                          | Drop the proposal. Proposed edges from reach (§9.3) drop automatically; other proposals are listed for a decision.           |
+| Superseded ADR         | The referenced ADR's status field says superseded                                                                      | `Z` with successor                                                                                                           |
+| Mapping drift          | A pack role whose binding no longer detects (§16.1)                                                                    | Re-bind or retire the binding                                                                                                |
+| Debt trend             | Count of legacy decisions per constraint (§16.2), this period against last                                             | Informational; the number that should fall                                                                                   |
 
 ### 21.5 Timeline
 
@@ -1255,30 +1369,30 @@ Ordered by dependency and by what proves the idea earliest. No durations.
 
 As of 2026-09-07 every delivery step in §23 has an implementation in the repository, tested, and run against a real production codebase. Where the implementation is narrower than the design, the difference is listed here rather than left to be discovered.
 
-| Area | Built | Narrower than the design, and why |
-|---|---|---|
-| Grammar, walker, slice | Complete, including `rule:`, `since:`, and `Z` records | |
-| Observation | Shell and patch observers, coverage, import and symbol indexes | Import resolution covers relative specifiers; path aliases such as `@/` are unresolved, so caller counts on aliased trees undercount |
-| Turn-end demand | Asked first on the next tool call after the edit (once per pending set), held open only for a turn that ends owing one; `record.demand = false` records a finding instead | Claude Code renders any blocking Stop hook as an error; the wording says it is the demand, the label cannot be changed |
-| Read-time history | First read of a file carrying decisions injects them (newest first, cap 3, ~160 tokens, once per file, silent when the file has none); recorded as a `history` event | Module-scoped decisions arrive on the card instead, so they are not repeated per file |
-| Synapse view | Default is the map: plates by containment depth, districts positioned deterministically from the graph, amber for the session, red for the gap, forbidden imports drawn from `rule:noimport:` constraints; 3D and 2D force layouts kept as modes | The map is module-level; file-level detail stays in the force layouts and the focus drawer |
-| Module card | First read or grep under a module injects its card (module, chain, rules enforced first, latest decision, hydrate pointer), once per module per session, at most two per tool call, budget 200 tokens; recorded as a `card` event | Not in the synapse view yet |
-| Instruction block | `ctx init --write` and `ctx install instructions` append the Context Graph block to AGENTS.md or CLAUDE.md | |
-| Bootstrap | Modules from the tree (leaf names, enclosing-module prefix on collisions, `src` as a convention), rules from rule-stating tests (`no-*`, `never-*`, boundary, architecture, contract, invariant, policy; describe blocks and header sentences), instruction-file imperatives, ADR concepts, header rationale as notes, packs with a half-the-roles threshold for auto selection, bootstrapper as first ratifier; proposed rules on the file's own module ask for decisions (root-pinned ones and test files do not); a curated graph keeps its modules on re-run; harness-injected instruction files yield only module-anchored lines | No symbol-level rules; no clustering by embeddings |
-| Hydrate | `hydrate` MCP tool and `ctx hydrate`, scope by file, module, concept, or task; prompt-time hydrate behind `slice.hydrate_on_prompt` on both harnesses | Task scopes resolve by named paths, then the embedding index, then basename words; no symbol-level resolution |
-| Claude Code adapter | Hooks, MCP server, plugin packaging, observe-only and random arms | Pre-edit slice uses a command hook rather than the `mcp_tool` hook type, so it works before the server is registered |
-| Codex adapter | Hooks, packaging, user-level installer, patch-based edits | Verified against the documented hook payloads and the rollout format, not against a live Codex session on this machine |
-| Transcript replay | Claude Code JSONL, Codex rollouts, `codex exec --json` | Codex parsers are pinned to the documented shapes; the rollout format is declared unstable upstream |
-| Merge gate | All checks in §11.1 plus orphaned basis and unratified retirement | Coverage warnings use whatever local observation data exists; there is no cross-machine coverage source without the overlay |
-| Bootstrap and packs | Tree, import graph, architecture tests, instruction files, ADRs, eleven packs, conformance, ratification, export | Embedding-based module clustering is not part of bootstrap |
-| Hygiene | Every signal in §21.4, retirement, archival, timeline | |
-| Event server and view | Ingest, tail, stream with sequence numbers, live queries, snapshot, Three.js view with 2D mode, scrubber, coverage table, evolution panel | The view's evolution mode lists decisions over time; it does not yet animate them on the graph |
-| Embeddings | In-process MiniLM through the ONNX runtime as the default, plus Ollama and OpenAI-compatible providers; symbol-boundary chunker; SQLite vector store; hints in the slice; post-commit refresh; the local server keeps the model warm and answers hint queries for hooks | Hooks embed in-process only when `in_process_hooks` is set, because a model load per hook process costs more than a hint is worth; without a running server there are no hints |
-| Packaging | Single-file bundle committed in each adapter directory with a CI freshness check; Claude Code and Codex marketplace manifests; npm `files` and `bin`; a Dockerfile and compose file for the hosted overlay with an optional embedding service | The package is marked private until a registry and scope are chosen; `npm pack` produces the tarball today |
-| Hosted mode | Token, forwarding, provisional decisions, cross-branch opposed-arrows check, live lines in the slice, monitor tail, branch retirement | Double-supersession across branches needs `S` records, which the record path does not send to the overlay; the merge gate still catches it |
-| Benchmark | Corpus from history, three arms with the temporal cut, Claude, Codex, and command drivers, paired report with the §20.7 predictions judged | Not yet run with a model on a real corpus; the pipeline is proven with the command driver |
-| Context loop (2026-09-30) | File cards with content-hash freshness; read before edit (file, imports, importers on an export change) as a PreToolUse deny; cards owed after an edit and held at Stop and SubagentStop; per-agent observation and state; reads recorded at call start; worktree-aware roots; provisional pending for refused edits; random decision ids; provenance resolved from git; gate card check | Export changes are detected from declaration lines, not a type checker, and only for JavaScript and TypeScript; Codex patches are checked for the file and its imports but not for export changes, since the patch is not applied ahead of time |
-| Tool adapters | code-kit, through `code-kit trace` | ctx finds code-kit through `CODE_KIT_CLI` or the installed plugin; an older code-kit without `trace` contributes nothing |
+| Area                      | Built                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | Narrower than the design, and why                                                                                                                                                                                                               |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Grammar, walker, slice    | Complete, including `rule:`, `since:`, and `Z` records                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |                                                                                                                                                                                                                                                 |
+| Observation               | Shell and patch observers, coverage, import and symbol indexes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Import resolution covers relative specifiers; path aliases such as `@/` are unresolved, so caller counts on aliased trees undercount                                                                                                            |
+| Turn-end demand           | Asked first on the next tool call after the edit (once per pending set), held open only for a turn that ends owing one; `record.demand = false` records a finding instead                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Claude Code renders any blocking Stop hook as an error; the wording says it is the demand, the label cannot be changed                                                                                                                          |
+| Read-time history         | First read of a file carrying decisions injects them (newest first, cap 3, ~160 tokens, once per file, silent when the file has none); recorded as a `history` event                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Module-scoped decisions arrive on the card instead, so they are not repeated per file                                                                                                                                                           |
+| Synapse view              | Default is the map: plates by containment depth, districts positioned deterministically from the graph, amber for the session, red for the gap, forbidden imports drawn from `rule:noimport:` constraints; 3D and 2D force layouts kept as modes                                                                                                                                                                                                                                                                                                                                                                                      | The map is module-level; file-level detail stays in the force layouts and the focus drawer                                                                                                                                                      |
+| Module card               | First read or grep under a module injects its card (module, chain, rules enforced first, latest decision, hydrate pointer), once per module per session, at most two per tool call, budget 200 tokens; recorded as a `card` event                                                                                                                                                                                                                                                                                                                                                                                                     | Not in the synapse view yet                                                                                                                                                                                                                     |
+| Instruction block         | `ctx init --write` and `ctx install instructions` append the Context Graph block to AGENTS.md or CLAUDE.md                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |                                                                                                                                                                                                                                                 |
+| Bootstrap                 | Modules from the tree (leaf names, enclosing-module prefix on collisions, `src` as a convention), rules from rule-stating tests (`no-*`, `never-*`, boundary, architecture, contract, invariant, policy; describe blocks and header sentences), instruction-file imperatives, ADR concepts, header rationale as notes, packs with a half-the-roles threshold for auto selection, bootstrapper as first ratifier; proposed rules on the file's own module ask for decisions (root-pinned ones and test files do not); a curated graph keeps its modules on re-run; harness-injected instruction files yield only module-anchored lines | No symbol-level rules; no clustering by embeddings                                                                                                                                                                                              |
+| Hydrate                   | `hydrate` MCP tool and `ctx hydrate`, scope by file, module, concept, or task; prompt-time hydrate behind `slice.hydrate_on_prompt` on both harnesses                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | Task scopes resolve by named paths, then the embedding index, then basename words; no symbol-level resolution                                                                                                                                   |
+| Claude Code adapter       | Hooks, MCP server, plugin packaging, observe-only and random arms                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Pre-edit slice uses a command hook rather than the `mcp_tool` hook type, so it works before the server is registered                                                                                                                            |
+| Codex adapter             | Hooks, packaging, user-level installer, patch-based edits                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Verified against the documented hook payloads and the rollout format, not against a live Codex session on this machine                                                                                                                          |
+| Transcript replay         | Claude Code JSONL, Codex rollouts, `codex exec --json`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Codex parsers are pinned to the documented shapes; the rollout format is declared unstable upstream                                                                                                                                             |
+| Merge gate                | All checks in §11.1 plus orphaned basis and unratified retirement                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Coverage warnings use whatever local observation data exists; there is no cross-machine coverage source without the overlay                                                                                                                     |
+| Bootstrap and packs       | Tree, import graph, architecture tests, instruction files, ADRs, eleven packs, conformance, ratification, export                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Embedding-based module clustering is not part of bootstrap                                                                                                                                                                                      |
+| Hygiene                   | Every signal in §21.4, retirement, archival, timeline                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |                                                                                                                                                                                                                                                 |
+| Event server and view     | Ingest, tail, stream with sequence numbers, live queries, snapshot, Three.js view with 2D mode, scrubber, coverage table, evolution panel                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | The view's evolution mode lists decisions over time; it does not yet animate them on the graph                                                                                                                                                  |
+| Embeddings                | In-process MiniLM through the ONNX runtime as the default, plus Ollama and OpenAI-compatible providers; symbol-boundary chunker; SQLite vector store; hints in the slice; post-commit refresh; the local server keeps the model warm and answers hint queries for hooks                                                                                                                                                                                                                                                                                                                                                               | Hooks embed in-process only when `in_process_hooks` is set, because a model load per hook process costs more than a hint is worth; without a running server there are no hints                                                                  |
+| Packaging                 | Single-file bundle committed in each adapter directory with a CI freshness check; Claude Code and Codex marketplace manifests; npm `files` and `bin`; a Dockerfile and compose file for the hosted overlay with an optional embedding service                                                                                                                                                                                                                                                                                                                                                                                         | The package is marked private until a registry and scope are chosen; `npm pack` produces the tarball today                                                                                                                                      |
+| Hosted mode               | Token, forwarding, provisional decisions, cross-branch opposed-arrows check, live lines in the slice, monitor tail, branch retirement                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | Double-supersession across branches needs `S` records, which the record path does not send to the overlay; the merge gate still catches it                                                                                                      |
+| Benchmark                 | Corpus from history, three arms with the temporal cut, Claude, Codex, and command drivers, paired report with the §20.7 predictions judged                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | Not yet run with a model on a real corpus; the pipeline is proven with the command driver                                                                                                                                                       |
+| Context loop (2026-09-30) | File cards with content-hash freshness; read before edit (file, imports, importers on an export change) as a PreToolUse deny; cards owed after an edit and held at Stop and SubagentStop; per-agent observation and state; reads recorded at call start; worktree-aware roots; provisional pending for refused edits; random decision ids; provenance resolved from git; gate card check                                                                                                                                                                                                                                              | Export changes are detected from declaration lines, not a type checker, and only for JavaScript and TypeScript; Codex patches are checked for the file and its imports but not for export changes, since the patch is not applied ahead of time |
+| Tool adapters             | code-kit, through `code-kit trace`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | ctx finds code-kit through `CODE_KIT_CLI` or the installed plugin; an older code-kit without `trace` contributes nothing                                                                                                                        |
 
 ## 25. Sources
 
@@ -1307,10 +1421,10 @@ Codex, checked 2026-09-07 against CLI 0.153.4:
 
 Items the research could not confirm from official sources, and how the spec treats them:
 
-| Item | Treatment |
-|---|---|
-| Whether Codex hooks and plugins run inside Codex cloud tasks | Cloud tasks treated as unobserved; merge gate is the guarantee. |
-| Whether Codex hook commands run inside the sandbox | Adapter scripts assume host execution and need no network beyond the optional overlay. |
-| Codex rollout JSONL stability | Parser pinned to `cli_version`; unknown versions produce a finding, not a guess. |
-| Codex project-config versus profile precedence | Not relied on; the adapter ships user-level and plugin-level hooks. |
-| Claude Code `PreCompact` event details | Not relied on; `SessionStart` with `start_reason: compact` is the compaction signal. |
+| Item                                                         | Treatment                                                                              |
+| ------------------------------------------------------------ | -------------------------------------------------------------------------------------- |
+| Whether Codex hooks and plugins run inside Codex cloud tasks | Cloud tasks treated as unobserved; merge gate is the guarantee.                        |
+| Whether Codex hook commands run inside the sandbox           | Adapter scripts assume host execution and need no network beyond the optional overlay. |
+| Codex rollout JSONL stability                                | Parser pinned to `cli_version`; unknown versions produce a finding, not a guess.       |
+| Codex project-config versus profile precedence               | Not relied on; the adapter ships user-level and plugin-level hooks.                    |
+| Claude Code `PreCompact` event details                       | Not relied on; `SessionStart` with `start_reason: compact` is the compaction signal.   |

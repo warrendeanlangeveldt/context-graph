@@ -1,15 +1,15 @@
 # The context loop, and working alongside code-kit
 
-| | |
-|---|---|
-| Status | Implemented in 0.2.0 (see design spec §8.3, §9.1, §9.4, §9.5, §15.4, §17). Kept as the record of why. |
-| Date | 2026-09-30 |
-| Author | Warren Langeveldt, drafted with Claude |
-| Touches | §8 Observation, §9 Recording decisions, §15 Harness adapters, §17 Configuration |
+|         |                                                                                                       |
+| ------- | ----------------------------------------------------------------------------------------------------- |
+| Status  | Implemented in 0.2.0 (see design spec §8.3, §9.1, §9.4, §9.5, §15.4, §17). Kept as the record of why. |
+| Date    | 2026-09-30                                                                                            |
+| Author  | Warren Langeveldt, drafted with Claude                                                                |
+| Touches | §8 Observation, §9 Recording decisions, §15 Harness adapters, §17 Configuration                       |
 
 ## 1. Why
 
-Context Graph was built to do three things around every change: make the agent build real context before it acts, tell it the *why* behind what it's about to change, and keep what it learns for the next agent. Today it does the second well and the first and third only partly. It injects slices, histories and cards, but it never stops an edit made on the strength of a grep, and it only asks for a record when a file already carries rules.
+Context Graph was built to do three things around every change: make the agent build real context before it acts, tell it the _why_ behind what it's about to change, and keep what it learns for the next agent. Today it does the second well and the first and third only partly. It injects slices, histories and cards, but it never stops an edit made on the strength of a grep, and it only asks for a record when a file already carries rules.
 
 This proposal closes that loop, and defines how ctx works next to **code-kit**, the plugin that enforces lanes, layers, specs and proof-before-finish in the same projects. The two stay separate plugins, each useful alone, each aware of the other.
 
@@ -32,18 +32,18 @@ Understanding compounds: once a neighbourhood has cards, a miss on F costs F plu
 
 Checked against the code on 2026-09-30.
 
-| Behaviour | Today | Evidence |
-|---|---|---|
-| Blocks an edit made without reading the file | Never. PreToolUse only injects. | `src/adapters/core.ts` PreToolUse branch returns context, never a deny |
-| Context for a file the graph doesn't know | Nothing: no history, no card | `renderHistory` is silent without decisions (`core.ts` ~216) |
-| Record for an edited file with no rules | Not asked for | §9.1: "Edits to nodes with no active constraints do not require a decision" |
-| Blocks at turn end | Yes, for a missing decision on a constrained file | `core.ts:304` |
+| Behaviour                                    | Today                                             | Evidence                                                                    |
+| -------------------------------------------- | ------------------------------------------------- | --------------------------------------------------------------------------- |
+| Blocks an edit made without reading the file | Never. PreToolUse only injects.                   | `src/adapters/core.ts` PreToolUse branch returns context, never a deny      |
+| Context for a file the graph doesn't know    | Nothing: no history, no card                      | `renderHistory` is silent without decisions (`core.ts` ~216)                |
+| Record for an edited file with no rules      | Not asked for                                     | §9.1: "Edits to nodes with no active constraints do not require a decision" |
+| Blocks at turn end                           | Yes, for a missing decision on a constrained file | `core.ts:304`                                                               |
 
 ## 4. Proposal
 
 ### 4.1 File cards
 
-A **card** is a file-level record of what a file is for, what it relies on, who relies on it, and the invariants it keeps. Decisions keep the *why of each change*; a card holds the *why of the file*.
+A **card** is a file-level record of what a file is for, what it relies on, who relies on it, and the invariants it keeps. Decisions keep the _why of each change_; a card holds the _why of the file_.
 
 - A new record kind, `F`, in its own file, `cards.ctx`, carrying the file's content hash at the time it was written.
 - Written only after the observer has seen a **full read** of the file in the same agent's context (§4.4). A card from a grep is rejected.
@@ -53,11 +53,11 @@ A **card** is a file-level record of what a file is for, what it relies on, who 
 
 Before an edit of an existing file:
 
-| Case | Required in this agent's context |
-|---|---|
-| Fresh card | The card and decisions (hydrated automatically), and the range being edited |
-| No card, or stale | The file in full; its imports, or their fresh cards |
-| The edit changes the file's exports | Also its importers, or their fresh cards |
+| Case                                | Required in this agent's context                                            |
+| ----------------------------------- | --------------------------------------------------------------------------- |
+| Fresh card                          | The card and decisions (hydrated automatically), and the range being edited |
+| No card, or stale                   | The file in full; its imports, or their fresh cards                         |
+| The edit changes the file's exports | Also its importers, or their fresh cards                                    |
 
 When the requirement isn't met, the edit is refused with the exact list: "read `src/booking.ts` in full and `src/api/cancel.ts`, or run `ctx hydrate src/booking.ts`". New files are exempt from reading but owe a card.
 
@@ -97,10 +97,10 @@ Enforcement is only fair if each agent's reads count for that agent. Today they 
 
 Through code-kit's command line only, never its internals:
 
-| From | ctx uses it for |
-|---|---|
+| From                                                 | ctx uses it for                                                                                                                                     |
+| ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `code-kit trace <path> --json` (planned in code-kit) | The requirements a file delivers, with their spec sections, found through commits naming `ST-n`; its lane; its layer and what that layer may import |
-| `code-kit status --json` | Requirement IDs, so decisions can `--serves BOOK-4` |
+| `code-kit status --json`                             | Requirement IDs, so decisions can `--serves BOOK-4`                                                                                                 |
 
 A card then anchors its why in the spec ("delivers BOOK-4: a customer can cancel up to 24h before"), and the slice before an edit carries the layer rule ("layer domain: may import schemas only") so the agent plans within it. code-kit refuses a write that would break a layer, but the slice means the agent rarely hits that. ctx does not keep its own `rule:noimport:` copy of layers code-kit already enforces.
 
@@ -129,7 +129,7 @@ A subagent with `isolation: "worktree"` works under `<repo>/.claude/worktrees/<i
 
 PreToolUse records the edit as pending before it runs (`core.ts:208`, `src/record/recorder.ts:36-52`). Pending is cleared only by `PostToolUseFailure` for that `tool_use_id` (`core.ts:259-262`) or by a decision. When another plugin's PreToolUse denies the edit (code-kit refusing a write outside the lane), neither fires. ctx nudges, blocks the turn, and eventually writes a spurious `no-decision` into `decisions.ctx` (`recorder.ts:181-200`).
 
-**Fix:** record pending as *provisional* in PreToolUse and confirm it only on a successful PostToolUse for the same `tool_use_id`. Provisional entries left over when the turn ends are dropped.
+**Fix:** record pending as _provisional_ in PreToolUse and confirm it only on a successful PostToolUse for the same `tool_use_id`. Provisional entries left over when the turn ends are dropped.
 
 ### 6.4 Decision IDs collide across branches
 
