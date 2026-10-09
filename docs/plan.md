@@ -70,3 +70,88 @@ The Proposals section with evidence, the band's count, and the Ratify and Drop c
 **Status:** done
 
 The Coverage section, live, with edits made without understanding marked.
+
+## Milestone 3: Context Graph's harness
+
+Built after code-kit's harness (its milestone 4), whose spikes it relies on.
+
+### ST-7 Harness settings
+
+**Lane:** lead
+**Requirements:** VIEW-6
+**Depends on:** none
+**Status:** todo
+
+The `[harness]` section in `.ctx/config.toml`, validated; `ctx settings`; the Settings view.
+
+### ST-8 Panes v2: header, band, tabs and keyboard
+
+**Lane:** lead
+**Requirements:** VIEW-1, VIEW-5
+**Depends on:** ST-7
+**Status:** todo
+
+The new frame, the band line with the graph's health, the keyboard model.
+
+### ST-9 The file view
+
+**Lane:** lead
+**Requirements:** VIEW-2
+**Depends on:** ST-8
+**Status:** todo
+
+The card rendered, rules as chips, and the neighbourhood graph from `ctx neighbours`.
+
+### ST-10 The proposals queue
+
+**Lane:** lead
+**Requirements:** VIEW-3
+**Depends on:** ST-8
+**Status:** todo
+
+Proposals with evidence and sparklines; ratify, drop and defer on keys.
+
+### ST-11 Read-assist and transcript tags
+
+**Lane:** lead
+**Requirements:** ASSIST-1, ASSIST-2, ASSIST-3, VIEW-4
+**Depends on:** ST-8
+**Status:** todo
+
+The refusal's reading list delivered to the agent, its progress, and tags on tool rows.
+
+### ST-12 The card writer
+
+**Lane:** lead
+**Requirements:** CARDW-1, CARDW-2, CARDW-3, CARDW-4, CARDW-5
+**Depends on:** ST-7
+**Status:** todo
+
+The background agent writing owed and missing cards from full reads.
+
+### ST-13 The curator
+
+**Lane:** lead
+**Requirements:** CUR-1, CUR-2, CUR-3, CUR-4
+**Depends on:** ST-7
+**Status:** todo
+
+The background agent proposing rules from evidence and flagging overridden ones.
+
+### ST-14 Side questions
+
+**Lane:** lead
+**Requirements:** ASKQ-1, ASKQ-2, ASKQ-3
+**Depends on:** ST-8
+**Status:** todo
+
+`/why`, answered beside the conversation from the graph, with its cost.
+
+### ST-15 The graph explorer
+
+**Lane:** lead
+**Requirements:** MAP-1, MAP-2, MAP-3
+**Depends on:** ST-8
+**Status:** todo
+
+Modules with rules, activity and coverage; the coverage heat map; `ctx map`.

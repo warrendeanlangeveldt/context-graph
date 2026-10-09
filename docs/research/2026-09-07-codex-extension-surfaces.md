@@ -93,15 +93,27 @@ Codex warns if a layer has both `hooks.json` and inline `[hooks]`.
   "description": "Optional lifecycle hooks for this workspace.",
   "hooks": {
     "PreToolUse": [
-      { "matcher": "Bash",
-        "hooks": [ { "type": "command",
-                     "command": "/usr/bin/python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/pre_tool_use_policy.py\"",
-                     "statusMessage": "Checking Bash command" } ] }
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/bin/python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/pre_tool_use_policy.py\"",
+            "statusMessage": "Checking Bash command"
+          }
+        ]
+      }
     ],
     "Stop": [
-      { "hooks": [ { "type": "command",
-                     "command": "/usr/bin/python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/stop_continue.py\"",
-                     "timeout": 30 } ] }
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/bin/python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/stop_continue.py\"",
+            "timeout": 30
+          }
+        ]
+      }
     ]
   }
 }
@@ -130,13 +142,13 @@ statusMessage = "Checking Bash command"
 
 **Tool names as seen by hooks:**
 
-| Canonical `tool_name` | Matcher aliases | `tool_input` shape | What it covers |
-|---|---|---|---|
-| `Bash` | none | `{"command": <cmd string>}` | All shell execution via unified exec (`exec_command`). Codex has no dedicated read-file tool; `cat`, `sed`, `rg` reads show up here. |
-| `apply_patch` | `Edit`, `Write` | `{"command": "<full *** Begin Patch text>"}` | All file writes and edits. Paths are recoverable by parsing `*** Add File:` / `*** Update File:` / `*** Delete File:` lines. |
-| `spawn_agent` | `Agent` | JSON args | Subagent creation |
-| any other local function tool (`update_plan`, `view_image`, `read_mcp_resource`, and so on) | none | parsed JSON args (or raw string if unparsable) | via `function_hook_tool_name` |
-| MCP tools | regex such as `mcp__fs__read` | tool arguments | docs give the `mcp__server__tool` form |
+| Canonical `tool_name`                                                                       | Matcher aliases               | `tool_input` shape                             | What it covers                                                                                                                       |
+| ------------------------------------------------------------------------------------------- | ----------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `Bash`                                                                                      | none                          | `{"command": <cmd string>}`                    | All shell execution via unified exec (`exec_command`). Codex has no dedicated read-file tool; `cat`, `sed`, `rg` reads show up here. |
+| `apply_patch`                                                                               | `Edit`, `Write`               | `{"command": "<full *** Begin Patch text>"}`   | All file writes and edits. Paths are recoverable by parsing `*** Add File:` / `*** Update File:` / `*** Delete File:` lines.         |
+| `spawn_agent`                                                                               | `Agent`                       | JSON args                                      | Subagent creation                                                                                                                    |
+| any other local function tool (`update_plan`, `view_image`, `read_mcp_resource`, and so on) | none                          | parsed JSON args (or raw string if unparsable) | via `function_hook_tool_name`                                                                                                        |
+| MCP tools                                                                                   | regex such as `mcp__fs__read` | tool arguments                                 | docs give the `mcp__server__tool` form                                                                                               |
 
 Hosted tools (`WebSearch`) do not use the local function-tool hook path and are not observable.
 
@@ -145,7 +157,13 @@ Hosted tools (`WebSearch`) do not use the local function-tool hook path and are 
 - PreToolUse can block, modify input, and inject context: `hookSpecificOutput.permissionDecision` in `allow | deny | ask`, `permissionDecisionReason`, `updatedInput`, `additionalContext`. Legacy top-level `decision` in `approve | block`.
 
   ```json
-  { "hookSpecificOutput": { "hookEventName": "PreToolUse", "permissionDecision": "allow", "updatedInput": { "command": "echo rewritten" } } }
+  {
+    "hookSpecificOutput": {
+      "hookEventName": "PreToolUse",
+      "permissionDecision": "allow",
+      "updatedInput": { "command": "echo rewritten" }
+    }
+  }
   ```
 
 - PostToolUse: `decision: "block"` plus `reason`, `additionalContext`, and `updatedMCPToolOutput` (schema-confirmed; replaces an MCP result the model sees).
@@ -171,7 +189,15 @@ notify = ["python3", "/path/to/notify.py"]
 Only event: `agent-turn-complete`. Payload (kebab-case, from source):
 
 ```json
-{ "type": "agent-turn-complete", "thread-id": "...", "turn-id": "...", "cwd": "...", "client": "...", "input-messages": ["..."], "last-assistant-message": "..." }
+{
+  "type": "agent-turn-complete",
+  "thread-id": "...",
+  "turn-id": "...",
+  "cwd": "...",
+  "client": "...",
+  "input-messages": ["..."],
+  "last-assistant-message": "..."
+}
 ```
 
 Source shows the JSON is appended as the last argv argument with stdin set to null; the config-reference prose says "via stdin". Trust the source. `notify` cannot be set from project config. It is now implemented as a hook named `legacy_notify` on the `AfterAgent` event.
@@ -307,15 +333,15 @@ Global: `mcp_optional_startup_grace_ms`, `mcp_oauth_callback_url`, `mcp_oauth_ca
 
 Sources: troubleshooting page, config-advanced, `codex-rs/rollout/src/{recorder,rollout_file_name,session_index}.rs`, `codex-rs/history/src/rollout_payload.rs`, `codex-rs/message-history/src/lib.rs`, `codex-rs/protocol/src/{protocol,models}.rs`.
 
-| Path | Contents |
-|---|---|
-| `$CODEX_HOME/sessions/YYYY/MM/DD/rollout-<YYYY-MM-DDThh-mm-ss>-<thread_id>.jsonl` (reverted threads: `...-<thread_id>_<rollout_id>.jsonl`) | Full transcript (the "rollout"). Resume appends to the same file. |
-| `$CODEX_HOME/archived_sessions/` | Archived rollouts (`codex archive`, `thread/archive`) |
-| `$CODEX_HOME/session_index.jsonl` | `{ "id", "thread_name", "updated_at" }`, names only |
-| `$CODEX_HOME/history.jsonl` | Prompt history only: `{ "session_id", "ts", "text" }` per user message. `history.persistence = "save-all" | "none"`, `history.max_bytes`. Not a transcript despite the docs' wording. |
-| SQLite state DB via `codex_state::StateRuntime` | filename UNCONFIRMED |
-| TUI log | only when `-c log_dir=./.codex-log` (`codex-tui.log`); `RUST_LOG` honoured |
-| `CODEX_ROLLOUT_TRACE_ROOT` | opt-in raw trace bundles with `codex debug trace-reduce` |
+| Path                                                                                                                                       | Contents                                                                                                  |
+| ------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------- |
+| `$CODEX_HOME/sessions/YYYY/MM/DD/rollout-<YYYY-MM-DDThh-mm-ss>-<thread_id>.jsonl` (reverted threads: `...-<thread_id>_<rollout_id>.jsonl`) | Full transcript (the "rollout"). Resume appends to the same file.                                         |
+| `$CODEX_HOME/archived_sessions/`                                                                                                           | Archived rollouts (`codex archive`, `thread/archive`)                                                     |
+| `$CODEX_HOME/session_index.jsonl`                                                                                                          | `{ "id", "thread_name", "updated_at" }`, names only                                                       |
+| `$CODEX_HOME/history.jsonl`                                                                                                                | Prompt history only: `{ "session_id", "ts", "text" }` per user message. `history.persistence = "save-all" | "none"`, `history.max_bytes`. Not a transcript despite the docs' wording. |
+| SQLite state DB via `codex_state::StateRuntime`                                                                                            | filename UNCONFIRMED                                                                                      |
+| TUI log                                                                                                                                    | only when `-c log_dir=./.codex-log` (`codex-tui.log`); `RUST_LOG` honoured                                |
+| `CODEX_ROLLOUT_TRACE_ROOT`                                                                                                                 | opt-in raw trace bundles with `codex debug trace-reduce`                                                  |
 
 `--ephemeral` (exec) or `thread.ephemeral` skips rollout persistence entirely. UNCONFIRMED whether `history.persistence = "none"` also suppresses rollouts (source suggests it governs only `history.jsonl`).
 
@@ -366,11 +392,11 @@ ChatGPT plugins (OpenAPI manifests) were sunset in 2024: no new installs or plug
 
 ## Implications for the three requirements
 
-| Requirement | Codex mechanism | Caveat |
-|---|---|---|
-| Observe every read, grep, and edit | `PreToolUse`/`PostToolUse` on `Bash` (all shell, including reads) and `apply_patch` (all edits); offline or tail from the rollout JSONL | Reads are shell commands, so path extraction means parsing `cat`, `sed`, `rg`, `grep` argv; project-level hooks need a trusted project; hooks must be trusted via `/hooks` unless managed |
-| Inject a context slice before an edit | `PreToolUse` matcher `apply_patch` returning `hookSpecificOutput.additionalContext` (also `updatedInput` to rewrite the patch) | About 2,500-token default cap (`additionalContextLimit`), overflow spilled to disk with a preview |
-| Require a decision with why before the turn ends | `Stop` hook returning `{"decision":"block","reason":"..."}`; check `stop_hook_active` to bound retries | `Stop` output must be JSON; SDK and `exec` runs also fire it (same engine); cloud tasks UNCONFIRMED |
+| Requirement                                      | Codex mechanism                                                                                                                         | Caveat                                                                                                                                                                                    |
+| ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Observe every read, grep, and edit               | `PreToolUse`/`PostToolUse` on `Bash` (all shell, including reads) and `apply_patch` (all edits); offline or tail from the rollout JSONL | Reads are shell commands, so path extraction means parsing `cat`, `sed`, `rg`, `grep` argv; project-level hooks need a trusted project; hooks must be trusted via `/hooks` unless managed |
+| Inject a context slice before an edit            | `PreToolUse` matcher `apply_patch` returning `hookSpecificOutput.additionalContext` (also `updatedInput` to rewrite the patch)          | About 2,500-token default cap (`additionalContextLimit`), overflow spilled to disk with a preview                                                                                         |
+| Require a decision with why before the turn ends | `Stop` hook returning `{"decision":"block","reason":"..."}`; check `stop_hook_active` to bound retries                                  | `Stop` output must be JSON; SDK and `exec` runs also fire it (same engine); cloud tasks UNCONFIRMED                                                                                       |
 
 Package as a Codex plugin (`.codex-plugin/plugin.json` with `hooks: "./hooks/hooks.json"` plus a skill) for CLI and desktop distribution, and additionally ship the same `hooks.json` for `~/.codex/` since plugins do not reach the IDE extension.
 
