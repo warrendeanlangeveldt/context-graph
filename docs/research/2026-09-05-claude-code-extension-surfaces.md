@@ -15,10 +15,11 @@
 Claude Code fires hooks at these lifecycle points:
 
 #### Once Per Session
+
 - **`SessionStart`** – Session begins or resumes
   - Input: `start_reason` (startup|resume|clear|compact|fork)
   - Input: `model` (canonical model name, not always present)
-  
+
 - **`SessionEnd`** – Session terminates
   - Input: `end_reason` (clear|resume|logout|etc.)
 
@@ -26,12 +27,14 @@ Claude Code fires hooks at these lifecycle points:
   - Input: `setup_reason` (init|maintenance)
 
 #### Once Per Turn
+
 - **`UserPromptSubmit`** – Before Claude processes user input
 - **`UserPromptExpansion`** – When slash command expands
 - **`Stop`** – When Claude finishes responding
 - **`StopFailure`** – When turn ends due to API error
 
 #### On Every Tool Call (Agentic Loop)
+
 - **`PreToolUse`** – Before tool executes (blockable, can modify input)
 - **`PostToolUse`** – After tool succeeds
 - **`PostToolUseFailure`** – After tool fails
@@ -40,6 +43,7 @@ Claude Code fires hooks at these lifecycle points:
 - **`PermissionDenied`** – When auto mode denies tool call
 
 #### Async / Standalone Events
+
 - **`Notification`** – User notifications (permission_prompt, idle_prompt, auth_success, elicitation_dialog, agent_needs_input, agent_completed, quota_auto_resume_*)
 - **`ConfigChange`** – Configuration changed
 - **`CwdChanged`** – Working directory changed
@@ -49,16 +53,19 @@ Claude Code fires hooks at these lifecycle points:
 - **`WorktreeCreate`** / **`WorktreeRemove`** – Git worktree operations
 
 #### Subagent Events
+
 - **`SubagentStart`** – Subagent spawned (input: agent_type)
 - **`SubagentStop`** – Subagent finished
 - **`TaskCreated`** / **`TaskCompleted`** – Workflow task lifecycle
 - **`TeammateIdle`** – Agent teammate waiting
 
 #### Model Switch Events
+
 - **`PreModelSwitch`** – Before model switch (blockable)
 - **`PostModelSwitch`** – After model changes
 
 #### MCP & Display Events
+
 - **`Elicitation`** – MCP server requests user input
 - **`ElicitationResult`** – After user responds
 
@@ -86,26 +93,26 @@ Every hook receives (on stdin for command/HTTP hooks) or as callback parameters 
 
 **Event-Specific Input Fields:**
 
-| Event | Additional Fields | Notes |
-|-------|-------------------|-------|
-| `PreToolUse`, `PostToolUse`, `PostToolUseFailure` | `tool_name`, `tool_input` (object), `tool_use_id` | tool_input contains all params (command, file_path, timeout, etc.) |
-| `PermissionRequest` | `tool_name`, `tool_input`, `tool_use_id`, `permission_mode`, `requires_permission: true` | |
-| `PermissionDenied` | `tool_name`, `tool_input`, `tool_use_id`, `permission_mode`, `denied_by: "classifier\|no_verdict"` | |
-| `UserPromptSubmit` | `prompt` (string), `prompt_id` | Plain text input |
-| `UserPromptExpansion` | `command` (e.g., "command-name"), `expanded_prompt`, `command_name` | Slash command expansion |
-| `Stop` / `SubagentStop` | `stop_reason: "end_turn\|tool_use\|max_tokens"`, `last_assistant_message`, `turn_count` | |
-| `PostToolBatch` | `tool_calls` (array), `batch_size` | Array of {tool_name, tool_use_id} |
-| `PreModelSwitch` | `to_model`, `from_model`, `reason: "user_request\|resume\|auto_fallback"` | Matcher on canonical model name |
-| `SessionStart` | `start_reason: "startup\|resume\|clear\|compact\|fork"` | model field optional |
-| `Setup` | `setup_reason: "init\|maintenance"` | |
-| `FileChanged` | `file_path` (absolute), `change_type: "modified\|created\|deleted"` | |
-| `ConfigChange` | `config_source: "user_settings\|project_settings\|local_settings\|policy_settings\|skills"`, `changed_keys` (array) | |
-| `Notification` | `notification_type`, `message` | |
-| `Elicitation` | `mcp_server`, `tool_name`, `prompt` | User prompt from MCP server |
-| `ElicitationResult` | `mcp_server`, `user_response`, `prompt` | User's answer |
-| `WorktreeCreate` / `WorktreeRemove` | `worktree_path`, `reason: "worktree_flag\|isolation_mode\|background_session"` | |
-| `CwdChanged` | `new_cwd`, `previous_cwd` | No matcher support – fires on every change |
-| `InstructionsLoaded` | `file_path`, `load_reason`, `file_size` | |
+| Event                                             | Additional Fields                                                                                                   | Notes                                                              |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `PreToolUse`, `PostToolUse`, `PostToolUseFailure` | `tool_name`, `tool_input` (object), `tool_use_id`                                                                   | tool_input contains all params (command, file_path, timeout, etc.) |
+| `PermissionRequest`                               | `tool_name`, `tool_input`, `tool_use_id`, `permission_mode`, `requires_permission: true`                            |                                                                    |
+| `PermissionDenied`                                | `tool_name`, `tool_input`, `tool_use_id`, `permission_mode`, `denied_by: "classifier\|no_verdict"`                  |                                                                    |
+| `UserPromptSubmit`                                | `prompt` (string), `prompt_id`                                                                                      | Plain text input                                                   |
+| `UserPromptExpansion`                             | `command` (e.g., "command-name"), `expanded_prompt`, `command_name`                                                 | Slash command expansion                                            |
+| `Stop` / `SubagentStop`                           | `stop_reason: "end_turn\|tool_use\|max_tokens"`, `last_assistant_message`, `turn_count`                             |                                                                    |
+| `PostToolBatch`                                   | `tool_calls` (array), `batch_size`                                                                                  | Array of {tool_name, tool_use_id}                                  |
+| `PreModelSwitch`                                  | `to_model`, `from_model`, `reason: "user_request\|resume\|auto_fallback"`                                           | Matcher on canonical model name                                    |
+| `SessionStart`                                    | `start_reason: "startup\|resume\|clear\|compact\|fork"`                                                             | model field optional                                               |
+| `Setup`                                           | `setup_reason: "init\|maintenance"`                                                                                 |                                                                    |
+| `FileChanged`                                     | `file_path` (absolute), `change_type: "modified\|created\|deleted"`                                                 |                                                                    |
+| `ConfigChange`                                    | `config_source: "user_settings\|project_settings\|local_settings\|policy_settings\|skills"`, `changed_keys` (array) |                                                                    |
+| `Notification`                                    | `notification_type`, `message`                                                                                      |                                                                    |
+| `Elicitation`                                     | `mcp_server`, `tool_name`, `prompt`                                                                                 | User prompt from MCP server                                        |
+| `ElicitationResult`                               | `mcp_server`, `user_response`, `prompt`                                                                             | User's answer                                                      |
+| `WorktreeCreate` / `WorktreeRemove`               | `worktree_path`, `reason: "worktree_flag\|isolation_mode\|background_session"`                                      |                                                                    |
+| `CwdChanged`                                      | `new_cwd`, `previous_cwd`                                                                                           | No matcher support – fires on every change                         |
+| `InstructionsLoaded`                              | `file_path`, `load_reason`, `file_size`                                                                             |                                                                    |
 
 ---
 
@@ -138,16 +145,16 @@ All hooks can return structured output via stdout (command/HTTP/MCP hooks) or ca
 
 #### Capability Matrix: Which Output Fields Work on Which Events
 
-| Field | Events | Description |
-|-------|--------|-------------|
-| `additionalContext` | PreToolUse, PostToolUse, PostToolUseFailure, Stop, SubagentStop, PermissionRequest | Shown to Claude as system message |
-| `updatedInput` | **PreToolUse only** | Modifies tool input before execution (merges with original) |
-| `updatedResponse` | Elicitation, ElicitationResult | Modify MCP response text |
-| `permissionDecision` | PreToolUse, PostToolUse, PostToolUseFailure, UserPromptSubmit, UserPromptExpansion, Stop, SubagentStop, PostToolBatch, PreModelSwitch | Allow/deny/skip decision |
-| `decision` (alternative) | PermissionRequest only | Does NOT support exit code 2; use field only |
-| `retry` | PermissionDenied | Allow model to retry denied call |
-| `systemMessage` | Most events | User-visible output in UI |
-| `terminalSequence` | Most events | Terminal escape codes (notifications, title) |
+| Field                    | Events                                                                                                                                | Description                                                 |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| `additionalContext`      | PreToolUse, PostToolUse, PostToolUseFailure, Stop, SubagentStop, PermissionRequest                                                    | Shown to Claude as system message                           |
+| `updatedInput`           | **PreToolUse only**                                                                                                                   | Modifies tool input before execution (merges with original) |
+| `updatedResponse`        | Elicitation, ElicitationResult                                                                                                        | Modify MCP response text                                    |
+| `permissionDecision`     | PreToolUse, PostToolUse, PostToolUseFailure, UserPromptSubmit, UserPromptExpansion, Stop, SubagentStop, PostToolBatch, PreModelSwitch | Allow/deny/skip decision                                    |
+| `decision` (alternative) | PermissionRequest only                                                                                                                | Does NOT support exit code 2; use field only                |
+| `retry`                  | PermissionDenied                                                                                                                      | Allow model to retry denied call                            |
+| `systemMessage`          | Most events                                                                                                                           | User-visible output in UI                                   |
+| `terminalSequence`       | Most events                                                                                                                           | Terminal escape codes (notifications, title)                |
 
 ---
 
@@ -155,11 +162,11 @@ All hooks can return structured output via stdout (command/HTTP/MCP hooks) or ca
 
 **Source:** https://code.claude.com/docs/en/hooks.md
 
-| Code | Behavior | Applies To |
-|------|----------|-----------|
-| **0** | ✅ Success – Action proceeds. Stdout parsed as JSON if `{...}`. Plain text stdout added as context only on: UserPromptSubmit, UserPromptExpansion, SessionStart, PostModelSwitch. Stderr → debug log only. | All events |
-| **2** | ⛔ **Blocking error** – Blocks action on blockable events. JSON decisions AND exit 2 together. Blocking message from JSON reason or stderr. | **Blockable:** PreToolUse, UserPromptSubmit, UserPromptExpansion, Stop, SubagentStop, TeammateIdle, TaskCreated, TaskCompleted, ConfigChange, PostToolBatch, PreModelSwitch, WorktreeCreate/Remove. **Not blockable:** PermissionRequest, StopFailure, PostToolUse, PostToolUseFailure |
-| **Other** | ⚠️ Non-blocking error. If valid JSON output, honors decision fields. If invalid JSON, reports parse error. Empty stdout = non-blocking error. | All events |
+| Code      | Behavior                                                                                                                                                                                                   | Applies To                                                                                                                                                                                                                                                                             |
+| --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **0**     | ✅ Success – Action proceeds. Stdout parsed as JSON if `{...}`. Plain text stdout added as context only on: UserPromptSubmit, UserPromptExpansion, SessionStart, PostModelSwitch. Stderr → debug log only. | All events                                                                                                                                                                                                                                                                             |
+| **2**     | ⛔ **Blocking error** – Blocks action on blockable events. JSON decisions AND exit 2 together. Blocking message from JSON reason or stderr.                                                                | **Blockable:** PreToolUse, UserPromptSubmit, UserPromptExpansion, Stop, SubagentStop, TeammateIdle, TaskCreated, TaskCompleted, ConfigChange, PostToolBatch, PreModelSwitch, WorktreeCreate/Remove. **Not blockable:** PermissionRequest, StopFailure, PostToolUse, PostToolUseFailure |
+| **Other** | ⚠️ Non-blocking error. If valid JSON output, honors decision fields. If invalid JSON, reports parse error. Empty stdout = non-blocking error.                                                              | All events                                                                                                                                                                                                                                                                             |
 
 ---
 
@@ -187,6 +194,7 @@ Each line is a complete JSON object:
 **Source:** https://code.claude.com/docs/en/hooks-guide.md + hooks.md
 
 #### Command Hook (Shell Script)
+
 ```json
 {
   "type": "command",
@@ -196,11 +204,13 @@ Each line is a complete JSON object:
   "async": false
 }
 ```
+
 - Runs shell command with JSON on stdin
 - Exit code + stdout determine result
 - Timeout in seconds
 
 #### HTTP Hook (Remote Service)
+
 ```json
 {
   "type": "http",
@@ -212,12 +222,14 @@ Each line is a complete JSON object:
   "timeout": 30
 }
 ```
+
 - POST JSON to remote endpoint
 - Response body parsed as JSON
 - Env vars interpolated (only allowedEnvVars)
 - Timeout in seconds
 
 #### MCP Tool Hook (Invoke MCP Tool)
+
 ```json
 {
   "type": "mcp_tool",
@@ -228,10 +240,12 @@ Each line is a complete JSON object:
   }
 }
 ```
+
 - Calls registered MCP tool
 - Input can reference event fields with `${path}` syntax
 
 #### Prompt Hook (LLM-Based Decision)
+
 ```json
 {
   "type": "prompt",
@@ -240,6 +254,7 @@ Each line is a complete JSON object:
   "timeout": 30
 }
 ```
+
 - Runs small model to evaluate condition
 - Returns yes/no decision
 - Timeout in seconds
@@ -250,19 +265,19 @@ Each line is a complete JSON object:
 
 **Source:** https://code.claude.com/docs/en/hooks.md
 
-| Pattern | Type | Example | Matches |
-|---------|------|---------|---------|
-| `"*"`, `""`, omitted | Match all | | All occurrences |
-| `Bash\|PowerShell` | Exact list | `Edit\|Write` | Tool name alternatives (pipe-separated) |
-| `^Notebook.*` | Regex | | Regex patterns |
-| `mcp__memory__.*` | MCP tools | | All tools from server (prefix match) |
-| `.envrc\|.env` | File matchers | | FileChanged event literal filenames |
+| Pattern              | Type          | Example       | Matches                                 |
+| -------------------- | ------------- | ------------- | --------------------------------------- |
+| `"*"`, `""`, omitted | Match all     |               | All occurrences                         |
+| `Bash\|PowerShell`   | Exact list    | `Edit\|Write` | Tool name alternatives (pipe-separated) |
+| `^Notebook.*`        | Regex         |               | Regex patterns                          |
+| `mcp__memory__.*`    | MCP tools     |               | All tools from server (prefix match)    |
+| `.envrc\|.env`       | File matchers |               | FileChanged event literal filenames     |
 
 **For tool events** (PreToolUse, PostToolUse, PostToolUseFailure): Matches against `tool_name`  
 **For SessionStart:** Matches against `start_reason`  
 **For SessionEnd:** Matches against `end_reason`  
 **For Notification:** Matches against `notification_type`  
-**For SubagentStart/Stop:** Matches against `agent_type`  
+**For SubagentStart/Stop:** Matches against `agent_type`
 
 ---
 
@@ -270,16 +285,17 @@ Each line is a complete JSON object:
 
 **Source:** https://code.claude.com/docs/en/hooks-guide.md + hooks.md
 
-| Location | Scope | Shared? | Precedence |
-|----------|-------|---------|-----------|
-| `~/.claude/settings.json` | All projects (user) | No | **3rd** (plugin > project > user) |
-| `.claude/settings.json` | Single project | Yes (committed) | **2nd** |
-| `.claude/settings.local.json` | Single project | No (gitignored) | **2nd** |
-| Plugin `hooks/hooks.json` | When plugin enabled | Yes (bundled) | **1st** (highest) |
-| Skill/Subagent frontmatter | Skill/agent scope | Yes (defined in file) | Inline to skill |
-| Managed policy settings | Organization-wide | Yes (admin-controlled) | Override all |
+| Location                      | Scope               | Shared?                | Precedence                        |
+| ----------------------------- | ------------------- | ---------------------- | --------------------------------- |
+| `~/.claude/settings.json`     | All projects (user) | No                     | **3rd** (plugin > project > user) |
+| `.claude/settings.json`       | Single project      | Yes (committed)        | **2nd**                           |
+| `.claude/settings.local.json` | Single project      | No (gitignored)        | **2nd**                           |
+| Plugin `hooks/hooks.json`     | When plugin enabled | Yes (bundled)          | **1st** (highest)                 |
+| Skill/Subagent frontmatter    | Skill/agent scope   | Yes (defined in file)  | Inline to skill                   |
+| Managed policy settings       | Organization-wide   | Yes (admin-controlled) | Override all                      |
 
 **Configuration format:** All use same JSON schema. Plugin format:
+
 ```
 plugin-root/hooks/hooks.json
 {
@@ -300,24 +316,26 @@ plugin-root/hooks/hooks.json
 
 Hooks can reference these environment variables:
 
-| Variable | Value | Available To |
-|----------|-------|--------------|
-| `CLAUDE_PROJECT_DIR` | Repository root (stable across worktrees) | All hooks |
-| `CLAUDE_SESSION_ID` | Current session ID | All hooks |
-| `CLAUDE_SKILL_DIR` | Skill directory path (if skill-invoked) | Skill-triggered hooks |
-| `CLAUDE_CODE_MCP_SERVER_NAME` | MCP server name | HTTP hooks with headersHelper |
-| `CLAUDE_CODE_MCP_SERVER_URL` | MCP server URL | HTTP hooks with headersHelper |
-| `CLAUDE_PLUGIN_ROOT` | Plugin installation directory | Plugin hooks |
-| `CLAUDE_PLUGIN_DATA` | Plugin persistent state directory | Plugin hooks |
+| Variable                      | Value                                     | Available To                  |
+| ----------------------------- | ----------------------------------------- | ----------------------------- |
+| `CLAUDE_PROJECT_DIR`          | Repository root (stable across worktrees) | All hooks                     |
+| `CLAUDE_SESSION_ID`           | Current session ID                        | All hooks                     |
+| `CLAUDE_SKILL_DIR`            | Skill directory path (if skill-invoked)   | Skill-triggered hooks         |
+| `CLAUDE_CODE_MCP_SERVER_NAME` | MCP server name                           | HTTP hooks with headersHelper |
+| `CLAUDE_CODE_MCP_SERVER_URL`  | MCP server URL                            | HTTP hooks with headersHelper |
+| `CLAUDE_PLUGIN_ROOT`          | Plugin installation directory             | Plugin hooks                  |
+| `CLAUDE_PLUGIN_DATA`          | Plugin persistent state directory         | Plugin hooks                  |
 
 ---
 
 ### 1.10 Blockable vs Non-Blockable Events (Summary)
 
 **Blockable** (exit 2 or JSON `permissionDecision: deny` will block):
+
 - PreToolUse, UserPromptSubmit, UserPromptExpansion, Stop, SubagentStop, TeammateIdle, TaskCreated, TaskCompleted, ConfigChange, PostToolBatch, PreModelSwitch, WorktreeCreate/Remove
 
 **Non-blockable** (exit 2 ignored):
+
 - PermissionRequest, StopFailure, PostToolUse, PostToolUseFailure, all async events
 
 ---
@@ -355,6 +373,7 @@ my-plugin/
 ```
 
 **Layout rules:**
+
 - `.claude-plugin/` contains ONLY `plugin.json` (not other components)
 - Skills/commands/agents/hooks/MCP at plugin ROOT, not inside `.claude-plugin/`
 - Single-skill plugins can place `SKILL.md` directly at root (no `skills/` dir)
@@ -401,9 +420,11 @@ my-plugin/
 ```
 
 **Required fields:**
+
 - `name` – Kebab-case, becomes skill namespace prefix
 
 **Optional fields:**
+
 - `version` – Pins plugin updates; omit to auto-use resolved version
 - `author`, `homepage`, `repository`, `license` – Attribution and links
 - `mcpServers` – MCP server configs (alternative: `.mcp.json`)
@@ -414,32 +435,39 @@ my-plugin/
 ### 2.3 How Plugins Bundle Components
 
 #### Skills
+
 - Directory: `skills/<skill-name>/SKILL.md`
 - Invocation: `/plugin-name:skill-name`
 - Namespace prevents conflicts with other plugins
 
 #### Agents (Custom Subagents)
+
 - Directory: `agents/<agent-name>/` with agent definition files
 - Enabled via `/context` or declared in `settings.json`
 
 #### Hooks
+
 - Directory: `hooks/hooks.json`
 - Format same as project `.claude/settings.json` hooks
 - Fires when plugin is enabled
 
 #### MCP Servers
+
 - Configuration: `.mcp.json` at plugin root OR inline in `plugin.json` as `mcpServers` key
 - Tools named: `mcp__plugin_<plugin-name>_<server-name>__<tool>`
 
 #### LSP Servers
+
 - Configuration: `.lsp.json` at plugin root
 - Provides code intelligence for specific languages
 
 #### Monitors (Background Watchers)
+
 - Configuration: `monitors/monitors.json`
 - Runs commands in background, notifies Claude on stdout lines
 
 #### Default Settings
+
 - File: `settings.json` at plugin root
 - Supported keys: `agent` (activate custom agent), `subagentStatusLine`
 - Takes precedence over plugin.json settings
@@ -490,11 +518,13 @@ my-plugin/
 ```
 
 **Required fields:**
+
 - `name` – Kebab-case marketplace ID
 - `owner` (object with `name`, optional `email`, `url`)
 - `plugins` (array)
 
 **Plugin entry required fields:**
+
 - `name` – Plugin name
 - `source` – Path or source object (see 2.5)
 
@@ -505,14 +535,17 @@ my-plugin/
 **Source:** https://code.claude.com/docs/en/plugin-marketplaces.md
 
 #### Relative Paths
+
 ```json
 {
   "source": "./plugins/my-plugin"
 }
 ```
+
 Resolves relative to marketplace root.
 
 #### GitHub
+
 ```json
 {
   "source": {
@@ -525,6 +558,7 @@ Resolves relative to marketplace root.
 ```
 
 #### Git URL
+
 ```json
 {
   "source": {
@@ -537,6 +571,7 @@ Resolves relative to marketplace root.
 ```
 
 #### Git Subdirectory (Sparse Checkout)
+
 ```json
 {
   "source": {
@@ -550,6 +585,7 @@ Resolves relative to marketplace root.
 ```
 
 #### npm Package
+
 ```json
 {
   "source": {
@@ -562,6 +598,7 @@ Resolves relative to marketplace root.
 ```
 
 #### Zip Archive (v2.1.224+)
+
 ```json
 {
   "source": {
@@ -573,6 +610,7 @@ Resolves relative to marketplace root.
 ```
 
 #### Command Source (v2.1.229+)
+
 ```json
 {
   "source": {
@@ -608,6 +646,7 @@ Resolves relative to marketplace root.
 ```
 
 **Team Distribution (via .claude/settings.json):**
+
 ```json
 {
   "extraKnownMarketplaces": {
@@ -625,6 +664,7 @@ Resolves relative to marketplace root.
 ```
 
 **Organization Settings (Admin Portal):**
+
 - Admin sets marketplace in `claude.ai/admin-settings/plugins`
 - Restrictions: Private repo, only github/url/git-subdir/relative sources
 - No top-level `bin/` (use `${CLAUDE_PLUGIN_ROOT}/scripts/<name>`)
@@ -656,6 +696,7 @@ Resolves relative to marketplace root.
 **Source:** https://code.claude.com/docs/en/mcp.md
 
 #### Command Line
+
 ```bash
 # HTTP transport
 claude mcp add --transport http notion https://mcp.notion.com/mcp
@@ -671,12 +712,14 @@ claude mcp add-json events-server '{"type":"ws","url":"wss://mcp.example.com/soc
 ```
 
 #### JSON Direct
+
 ```bash
 claude mcp add-json weather-api \
   '{"type":"http","url":"https://api.weather.com/mcp"}'
 ```
 
 #### OAuth Pre-configured
+
 ```bash
 claude mcp add-json my-server \
   '{"type":"http","url":"https://mcp.example.com/mcp","oauth":{"clientId":"...","callbackPort":8080}}' \
@@ -721,6 +764,7 @@ Location: `.mcp.json` at project or plugin root
 ```
 
 **Field definitions:**
+
 - `type` – Transport: http, sse (deprecated), ws, stdio
 - `url` – Remote endpoint (http/sse/ws)
 - `command` – Binary path (stdio)
@@ -732,6 +776,7 @@ Location: `.mcp.json` at project or plugin root
 - `headersHelper` – Script that returns dynamic headers (receives env: `CLAUDE_CODE_MCP_SERVER_NAME`, `CLAUDE_CODE_MCP_SERVER_URL`, `CLAUDE_PLUGIN_ROOT`)
 
 **Path placeholders:**
+
 ```
 ${CLAUDE_PLUGIN_ROOT}    – Plugin installation directory
 ${CLAUDE_PLUGIN_DATA}    – Plugin persistent state directory
@@ -739,6 +784,7 @@ ${CLAUDE_PROJECT_DIR}    – Repository root
 ```
 
 **Environment variable expansion:**
+
 ```
 ${VAR}           – Expands to VAR
 ${VAR:-default}  – Expands to VAR or "default" if VAR not set
@@ -751,25 +797,30 @@ ${VAR:-default}  – Expands to VAR or "default" if VAR not set
 **Source:** https://code.claude.com/docs/en/mcp.md
 
 #### Standard Tool Names
+
 ```
 mcp__<server-name>__<tool-name>
 ```
 
 **Examples:**
+
 - `mcp__stripe__create_charge`
 - `mcp__github__create_pull_request`
 - `mcp__notion__query_database`
 
 #### Plugin-Bundled Tool Names
+
 ```
 mcp__plugin_<plugin-name>_<server-name>__<tool-name>
 ```
 
-**Characters outside A-Z, a-z, 0-9, _, and - are replaced with _:**
+**Characters outside A-Z, a-z, 0-9, \_, and - are replaced with \_:**
+
 - Plugin: `my-plugin`, Server: `database-tools`, Tool: `query`
 - Result: `mcp__plugin_my-plugin_database-tools__query`
 
 #### For Permissions and Matchers
+
 - Server registration name: `plugin:my-plugin:database-tools`
 - Wildcard: `mcp__plugin_my-plugin_database-tools__.*`
 - Tool matcher: Include in `allowed-tools` lists on skills/subagents
@@ -780,15 +831,16 @@ mcp__plugin_<plugin-name>_<server-name>__<tool-name>
 
 **Source:** https://code.claude.com/docs/en/mcp.md
 
-| Scope | Loads In | Shared? | Storage | Precedence |
-|-------|----------|---------|---------|-----------|
-| **Local** | Current project only | No | `~/.claude.json` | 1st (highest) |
-| **Project** | Current project only | Yes (via `.mcp.json`) | `.mcp.json` | 2nd |
-| **User** | All user's projects | No | `~/.claude.json` | 3rd |
-| **Plugin** | When plugin enabled | Yes (bundled) | Plugin `.mcp.json` | 4th |
-| **claude.ai connectors** | All | Managed | Cloud | 5th (lowest) |
+| Scope                    | Loads In             | Shared?               | Storage            | Precedence    |
+| ------------------------ | -------------------- | --------------------- | ------------------ | ------------- |
+| **Local**                | Current project only | No                    | `~/.claude.json`   | 1st (highest) |
+| **Project**              | Current project only | Yes (via `.mcp.json`) | `.mcp.json`        | 2nd           |
+| **User**                 | All user's projects  | No                    | `~/.claude.json`   | 3rd           |
+| **Plugin**               | When plugin enabled  | Yes (bundled)         | Plugin `.mcp.json` | 4th           |
+| **claude.ai connectors** | All                  | Managed               | Cloud              | 5th (lowest)  |
 
 **CLI to set scope:**
+
 ```bash
 # Local scope (default)
 claude mcp add --transport http stripe https://mcp.stripe.com
@@ -815,6 +867,7 @@ MCP servers can push dynamic capabilities:
 - **v2 Runtime** – Receives notifications over persistent stream
 
 **Server Status Indicators in `/mcp`:**
+
 - `✔ Connected` – Active and available
 - `! Needs authentication` – OAuth required
 - `✘ Failed to connect` – Connection error (shows reason)
@@ -869,37 +922,37 @@ description: "When Claude should use this skill. Use for pattern matching."
 when_to_use: "Additional trigger context"
 
 # Control
-disable-model-invocation: false  # true = only you invoke it, never Claude
-user-invocable: true             # false = only Claude invokes it
-paths: "*.ts,*.js"              # Glob patterns for activation trigger
+disable-model-invocation: false # true = only you invoke it, never Claude
+user-invocable: true # false = only Claude invokes it
+paths: "*.ts,*.js" # Glob patterns for activation trigger
 
 # Execution context
-context: fork|inherit            # fork = isolated subagent, inherit = same context
+context: fork|inherit # fork = isolated subagent, inherit = same context
 agent: Explore|Plan|general-purpose|custom-agent-name
-background: false                # false = wait for result, true = async (with context: fork)
-model: claude-3-7-sonnet        # Override session model
-effort: low|medium|high|xhigh|max  # Override effort level
+background: false # false = wait for result, true = async (with context: fork)
+model: claude-3-7-sonnet # Override session model
+effort: low|medium|high|xhigh|max # Override effort level
 
 # Tools
-allowed-tools: "Bash(git *),Read"        # Pre-approve tools for this skill
-disallowed-tools: "AskUserQuestion"      # Remove tools while skill active
+allowed-tools: "Bash(git *),Read" # Pre-approve tools for this skill
+disallowed-tools: "AskUserQuestion" # Remove tools while skill active
 
 # Arguments
-arguments: [issue, branch]      # Named positional arguments
+arguments: [issue, branch] # Named positional arguments
 argument-hint: "[issue-number]" # Autocomplete hint
 
 # Shell (for injected commands)
-shell: bash|powershell|zsh      # Default shell for !` commands
+shell: bash|powershell|zsh # Default shell for !` commands
 
 # Hooks & metadata
-hooks: { ... }                  # Advanced: register hooks within skill
+hooks: { ... } # Advanced: register hooks within skill
 metadata:
   custom-key: custom-value
+
 
 # Advanced
 # scripts/ directory at skill root can be referenced by commands
 ---
-
 # Skill instructions follow frontmatter
 ```
 
@@ -915,12 +968,14 @@ Claude automatically invokes a skill when:
 4. **Not hidden** – `user-invocable: false` prevents user invocation (Claude still auto-triggers)
 
 Example trigger:
+
 ```yaml
 ---
 name: summarize-changes
 description: Summarizes uncommitted changes and flags risks. Use when user asks what changed.
 ---
 ```
+
 Triggers on: "What did I change?" or "Review my diff"
 
 ---
@@ -947,6 +1002,7 @@ Triggers on: "What did I change?" or "Review my diff"
 ```
 
 **Location Priority (when names conflict):**
+
 1. Enterprise settings
 2. Project scope (`.claude/`)
 3. User scope (`~/.claude/`)
@@ -960,15 +1016,15 @@ Triggers on: "What did I change?" or "Review my diff"
 
 Available throughout skill content:
 
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `$ARGUMENTS` | All arguments passed | `/fix-issue 123` → `$ARGUMENTS` = `123` |
-| `$0`, `$1`, ... | Indexed arguments | `/migrate Foo JS TS` → `$0`=`Foo`, `$1`=`JS`, `$2`=`TS` |
-| `$name` | Named argument (from `arguments` field) | With `arguments: [issue]`: `$issue` is the value |
-| `${CLAUDE_SKILL_DIR}` | Skill directory path | Absolute path to skill folder |
-| `${CLAUDE_PROJECT_DIR}` | Repository root | Absolute path to project |
-| `${CLAUDE_SESSION_ID}` | Session ID | For logging/correlation |
-| `${CLAUDE_EFFORT}` | Current effort level | `low`, `medium`, `high`, `xhigh`, `max` |
+| Variable                | Description                             | Example                                                 |
+| ----------------------- | --------------------------------------- | ------------------------------------------------------- |
+| `$ARGUMENTS`            | All arguments passed                    | `/fix-issue 123` → `$ARGUMENTS` = `123`                 |
+| `$0`, `$1`, ...         | Indexed arguments                       | `/migrate Foo JS TS` → `$0`=`Foo`, `$1`=`JS`, `$2`=`TS` |
+| `$name`                 | Named argument (from `arguments` field) | With `arguments: [issue]`: `$issue` is the value        |
+| `${CLAUDE_SKILL_DIR}`   | Skill directory path                    | Absolute path to skill folder                           |
+| `${CLAUDE_PROJECT_DIR}` | Repository root                         | Absolute path to project                                |
+| `${CLAUDE_SESSION_ID}`  | Session ID                              | For logging/correlation                                 |
+| `${CLAUDE_EFFORT}`      | Current effort level                    | `low`, `medium`, `high`, `xhigh`, `max`                 |
 
 ---
 
@@ -979,14 +1035,18 @@ Available throughout skill content:
 Commands prefixed with `!` run and inject their output:
 
 **Inline form:**
-````markdown
+
+```markdown
 ## Current changes
+
 !`git diff HEAD`
-````
+```
 
 **Multi-line form:**
+
 ````markdown
 ## Environment
+
 ```!
 node --version
 git status --short
@@ -994,6 +1054,7 @@ git status --short
 ````
 
 **Rules:**
+
 - Commands run once and replace placeholder
 - Non-zero exit codes abort skill invocation
 - Exit code 1 from grep/git-diff/etc. counts as success (append `|| true` to expect non-zero)
@@ -1035,6 +1096,7 @@ claude -p --bare "Print the schema" --allowedTools "Read,Bash"
 ```
 
 #### Key Flags
+
 - **`-p` / `--print`** – Non-interactive mode, output to stdout
 - **`--bare`** – Skip auto-discovery of hooks, skills, plugins, MCP, subagents, CLAUDE.md
 - **`--continue`** – Continue most recent conversation
@@ -1047,6 +1109,7 @@ claude -p --bare "Print the schema" --allowedTools "Read,Bash"
 - **`--append-system-prompt <text>`** – Add instructions
 
 #### Bare Mode Behavior
+
 - Skips: hooks, skills, plugins, MCP servers, subagents, CLAUDE.md, auto-memory
 - Still loads: skills from `--add-dir` (only from `.claude/skills/`)
 - Requires: `ANTHROPIC_API_KEY` for API auth (keychain not used)
@@ -1055,23 +1118,27 @@ claude -p --bare "Print the schema" --allowedTools "Read,Bash"
 #### Output Modes
 
 **Text** (default):
+
 ```bash
 claude -p "Summarize this project"
 ```
 
 **JSON** (with metadata):
+
 ```bash
 claude -p "Summarize this project" --output-format json
 # Output: {"result": "...", "session_id": "...", "cost": {...}}
 ```
 
 **Stream JSON** (real-time tokens):
+
 ```bash
 claude -p "Explain recursion" --output-format stream-json --verbose
 # Each line: {"type": "stream_event", "event": {...}}
 ```
 
 **Structured Output** (JSON Schema):
+
 ```bash
 claude -p "Extract function names from auth.py" \
   --output-format json \
@@ -1079,6 +1146,7 @@ claude -p "Extract function names from auth.py" \
 ```
 
 #### Exit Codes
+
 - **0** – Success
 - **1** – Failure (load error, no cases, invalid options, gate closed)
 - **2** – Partial (cost ceiling hit, credential rejected before first run)
@@ -1092,11 +1160,13 @@ claude -p "Extract function names from auth.py" \
 **Source:** https://code.claude.com/docs/en/agent-sdk/python
 
 #### Installation
+
 ```bash
 pip install claude-agent-sdk
 ```
 
 #### Query Signature
+
 ```python
 async def query(
     *,
@@ -1107,6 +1177,7 @@ async def query(
 ```
 
 #### Hook Configuration
+
 ```python
 from claude_agent_sdk import ClaudeAgentOptions, HookEvent, HookRequest, HookResponse
 
@@ -1128,6 +1199,7 @@ async def hook_matcher_callback(request: HookRequest) -> HookResponse:
 ```
 
 #### Hook Return Type
+
 ```python
 class HookResponse(TypedDict):
     behavior: Literal["allow", "ask", "deny"]
@@ -1136,6 +1208,7 @@ class HookResponse(TypedDict):
 ```
 
 #### Environment Configuration
+
 ```python
 options = ClaudeAgentOptions(
     env={
@@ -1149,12 +1222,13 @@ options = ClaudeAgentOptions(
 ```
 
 #### Permission Callback
+
 ```python
 from claude_agent_sdk import ToolPermissionContext, PermissionResult, PermissionResultAllow, PermissionResultDeny
 
 async def can_use_tool(
-    tool_name: str, 
-    input_data: dict, 
+    tool_name: str,
+    input_data: dict,
     context: ToolPermissionContext
 ) -> PermissionResult:
     if tool_name == "Write" and input_data.get("file_path", "").startswith("/system/"):
@@ -1171,22 +1245,25 @@ options = ClaudeAgentOptions(can_use_tool=can_use_tool)
 **Source:** https://code.claude.com/docs/en/agent-sdk/typescript
 
 #### Installation
+
 ```bash
 npm install @anthropic-ai/claude-agent-sdk
 ```
 
 #### Query Signature
+
 ```typescript
 function query({
   prompt,
-  options
+  options,
 }: {
   prompt: string | AsyncIterable<SDKUserMessage>;
   options?: Options;
-}): Query;  // extends AsyncGenerator<SDKMessage, void>
+}): Query; // extends AsyncGenerator<SDKMessage, void>
 ```
 
 #### Hook Configuration
+
 ```typescript
 import { query, HookEvent } from "@anthropic-ai/claude-agent-sdk";
 
@@ -1196,18 +1273,21 @@ for await (const message of query({
     hooks: {
       [HookEvent.PreToolUse]: [
         async (request, { signal }) => {
-          if (request.tool_name === "Bash" && request.tool_input.command.includes("rm -rf")) {
+          if (
+            request.tool_name === "Bash" &&
+            request.tool_input.command.includes("rm -rf")
+          ) {
             return {
               behavior: "deny",
-              permissionDecisionReason: "Destructive command blocked"
+              permissionDecisionReason: "Destructive command blocked",
             };
           }
           return { behavior: "allow" };
-        }
-      ]
+        },
+      ],
     },
-    includeHookEvents: true  // Include hook lifecycle in stream
-  }
+    includeHookEvents: true, // Include hook lifecycle in stream
+  },
 })) {
   console.log(message);
 }
@@ -1224,26 +1304,28 @@ When `includeHookEvents: true`:
 **Note:** SessionStart, Setup, Notification, SessionEnd always emit lifecycle events.
 
 #### Environment Setup
+
 ```typescript
 const options = {
   env: {
     ...process.env,
-    YOUR_VAR: 'value',
-    CLAUDE_AGENT_SDK_CLIENT_APP: 'my-app'
+    YOUR_VAR: "value",
+    CLAUDE_AGENT_SDK_CLIENT_APP: "my-app",
   },
-  pathToClaudeCodeExecutable: '/custom/path/to/claude',
-  cwd: '/project/root'
+  pathToClaudeCodeExecutable: "/custom/path/to/claude",
+  cwd: "/project/root",
 };
 ```
 
 #### Custom Process Spawning
+
 ```typescript
 import { SpawnedProcess } from "@anthropic-ai/claude-agent-sdk";
 
 const options = {
   spawnClaudeCodeProcess: (opts: SpawnOptions): SpawnedProcess => {
     // Return custom process for VM/container/remote execution
-  }
+  },
 };
 ```
 
@@ -1323,4 +1405,3 @@ For your standalone developer plugin spec:
 
 **Document compiled:** 2026-09-07  
 **Last updated:** https://code.claude.com/docs/en/ (docs dated 2026-09-05)
-

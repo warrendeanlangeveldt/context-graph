@@ -1,50 +1,55 @@
 <title>Context Graph Spec</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link
+  rel="stylesheet"
+  href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap"
+/>
 <style>
   :root {
-    --bg: #F3F5F8;
-    --surface: #FFFFFF;
-    --ink: #18202B;
-    --muted: #5A6675;
-    --line: #D6DDE5;
-    --accent: #0E6B70;
-    --accent-soft: #DCEFEF;
-    --warm: #A85F14;
-    --code-bg: #EAEEF2;
-    --toc-active: #0E6B70;
+    --bg: #f3f5f8;
+    --surface: #ffffff;
+    --ink: #18202b;
+    --muted: #5a6675;
+    --line: #d6dde5;
+    --accent: #0e6b70;
+    --accent-soft: #dcefef;
+    --warm: #a85f14;
+    --code-bg: #eaeef2;
+    --toc-active: #0e6b70;
     color-scheme: light;
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
-      --bg: #0F1319;
-      --surface: #161B23;
-      --ink: #E4E8EE;
-      --muted: #97A2B0;
-      --line: #2A323D;
-      --accent: #56BCC0;
-      --accent-soft: #163A3C;
-      --warm: #E3A65C;
-      --code-bg: #1B212A;
-      --toc-active: #56BCC0;
+      --bg: #0f1319;
+      --surface: #161b23;
+      --ink: #e4e8ee;
+      --muted: #97a2b0;
+      --line: #2a323d;
+      --accent: #56bcc0;
+      --accent-soft: #163a3c;
+      --warm: #e3a65c;
+      --code-bg: #1b212a;
+      --toc-active: #56bcc0;
       color-scheme: dark;
     }
   }
   :root[data-theme="dark"] {
-    --bg: #0F1319;
-    --surface: #161B23;
-    --ink: #E4E8EE;
-    --muted: #97A2B0;
-    --line: #2A323D;
-    --accent: #56BCC0;
-    --accent-soft: #163A3C;
-    --warm: #E3A65C;
-    --code-bg: #1B212A;
-    --toc-active: #56BCC0;
+    --bg: #0f1319;
+    --surface: #161b23;
+    --ink: #e4e8ee;
+    --muted: #97a2b0;
+    --line: #2a323d;
+    --accent: #56bcc0;
+    --accent-soft: #163a3c;
+    --warm: #e3a65c;
+    --code-bg: #1b212a;
+    --toc-active: #56bcc0;
     color-scheme: dark;
   }
 
-  * { box-sizing: border-box; }
+  * {
+    box-sizing: border-box;
+  }
   body {
     margin: 0;
     background: var(--bg);
@@ -54,9 +59,18 @@
     line-height: 1.6;
     -webkit-font-smoothing: antialiased;
   }
-  a { color: var(--accent); text-decoration: none; }
-  a:hover { text-decoration: underline; }
-  a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+  a {
+    color: var(--accent);
+    text-decoration: none;
+  }
+  a:hover {
+    text-decoration: underline;
+  }
+  a:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
 
   .page {
     display: grid;
@@ -116,16 +130,28 @@
     color: var(--muted);
     padding: 0.5rem 0;
   }
-  #toc ul { list-style: none; margin: 0; padding: 0; }
-  #toc li { margin: 0; }
+  #toc ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  #toc li {
+    margin: 0;
+  }
   #toc > ul > li > a {
     display: block;
     padding: 0.28rem 0.6rem;
     border-left: 2px solid transparent;
     color: var(--muted);
   }
-  #toc > ul > li > a:hover { color: var(--ink); text-decoration: none; border-left-color: var(--line); }
-  #toc ul ul { display: none; }
+  #toc > ul > li > a:hover {
+    color: var(--ink);
+    text-decoration: none;
+    border-left-color: var(--line);
+  }
+  #toc ul ul {
+    display: none;
+  }
   #toc .toc-label {
     font-size: 0.72rem;
     letter-spacing: 0.08em;
@@ -135,9 +161,17 @@
   }
 
   /* Body copy */
-  main { min-width: 0; }
-  main > * + * { margin-top: 1rem; }
-  main p, main li { max-width: 72ch; text-wrap: pretty; }
+  main {
+    min-width: 0;
+  }
+  main > * + * {
+    margin-top: 1rem;
+  }
+  main p,
+  main li {
+    max-width: 72ch;
+    text-wrap: pretty;
+  }
   main h2 {
     font-family: "Newsreader", Georgia, "Times New Roman", serif;
     font-optical-sizing: auto;
@@ -150,7 +184,9 @@
     border-top: 1px solid var(--line);
     text-wrap: balance;
   }
-  main h2:first-of-type { margin-top: 1rem; }
+  main h2:first-of-type {
+    margin-top: 1rem;
+  }
   main h3 {
     font-size: 1.15rem;
     font-weight: 600;
@@ -166,14 +202,29 @@
     color: var(--muted);
     margin: 1.75rem 0 0.5rem;
   }
-  main ol, main ul { padding-left: 1.4rem; }
-  main li + li { margin-top: 0.3rem; }
-  main strong { font-weight: 600; }
-  main em { font-style: italic; color: var(--muted); }
-  main hr { border: 0; border-top: 1px solid var(--line); margin: 2rem 0; }
+  main ol,
+  main ul {
+    padding-left: 1.4rem;
+  }
+  main li + li {
+    margin-top: 0.3rem;
+  }
+  main strong {
+    font-weight: 600;
+  }
+  main em {
+    font-style: italic;
+    color: var(--muted);
+  }
+  main hr {
+    border: 0;
+    border-top: 1px solid var(--line);
+    margin: 2rem 0;
+  }
 
   /* Code */
-  code, pre {
+  code,
+  pre {
     font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
     font-size: 0.86em;
   }
@@ -192,7 +243,12 @@
     line-height: 1.5;
     margin: 1rem 0;
   }
-  pre code { background: transparent; padding: 0; font-size: 0.84rem; white-space: pre; }
+  pre code {
+    background: transparent;
+    padding: 0;
+    font-size: 0.84rem;
+    white-space: pre;
+  }
   pre.mermaid {
     background: var(--surface);
     padding: 1rem;
@@ -200,9 +256,26 @@
   }
 
   /* Tables */
-  .tw { overflow-x: auto; margin: 1rem 0; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); }
-  table { border-collapse: collapse; width: 100%; font-size: 0.9rem; font-variant-numeric: tabular-nums; }
-  th, td { text-align: left; vertical-align: top; padding: 0.55rem 0.8rem; border-bottom: 1px solid var(--line); }
+  .tw {
+    overflow-x: auto;
+    margin: 1rem 0;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: var(--surface);
+  }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 0.9rem;
+    font-variant-numeric: tabular-nums;
+  }
+  th,
+  td {
+    text-align: left;
+    vertical-align: top;
+    padding: 0.55rem 0.8rem;
+    border-bottom: 1px solid var(--line);
+  }
   th {
     font-size: 0.72rem;
     letter-spacing: 0.06em;
@@ -211,27 +284,69 @@
     font-weight: 600;
     background: var(--code-bg);
   }
-  tr:last-child td { border-bottom: 0; }
-  td code { white-space: normal; }
+  tr:last-child td {
+    border-bottom: 0;
+  }
+  td code {
+    white-space: normal;
+  }
 
   /* First table is the metadata block */
-  main > .tw:first-child { border: 0; background: transparent; }
-  main > .tw:first-child table { font-size: 0.86rem; max-width: 60ch; }
-  main > .tw:first-child th { display: none; }
-  main > .tw:first-child td:first-child { color: var(--muted); width: 9rem; padding-left: 0; }
-  main > .tw:first-child td { border-bottom-color: transparent; padding-top: 0.2rem; padding-bottom: 0.2rem; }
+  main > .tw:first-child {
+    border: 0;
+    background: transparent;
+  }
+  main > .tw:first-child table {
+    font-size: 0.86rem;
+    max-width: 60ch;
+  }
+  main > .tw:first-child th {
+    display: none;
+  }
+  main > .tw:first-child td:first-child {
+    color: var(--muted);
+    width: 9rem;
+    padding-left: 0;
+  }
+  main > .tw:first-child td {
+    border-bottom-color: transparent;
+    padding-top: 0.2rem;
+    padding-bottom: 0.2rem;
+  }
 
-  @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
-  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) {
+    * {
+      scroll-behavior: auto !important;
+    }
+  }
+  html {
+    scroll-behavior: smooth;
+  }
 
   /* Narrow screens: single column, table of contents becomes a toggle. Last so it wins the cascade. */
   @media (max-width: 960px) {
-    .page { grid-template-columns: minmax(0, 1fr); gap: 1.5rem; }
-    #toc { position: static; max-height: none; padding-right: 0; }
-    #toc .toc-label { display: none; }
-    #toc details summary { display: block; }
-    #toc > ul { display: none; }
-    #toc details[open] ~ ul { display: block; margin-bottom: 0.5rem; }
+    .page {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 1.5rem;
+    }
+    #toc {
+      position: static;
+      max-height: none;
+      padding-right: 0;
+    }
+    #toc .toc-label {
+      display: none;
+    }
+    #toc details summary {
+      display: block;
+    }
+    #toc > ul {
+      display: none;
+    }
+    #toc details[open] ~ ul {
+      display: block;
+      margin-bottom: 0.5rem;
+    }
   }
 </style>
 
@@ -239,16 +354,18 @@
   <header class="masthead">
     <p class="eyebrow">Design specification &middot; Draft for review</p>
     <h1>Context Graph</h1>
-    <p class="lede">A standalone plugin that records what context an AI coding agent actually built before each change, and injects the engineering context that should have applied, from a small decision graph that lives in git.</p>
+    <p class="lede">
+      A standalone plugin that records what context an AI coding agent actually
+      built before each change, and injects the engineering context that should
+      have applied, from a small decision graph that lives in git.
+    </p>
   </header>
 
   <nav id="toc" aria-label="Sections">
     <details><summary>Sections</summary></details>
     <p class="toc-label">Sections</p>
-$table-of-contents$
+    $table-of-contents$
   </nav>
 
-  <main>
-$body$
-  </main>
+  <main>$body$</main>
 </div>

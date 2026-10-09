@@ -1,6 +1,6 @@
 # Context Graph in the session (a mod)
 
-**Status:** specified
+**Status:** planned
 **Updated:** 2026-10-09
 
 ## Problem
