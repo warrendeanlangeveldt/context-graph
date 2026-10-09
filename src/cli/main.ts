@@ -59,6 +59,7 @@ Graph
   ctx file <path> [--agent <id>]                   a file's card, rules, decisions, and whether an agent understood it
   ctx agents [--session <id>]                      each agent's coverage: read, searched, edited, cards owed
   ctx neighbours <path>                            what a file imports and what imports it, with their cards and broken rules
+  ctx map                                          the modules as a tree: rules, recent decisions, card coverage
   ctx settings [set <key> <value> --reason "…"]     the mod's harness settings; set is the person's change
   ctx provenance                                   which of this branch's decisions are committed, and where
 

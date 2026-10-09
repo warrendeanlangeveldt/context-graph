@@ -14,6 +14,8 @@ import { cardJobs, cardWriterLine, pausedAt } from '../../adapters/claude-code/h
 import { curatorDue, curatorLine, flaggedRules } from '../../adapters/claude-code/hooks/mod/curator.mjs';
 // @ts-expect-error: the mod is plain JavaScript beside the bundled CLI, outside the TypeScript build
 import { costText, sourcesOf, targetsOf } from '../../adapters/claude-code/hooks/mod/why.mjs';
+// @ts-expect-error: the mod is plain JavaScript beside the bundled CLI, outside the TypeScript build
+import { HEAT, coverageBar, heatOf } from '../../adapters/claude-code/hooks/mod/views/map.mjs';
 
 /** Stand-ins for the elements `$.ui.resolve` gives the mod. */
 type Node = { type: string; props: Record<string, unknown>; children: Node[] | string[] };
@@ -223,5 +225,15 @@ describe('the Context Graph mod: what it draws', () => {
     expect(sources.map((s: { kind: string; id: string }) => `${s.kind}:${s.id}`)).toEqual(['card:src/a.ts', 'rule:src.pure', 'proposed rule:src.small', 'decision:d-1']);
     expect(costText(4200, { input_tokens: 100, output_tokens: 20, cache_read_input_tokens: 900, cache_creation_input_tokens: 0 })).toBe('4.2 s · 1,000 tokens in, 20 out (900 from the cache)');
     expect(costText(1500, undefined)).toBe('1.5 s');
+  });
+
+  it("MAP-1 and MAP-2 a module's coverage bar, and each file's cell, owed this session winning", () => {
+    const files = [{ path: 'a', card: 'current' }, { path: 'b', card: 'current' }, { path: 'c', card: 'stale' }, { path: 'd', card: 'missing' }];
+    expect(coverageBar(files)).toEqual({ bar: '█████░░░░░', words: '2/4 carded' });
+    expect(coverageBar([])).toEqual({ bar: '', words: 'no files' });
+    expect(files.map((f) => heatOf(f, new Set(['b'])))).toEqual(['current', 'owed', 'stale', 'missing']);
+    const glyphs = Object.values(HEAT).map((h: { glyph: string }) => h.glyph);
+    expect(new Set(glyphs).size).toBe(glyphs.length);
+    expect(spark(['2026-10-09', '2026-10-01'], Date.parse('2026-10-10T12:00:00Z'), 10, 3)).toBe('▁▁▁▁▁▁█▁▁█');
   });
 });

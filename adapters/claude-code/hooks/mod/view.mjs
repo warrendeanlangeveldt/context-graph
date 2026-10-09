@@ -6,6 +6,7 @@
 import { DEFAULT_UI, frame, healthOf } from './views/frame.mjs';
 import { proposalsQueue, queueKeys } from './views/proposals.mjs';
 import { progressText } from './views/assist.mjs';
+import { heatMap, mapTree } from './views/map.mjs';
 
 export const PANE_ID = 'context-graph';
 export const DROP_ID = 'context-graph-drop';
@@ -278,8 +279,14 @@ export function contextPane(model, els, handlers) {
   const { Text } = els;
   if (!model || model.kind === 'none') return Text({ dimColor: true, children: [NO_GRAPH] });
   const ui = model.ui ?? DEFAULT_UI;
+  const owed = new Set((model.agents ?? []).flatMap((a) => a.cardsOwed ?? []));
+  const inMap = (tab) => (tab === 'map' && ui.mapModule ? (model.map ?? []).find((m) => m.id === ui.mapModule) : null);
   const body = (tab) =>
-    tab === 'proposals'
+    tab === 'map'
+      ? inMap(tab)
+        ? heatMap(inMap(tab), owed, els, { selected: ui.selected }, handlers)
+        : mapTree(model.map ?? [], els, { selected: ui.selected, now: model.now })
+      : tab === 'proposals'
       ? [
           ...proposalsQueue(model.proposals, els, handlers, { selected: ui.selected, deferred: model.deferred ?? new Set(), now: model.now }),
           ...overriddenSection(model.flagged ?? [], els),

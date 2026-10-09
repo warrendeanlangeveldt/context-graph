@@ -7,10 +7,11 @@ export const TABS = [
   { id: 'file', label: 'File', hotkey: '1' },
   { id: 'proposals', label: 'Proposals', hotkey: '2' },
   { id: 'coverage', label: 'Coverage', hotkey: '3' },
+  { id: 'map', label: 'Map', hotkey: '4' },
 ];
 
 /** The pane's own state, kept by the mod between draws: the tab, the selection in it (none until j or k), and where Esc goes. */
-export const DEFAULT_UI = { tab: 'file', selected: -1, back: [] };
+export const DEFAULT_UI = { tab: 'file', selected: -1, back: [], mapModule: null };
 
 /** The selection after a move of `step` in a list of `n`: from none, j takes the first and k the last. */
 export const moved = (selected, step, n) => (!n ? -1 : selected < 0 ? (step > 0 ? 0 : n - 1) : (selected + step + n) % n);

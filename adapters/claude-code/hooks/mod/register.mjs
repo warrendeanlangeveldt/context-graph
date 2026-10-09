@@ -114,6 +114,8 @@ export function register(on) {
         const file = followed
           ? await json('file', followed.path, '--session', session, ...(followed.agentId ? ['--agent', followed.agentId] : []))
           : null;
+        // MAP-1: the modules, read while the Map tab shows them.
+        const map = paneUi.tab === 'map' ? await json('map') : (model.map ?? null);
         // VIEW-2: what the followed file imports and what imports it.
         const neighbours = followed ? await json('neighbours', followed.path) : null;
         // ASSIST-2: each open reading list's progress, from the agent's own reads as ctx judges them.
@@ -136,6 +138,7 @@ export function register(on) {
           changed,
           flagged,
           decisions: info.counts?.decisions ?? 0,
+          map,
         };
         // CUR-1: decisions are counted from the session's start.
         if (curator.baseline === null) curator.baseline = model.decisions;
@@ -539,7 +542,15 @@ export function register(on) {
       flagged: (model.flagged ?? []).length,
     });
   // VIEW-5: how many things the tab's list holds, for j/k.
-  const listLength = (tab) => (tab === 'proposals' ? model.proposals.length : tab === 'coverage' ? model.agents.length : 0);
+  const mapModule = () => (model.map ?? []).find((m) => m.id === paneUi.mapModule) ?? null;
+  const listLength = (tab) =>
+    tab === 'proposals'
+      ? model.proposals.length
+      : tab === 'coverage'
+        ? model.agents.length
+        : tab === 'map'
+          ? (mapModule()?.files.length ?? (model.map ?? []).length)
+          : 0;
 
   on('ui.render', { component: 'Pane', requestId: PANE_ID }, async ($, e) => {
     const now = await $.clock.now();
@@ -571,7 +582,8 @@ export function register(on) {
     };
     return contextPane(view, $.ui.resolve(e), {
       onTab: (tab) => {
-        paneUi = { ...paneUi, tab, selected: -1, back: [] };
+        paneUi = { ...paneUi, tab, selected: -1, back: [], mapModule: null };
+        if (tab === 'map') act.reload();
         $.ui.invalidate('ui.render');
       },
       onMove: (step) => {
@@ -582,6 +594,24 @@ export function register(on) {
       },
       // Enter on an agent opens the file it last edited, without understanding first if it has one.
       onOpen: () => {
+        // MAP-3: Enter opens the selected module's heat map, then a file in the File tab.
+        if (paneUi.tab === 'map') {
+          const here = { tab: 'map', selected: paneUi.selected, mapModule: paneUi.mapModule };
+          const m = mapModule();
+          if (!m) {
+            const picked = (model.map ?? [])[paneUi.selected];
+            if (!picked) return;
+            paneUi = { ...paneUi, mapModule: picked.id, selected: -1, back: [...paneUi.back, here] };
+            $.ui.invalidate('ui.render');
+            return;
+          }
+          const file = m.files[paneUi.selected];
+          if (!file) return;
+          followed = { path: file.path, agentId: null, pinned: true };
+          paneUi = { ...paneUi, tab: 'file', mapModule: null, back: [...paneUi.back, here] };
+          act.reload();
+          return;
+        }
         if (paneUi.tab !== 'coverage') return;
         const agent = model.agents[paneUi.selected];
         const edit = agent?.edited.find((x) => !x.understood) ?? agent?.edited.at(-1);
@@ -591,6 +621,10 @@ export function register(on) {
         act.reload();
       },
       onSettings: () => act.settings(),
+      onPick: (index) => {
+        paneUi = { ...paneUi, selected: index };
+        $.ui.invalidate('ui.render');
+      },
       onCurate: () => act.curateNow(),
       onWhy: (path) => act.why(path),
       // VIEW-3: defer puts a proposal at the back of the queue for the session; again brings it back.
@@ -622,7 +656,7 @@ export function register(on) {
   on('ui.close', async ($, e, next) => {
     if (closeGoesBack(e, PANE_ID, paneUi)) {
       const to = paneUi.back.at(-1);
-      paneUi = { ...paneUi, tab: to.tab, selected: to.selected, back: paneUi.back.slice(0, -1) };
+      paneUi = { ...paneUi, tab: to.tab, selected: to.selected, mapModule: to.mapModule ?? null, back: paneUi.back.slice(0, -1) };
       if (to.followed) {
         followed = to.followed;
         act?.reload();

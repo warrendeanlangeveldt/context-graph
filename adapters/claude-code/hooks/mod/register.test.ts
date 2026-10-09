@@ -60,6 +60,24 @@ function project() {
     registered: [] as any[],
     limits: [] as any[],
     hygiene: [] as any[],
+    map: [
+      { id: 'L:src', name: 'Source', depth: 0, parents: [], rules: { agreed: 2, proposed: 0 }, decisions: [], files: [{ path: 'src/a.ts', card: 'current' }] },
+      {
+        id: 'L:billing',
+        name: 'Billing',
+        depth: 1,
+        parents: ['L:src'],
+        rules: { agreed: 1, proposed: 1 },
+        decisions: ['2026-10-08', '2026-10-09'],
+        files: [
+          ...['a', 'b', 'c', 'd', 'e', 'f'].map((x) => ({ path: `src/billing/${x}.ts`, card: 'current' })),
+          { path: 'src/billing/g.ts', card: 'stale' },
+          { path: 'src/billing/h.ts', card: 'stale' },
+          { path: 'src/billing/i.ts', card: 'missing' },
+          { path: 'src/billing/j.ts', card: 'missing' },
+        ],
+      },
+    ] as any[],
     whys: {
       'src/a.ts': {
         node: 'src/a.ts',
@@ -86,6 +104,7 @@ function stub(on: any, w: World) {
     const sub = argv[2];
     if (sub === 'info') return ran(0, JSON.stringify(w.info));
     if (sub === 'hygiene') return ran(0, JSON.stringify(w.hygiene));
+    if (sub === 'map') return ran(0, JSON.stringify(w.map));
     if (sub === 'why') return w.whys[argv[3]] ? ran(0, JSON.stringify(w.whys[argv[3]])) : ran(1, '', `ctx why <node>`);
     if (sub === 'proposals') return ran(0, JSON.stringify(w.proposals));
     if (sub === 'cards' && argv.includes('--changed')) return ran(0, JSON.stringify(w.changed));
@@ -845,5 +864,41 @@ test('ASKQ the file in view has Why? on w', async ($, on) => {
   expect((await ui.find({ key: 'why-file' }))?.props.hotkey).toBe('w');
   await press($, 'why-file', PANE);
   expect(w.asked).toHaveLength(1);
+  await ui.unmount();
+});
+
+// --- the graph explorer -----------------------------------------------------------------------------
+
+test('MAP-1 the Map tab draws the module tree with rules, proposals, decision activity and coverage', async ($, on) => {
+  const w = project();
+  await start($, on, w);
+  await ctx($);
+  const ui = await mountPane($, PANE);
+  expect((await ui.find({ key: 'tab-map' }))?.props.hotkey).toBe('4');
+  await press($, 'tab-map', PANE);
+  const billing = (await ui.find({ key: 'module-L:billing' }))?.text ?? '';
+  expect(billing).toMatch(/^\s+Billing\s*L:billing\s*1 rule\s*◆ 1 proposed/);
+  expect(billing).toMatch(/██████░░░░\s*6\/10 carded$/);
+  await ui.unmount();
+});
+
+test('MAP-2 and MAP-3 Enter opens a module as a heat map of its files, and a file in the File tab', async ($, on) => {
+  const w = project();
+  w.agents = [{ agent: 'agent-web', agentType: 'web-engineer', read: [], searched: [], edited: [], cardsOwed: ['src/billing/a.ts'] }];
+  await start($, on, w);
+  await ctx($);
+  const ui = await mountPane($, PANE);
+  await press($, 'tab-map', PANE);
+  await press($, 'move-next', PANE);
+  await press($, 'move-next', PANE);
+  await press($, 'open-selected', PANE);
+  // One owed this session shows as owed, over its current card.
+  expect((await ui.find({ key: 'heat-legend' }))?.text).toBe('● 5 current◐ 2 stale○ 2 missing✱ 1 owed this session');
+  expect((await ui.find({ key: 'cell-src/billing/i.ts' }))?.text).toBe('○');
+  await $.ui.select({ plugin: 'context-graph', key: 'heat-select', value: 'src/billing/i.ts', requestId: PANE });
+  expect(JSON.stringify((await ui.find({ key: 'cell-src/billing/i.ts' }))?.children)).toMatch(/"inverse":true/);
+  await press($, 'open-selected', PANE);
+  expect(w.fileAsks.at(-1)?.[0]).toBe('src/billing/i.ts');
+  expect((await ui.find({ key: 'tab-file' }))?.props.variant).toBe('primary');
   await ui.unmount();
 });

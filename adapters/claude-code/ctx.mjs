@@ -26822,7 +26822,7 @@ var require_formats = __commonJS({
       return year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
     }
     var DATE = /^(\d\d\d\d)-(\d\d)-(\d\d)$/;
-    var DAYS = [0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    var DAYS2 = [0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
     function date3(str2) {
       const matches2 = DATE.exec(str2);
       if (!matches2)
@@ -26830,7 +26830,7 @@ var require_formats = __commonJS({
       const year = +matches2[1];
       const month = +matches2[2];
       const day = +matches2[3];
-      return month >= 1 && month <= 12 && day >= 1 && day <= (month === 2 && isLeapYear(year) ? 29 : DAYS[month]);
+      return month >= 1 && month <= 12 && day >= 1 && day <= (month === 2 && isLeapYear(year) ? 29 : DAYS2[month]);
     }
     function compareDate(d1, d2) {
       if (!(d1 && d2))
@@ -35666,17 +35666,17 @@ async function runBench(ctx, tasks, opts) {
   mkdirSync8(wtRoot, { recursive: true });
   for (const task of selected) {
     for (const arm of opts.arms) {
-      for (let run12 = 1; run12 <= opts.runs; run12++) {
-        const label = `${task.id} ${arm} #${run12}`;
-        const wt = join29(wtRoot, `${task.id}-${arm}-${run12}`);
+      for (let run13 = 1; run13 <= opts.runs; run13++) {
+        const label = `${task.id} ${arm} #${run13}`;
+        const wt = join29(wtRoot, `${task.id}-${arm}-${run13}`);
         rmWorktree(root, wt);
         log(`${label}: worktree at ${task.base}`);
         execFileSync4("git", ["worktree", "add", "--detach", "-f", wt, task.base], { cwd: root, stdio: "ignore" });
         const started = Date.now();
-        const rec = { task: task.id, stratum: task.stratum, arm, harness: opts.harness, run: run12, startedAt: new Date(started).toISOString(), durationMs: 0, passed: null, checkExit: null, tokensIn: null, tokensOut: null, turns: null, toolCalls: 0, reads: 0, edits: 0, rework: 0, testFailures: 0, slicesInjected: 0, callersLoaded: 0, callersTotal: 0, darkTotal: 0, reach: 0, decisions: [], session: null, harnessError: null };
+        const rec = { task: task.id, stratum: task.stratum, arm, harness: opts.harness, run: run13, startedAt: new Date(started).toISOString(), durationMs: 0, passed: null, checkExit: null, tokensIn: null, tokensOut: null, turns: null, toolCalls: 0, reads: 0, edits: 0, rework: 0, testFailures: 0, slicesInjected: 0, callersLoaded: 0, callersTotal: 0, darkTotal: 0, reach: 0, decisions: [], session: null, harnessError: null };
         try {
           const env = prepareArm(ctx, task, arm, wt, opts.harness);
-          const session = `bench-${task.id}-${arm}-${run12}-${stamp}`;
+          const session = `bench-${task.id}-${arm}-${run13}-${stamp}`;
           env.CTX_SESSION = session;
           const h = runHarness(opts, task, wt, env, session, log);
           rec.session = h.session;
@@ -35687,7 +35687,7 @@ async function runBench(ctx, tasks, opts) {
           const check2 = spawnSync2("sh", ["-c", task.check], { cwd: wt, encoding: "utf8", timeout: opts.timeoutMs ?? 10 * 6e4, env: { ...process.env, CI: "1" } });
           rec.checkExit = check2.status;
           rec.passed = check2.status === 0;
-          writeFileSync11(join29(dir, `${task.id}-${arm}-${run12}.check.log`), `${check2.stdout ?? ""}
+          writeFileSync11(join29(dir, `${task.id}-${arm}-${run13}.check.log`), `${check2.stdout ?? ""}
 ${check2.stderr ?? ""}`);
           if (h.session) collectMetrics(rec, new ObservationStore(wt, h.session).readAll().length ? new ObservationStore(wt, h.session) : new ObservationStore(root, h.session));
         } catch (e) {
@@ -36441,6 +36441,84 @@ var init_neighbours = __esm({
   }
 });
 
+// src/cli/map.ts
+var map_exports = {};
+__export(map_exports, {
+  graphMap: () => graphMap,
+  run: () => run12
+});
+function graphMap(ctx, now = Date.now()) {
+  const g = needGraph(ctx);
+  const files = (git(ctx.root, ["ls-files", "--cached", "--others", "--exclude-standard"]) ?? "").split("\n").filter(Boolean).sort();
+  const byModule = /* @__PURE__ */ new Map();
+  for (const f of files) {
+    if (exemptFromCards(f, ctx.config.cardsExclude)) continue;
+    const m = g.mapPath(f)?.logical;
+    if (!m) continue;
+    const s = cardState(g, ctx.root, f);
+    if (s.hash === void 0) continue;
+    byModule.set(m, [...byModule.get(m) ?? [], { path: f, card: s.fresh ? "current" : s.card ? "stale" : "missing" }]);
+  }
+  const since = new Date(now - DAYS * 864e5).toISOString().slice(0, 10);
+  const moduleOf = (node) => isLogicalId(node) ? node : g.mapPath(node)?.logical;
+  const decided = /* @__PURE__ */ new Map();
+  for (const d of g.decisions.values()) {
+    if (d.date < since) continue;
+    const m = moduleOf(d.node);
+    if (m) decided.set(m, [...decided.get(m) ?? [], d.date]);
+  }
+  const children = /* @__PURE__ */ new Map();
+  const roots = [];
+  for (const id of [...g.logicals.keys()].sort()) {
+    const parents = g.parentsOf(id).filter((p) => g.logicals.has(p));
+    if (!parents.length) roots.push(id);
+    for (const p of parents) children.set(p, [...children.get(p) ?? [], id]);
+  }
+  const out = [];
+  const seen = /* @__PURE__ */ new Set();
+  const visit = (id, depth) => {
+    if (seen.has(id)) return;
+    seen.add(id);
+    const ks = g.constraintsOn(id);
+    out.push({
+      id,
+      name: g.logicals.get(id).name,
+      depth,
+      parents: g.parentsOf(id),
+      rules: { agreed: ks.filter((k) => k.mode !== "G?").length, proposed: ks.filter((k) => k.mode === "G?").length },
+      decisions: (decided.get(id) ?? []).sort(),
+      files: byModule.get(id) ?? []
+    });
+    for (const c of children.get(id) ?? []) visit(c, depth + 1);
+  };
+  for (const r of roots) visit(r, 0);
+  return out;
+}
+async function run12(args, env) {
+  const ctx = openFromArgs(args);
+  const map = graphMap(ctx);
+  if (env.json) {
+    console.log(JSON.stringify(map, null, 2));
+    return 0;
+  }
+  for (const m of map) {
+    const carded = m.files.filter((f) => f.card === "current").length;
+    console.log(`${"  ".repeat(m.depth)}${m.id} ${m.name}  rules ${m.rules.agreed}${m.rules.proposed ? ` (+${m.rules.proposed} proposed)` : ""}  decisions ${m.decisions.length}  carded ${carded}/${m.files.length}`);
+  }
+  return 0;
+}
+var DAYS;
+var init_map2 = __esm({
+  "src/cli/map.ts"() {
+    "use strict";
+    init_cards();
+    init_records();
+    init_git();
+    init_main();
+    DAYS = 30;
+  }
+});
+
 // src/cli/commands.ts
 async function extraCommands(args, env) {
   switch (args.cmd) {
@@ -36475,6 +36553,8 @@ async function extraCommands(args, env) {
       return (await Promise.resolve().then(() => (init_settings(), settings_exports))).run(args, env);
     case "neighbours":
       return (await Promise.resolve().then(() => (init_neighbours(), neighbours_exports))).run(args, env);
+    case "map":
+      return (await Promise.resolve().then(() => (init_map2(), map_exports))).run(args, env);
     default:
       return void 0;
   }
@@ -36960,6 +37040,7 @@ Graph
   ctx file <path> [--agent <id>]                   a file's card, rules, decisions, and whether an agent understood it
   ctx agents [--session <id>]                      each agent's coverage: read, searched, edited, cards owed
   ctx neighbours <path>                            what a file imports and what imports it, with their cards and broken rules
+  ctx map                                          the modules as a tree: rules, recent decisions, card coverage
   ctx settings [set <key> <value> --reason "\u2026"]     the mod's harness settings; set is the person's change
   ctx provenance                                   which of this branch's decisions are committed, and where
 

@@ -7,14 +7,15 @@ const DAY = 24 * 3600000;
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
 /**
- * A sparkline of `dates` (YYYY-MM-DD) over the `weeks` weeks up to `now`, oldest first: a bar per
- * week, its height the week's count against the busiest week's. Weeks with none are the lowest bar.
+ * A sparkline of `dates` (YYYY-MM-DD) over `bars` spans of `days` days up to `now`, oldest first (a
+ * week a bar unless told): each bar's height its span's count against the busiest span's. Spans with
+ * none are the lowest bar.
  */
-export function spark(dates, now, weeks = 8) {
-  const counts = new Array(weeks).fill(0);
+export function spark(dates, now, bars = 8, days = 7) {
+  const counts = new Array(bars).fill(0);
   for (const d of dates ?? []) {
-    const age = Math.floor((now - Date.parse(`${d}T12:00:00Z`)) / (7 * DAY));
-    if (age >= 0 && age < weeks) counts[weeks - 1 - age] += 1;
+    const age = Math.floor((now - Date.parse(`${d}T12:00:00Z`)) / (days * DAY));
+    if (age >= 0 && age < bars) counts[bars - 1 - age] += 1;
   }
   const top = Math.max(...counts);
   return counts.map((c) => (top ? BARS[Math.round((c / top) * (BARS.length - 1))] : BARS[0])).join('');

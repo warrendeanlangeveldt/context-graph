@@ -152,6 +152,6 @@ The background agent proposing rules from evidence and flagging overridden ones.
 **Lane:** lead
 **Requirements:** MAP-1, MAP-2, MAP-3
 **Depends on:** ST-8
-**Status:** todo
+**Status:** done
 
 Modules with rules, activity and coverage; the coverage heat map; `ctx map`.
