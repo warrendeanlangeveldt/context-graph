@@ -7,6 +7,7 @@
 // person's presses: ratifying with a commit, and dropping a proposal. The hooks refuse both commands
 // from every agent, so no agent reaches them.
 import { DROP_ID, NO_GRAPH, PANE_ID, bandLine, contextPane, dropPane, followedPath, parseJson } from './view.mjs';
+import { SETTINGS_ID, settingsView } from './views/settings.mjs';
 
 let model = {
   kind: null,
@@ -21,6 +22,8 @@ let followed = null; // the file the pane follows: { path, agentId }
 let activity = 0; // tool calls seen: coverage changes with them
 let dropping = null; // the open Drop confirmation: { proposal, reason, error }
 let act = null; // the session's actions, made at session start
+let settingRows = []; // the harness settings, from `ctx settings --json`
+let pendingSetting = null; // a change waiting for the person's reason: { key, value, reason, error }
 
 export function register(on) {
   on('session.start', async ($, e, next) => {
@@ -32,6 +35,9 @@ export function register(on) {
         immediate: true,
       })
       .catch((err) => $.ui.log(`Context Graph: /graph isn't available in this session: ${err?.message ?? err}`));
+    await $.command
+      .register({ name: 'graph-settings', description: "Context Graph's harness: the card writer, curator and side questions", immediate: true })
+      .catch((err) => $.ui.log(`Context Graph: /graph-settings isn't available in this session: ${err?.message ?? err}`));
     const cli = `${$.plugin.root}/ctx.mjs`;
     const cwd = e.cwd ?? (await $.session.cwd());
     const session = await $.session.id();
@@ -190,6 +196,46 @@ export function register(on) {
         await $.ui.close({ id: DROP_ID });
         await act.reload();
       },
+      // VIEW-6: the harness settings; a change is the person's, confirmed with a reason.
+      settings: async () => {
+        if ((await $.ui.panes()).some((p) => p.id === SETTINGS_ID)) {
+          await $.ui.close({ id: SETTINGS_ID });
+          return {};
+        }
+        await act.reload();
+        if (model.kind === 'none') return { text: NO_GRAPH };
+        settingRows = (await json('settings')) ?? [];
+        await $.ui.open({ id: SETTINGS_ID, title: 'Graph harness', focus: true, closeOnEscape: true });
+        $.ui.invalidate('ui.render');
+        return {};
+      },
+      chooseSetting: (key, value) => {
+        const row = settingRows.find((x) => x.key === key);
+        if (row && String(row.value) === value) return;
+        pendingSetting = { key, value, reason: '', error: null };
+        $.ui.invalidate('ui.render');
+      },
+      confirmSetting: async (reason) => {
+        if (!pendingSetting) return;
+        if (!reason?.trim()) {
+          pendingSetting = { ...pendingSetting, error: 'Give a reason: it goes with the change.' };
+          $.ui.invalidate('ui.render');
+          return;
+        }
+        const ran = await $.process.run(['node', cli, 'settings', 'set', pendingSetting.key, pendingSetting.value, '--reason', reason.trim(), '--via', 'pane'], { cwd });
+        if (ran.exitCode !== 0) {
+          pendingSetting = { ...pendingSetting, error: firstLine(ran) };
+          $.ui.invalidate('ui.render');
+          return;
+        }
+        pendingSetting = null;
+        settingRows = (await json('settings')) ?? settingRows;
+        await act.reload();
+      },
+      cancelSetting: () => {
+        pendingSetting = null;
+        $.ui.invalidate('ui.render');
+      },
       cancelDrop: async () => {
         dropping = null;
         await $.ui.close({ id: DROP_ID });
@@ -216,6 +262,10 @@ export function register(on) {
     });
     return next(e);
   });
+
+  on('command.run', { command: 'graph-settings' }, async ($, e) =>
+    act ? act.settings() : { text: 'Context Graph is still starting; try /graph-settings again in a moment.' },
+  );
 
   on('command.run', { command: 'graph' }, async ($, e) =>
     act
@@ -250,6 +300,18 @@ export function register(on) {
       onModuleCards: (module) => act.askForCards(module, `cards for the files in ${module} without a current one`),
     });
   });
+
+  on('ui.render', { component: 'Pane', requestId: SETTINGS_ID }, async ($, e) =>
+    settingsView(settingRows, pendingSetting, $.ui.resolve(e), {
+      onChoose: (key, value) => act.chooseSetting(key, value),
+      onReason: (value) => {
+        if (pendingSetting) pendingSetting = { ...pendingSetting, reason: value };
+        $.ui.invalidate('ui.render');
+      },
+      onConfirm: (reason) => act.confirmSetting(reason),
+      onCancel: () => act.cancelSetting(),
+    }),
+  );
 
   on('ui.render', { component: 'Pane', requestId: DROP_ID }, async ($, e) => {
     const { Text } = $.ui.resolve(e);

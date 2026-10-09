@@ -80,7 +80,7 @@ Built after code-kit's harness (its milestone 4), whose spikes it relies on.
 **Lane:** lead
 **Requirements:** VIEW-6
 **Depends on:** none
-**Status:** todo
+**Status:** done
 
 The `[harness]` section in `.ctx/config.toml`, validated; `ctx settings`; the Settings view.
 

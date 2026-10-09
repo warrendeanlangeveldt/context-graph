@@ -291,6 +291,7 @@ ctx hygiene                                 # proposals from evidence; never ret
 ctx retire <id> --reason "<why>" [--succ <id>] [--delegated]
 ctx module <L:id> --paths "<glob>…" [--in <L:parent>] [--name "…"] [--delegated --reason "…"]
 ctx gc                                      # archive inactive records older than the threshold
+ctx settings [set <key> <value> --reason "…"]  # the mod's harness: card writer, curator, side questions; set is your change
 ctx check --conformance                     # violations of rule-bearing constraints, minus recorded legacy exceptions
 ```
 

@@ -47,6 +47,12 @@ function project() {
     opened: [] as string[],
     commands: [] as string[],
     prompts: [] as string[],
+    settings: [
+      { key: 'card_writer', value: false, default: false, about: 'A background agent that writes the cards owed' },
+      { key: 'card_writer_model', value: '', default: '', about: "The card writer's model" },
+      { key: 'pause_at_percent', value: 80, default: 80, about: 'The pause point' },
+    ] as any[],
+    setExit: 0,
   };
 }
 type World = ReturnType<typeof project>;
@@ -75,6 +81,14 @@ function stub(on: any, w: World) {
       w.acts.push([...argv.slice(2)]);
       return ran(w.dropExit, w.dropExit ? '' : `dropped ${argv[3]}`, w.dropExit ? 'main is protected.' : '');
     }
+    if (sub === 'settings' && argv[3] === 'set') {
+      w.acts.push([...argv.slice(2)]);
+      if (w.setExit) return ran(1, '', 'pause_at_percent must be a percentage from 1 to 100. Nothing was changed.');
+      const row = w.settings.find((s) => s.key === argv[4]);
+      row.value = argv[5] === 'true' ? true : argv[5] === 'false' ? false : /^\d+$/.test(argv[5]) ? Number(argv[5]) : argv[5];
+      return ran(0, `Set [harness] ${argv[4]}.`);
+    }
+    if (sub === 'settings') return ran(0, JSON.stringify(w.settings));
     return ran(1, '', `unexpected ${argv.join(' ')}`);
   });
   on('session.start', () => ({ cwd: '/work' }));
@@ -323,5 +337,42 @@ test('Cards: Write card and Cards for this module ask the lead, who may write th
   await press($, 'module-cards', PANE);
   expect(w.prompts.at(-1)).toContain('/context-graph:cards L:src');
   expect(await ui.find({ type: 'Text', text: /Asked the lead for the cards for the files in L:src/ })).toBeDefined();
+  await ui.unmount();
+});
+
+// --- the harness settings ---------------------------------------------------------------------------
+
+const SETTINGS = 'context-graph-settings';
+
+test('VIEW-6 /graph-settings shows each setting with a control, and a change asks for a reason first', async ($, on) => {
+  const w = project();
+  await start($, on, w);
+  await $.command.run({ command: 'graph-settings', args: '' });
+  expect(w.opened).toContain(SETTINGS);
+  const ui = await mountPane($, SETTINGS);
+  expect((await ui.find({ key: 'set-card_writer' }))?.props.value).toBe('false');
+  await $.ui.select({ plugin: 'context-graph', key: 'set-card_writer', value: 'true', requestId: SETTINGS });
+  expect(w.acts).toEqual([]);
+  expect(await ui.find({ type: 'Text', text: 'Set card_writer to on?' })).toBeDefined();
+  await $.ui.input({ plugin: 'context-graph', key: 'settings-reason', text: ' ' });
+  expect(await ui.find({ type: 'Text', text: /Give a reason/ })).toBeDefined();
+  await $.ui.input({ plugin: 'context-graph', key: 'settings-reason', text: 'cards keep falling behind' });
+  expect(w.acts).toEqual([['settings', 'set', 'card_writer', 'true', '--reason', 'cards keep falling behind', '--via', 'pane']]);
+  expect((await ui.find({ key: 'set-card_writer' }))?.props.value).toBe('true');
+  expect(await ui.find({ key: 'settings-confirm' })).toBeUndefined();
+  await ui.unmount();
+});
+
+test('VIEW-6 a value the CLI refuses shows why, and Cancel leaves it', async ($, on) => {
+  const w = project();
+  w.setExit = 1;
+  await start($, on, w);
+  await $.command.run({ command: 'graph-settings', args: '' });
+  const ui = await mountPane($, SETTINGS);
+  await $.ui.input({ plugin: 'context-graph', key: 'set-pause_at_percent', text: '150' });
+  await $.ui.input({ plugin: 'context-graph', key: 'settings-reason', text: 'later' });
+  expect(await ui.find({ type: 'Text', text: /must be a percentage/ })).toBeDefined();
+  await $.ui.press({ plugin: 'context-graph', key: 'settings-cancel', requestId: SETTINGS });
+  expect(await ui.find({ key: 'settings-confirm' })).toBeUndefined();
   await ui.unmount();
 });

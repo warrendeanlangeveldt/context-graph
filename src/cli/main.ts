@@ -58,6 +58,7 @@ Graph
                                                    propose a rule for a path's module; a person ratifies it
   ctx file <path> [--agent <id>]                   a file's card, rules, decisions, and whether an agent understood it
   ctx agents [--session <id>]                      each agent's coverage: read, searched, edited, cards owed
+  ctx settings [set <key> <value> --reason "…"]     the mod's harness settings; set is the person's change
   ctx provenance                                   which of this branch's decisions are committed, and where
 
 Observation
