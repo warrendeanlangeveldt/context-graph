@@ -125,7 +125,7 @@ The refusal's reading list delivered to the agent, its progress, and tags on too
 **Lane:** lead
 **Requirements:** CARDW-1, CARDW-2, CARDW-3, CARDW-4, CARDW-5
 **Depends on:** ST-7
-**Status:** todo
+**Status:** done
 
 The background agent writing owed and missing cards from full reads.
 

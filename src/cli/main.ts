@@ -35,7 +35,7 @@ const USAGE = `ctx — Context Graph
 
 Start here
   ctx next [--json]                                the one thing to do now, and the skill that does it
-  ctx cards [--changed] [--missing|--stale]        which files have a card matching them
+  ctx cards [--changed] [--module <L:id>] [--missing|--stale]  which files have a card matching them
 
 Graph
   ctx slice <path> [--symbol name]                 slice injected before an edit

@@ -10,6 +10,7 @@ import { DROP_ID, NO_GRAPH, PANE_ID, contextPane, dropPane, followedPath, parseJ
 import { SETTINGS_ID, settingsView } from './views/settings.mjs';
 import { DEFAULT_UI, bandHealth, closeGoesBack, healthOf, moved } from './views/frame.mjs';
 import { assistCard, editTag, readingList, readingMessage } from './views/assist.mjs';
+import { BATCH, CARD_WRITER, cardJobs, cardWriterLine, cardWriterSpec, pausedAt, startCardWriterPrompt } from './card-writer.mjs';
 
 let model = {
   kind: null,
@@ -28,6 +29,18 @@ const assists = new Map(); // tool_use_id → { id, agentId, edit, files, missin
 const edits = new Map(); // tool_use_id → { path, agentId }: edits that went through, for their card-owed tag (VIEW-4)
 const KEPT = 200;
 const EDIT_TOOLS = new Set(['Edit', 'MultiEdit', 'Write', 'NotebookEdit']);
+// The card writer (spec 04): its registered agent, the batch it's writing, and what the person asked for.
+const cardWriter = { agent: null, model: null, writing: [], agentId: null };
+const asked = []; // paths queued for the card writer from the pane (CARDW-4)
+const editedAt = {}; // path → when an agent last edited it: a file still moving waits (CARDW-1)
+let settingRowsNow = []; // ctx settings --json, read on each refresh
+let rateLimits = []; // the session's limits, as session.measure last gave them (CARDW-5)
+let leadTurn = null; // the lead's running turn
+/** A harness setting in force, from ctx settings --json; the pause point the one a tool sets, if any. */
+const setting = (key, fallback) => {
+  const row = settingRowsNow.find((x) => x.key === key);
+  return row ? (row.inForce ?? row.value) : fallback;
+};
 let activity = 0; // tool calls seen: coverage changes with them
 let dropping = null; // the open Drop confirmation: { proposal, reason, error }
 let act = null; // the session's actions, made at session start
@@ -60,6 +73,7 @@ export function register(on) {
       const s = await $.fs.stat(path).catch(() => null);
       return s ? `${path}@${s.mtimeMs}` : `${path}-`;
     };
+    rateLimits = (await $.session.usage().catch(() => null))?.rateLimits ?? [];
     const firstLine = (ran) => `${ran.stdout}\n${ran.stderr}`.trim().split('\n').filter(Boolean).at(-1) ?? '';
 
     act = {
@@ -83,6 +97,9 @@ export function register(on) {
         const proposals = (await json('proposals')) ?? [];
         // VIEW-1: the share of files with a current card.
         const cards = await json('cards');
+        // Spec 04: the harness settings, and the branch's changed files without a current card.
+        settingRowsNow = (await json('settings')) ?? settingRowsNow;
+        const changed = setting('card_writer', false) ? await json('cards', '--changed') : null;
         const agents = (await json('agents', '--session', session)) ?? [];
         const file = followed
           ? await json('file', followed.path, '--session', session, ...(followed.agentId ? ['--agent', followed.agentId] : []))
@@ -106,7 +123,11 @@ export function register(on) {
           types,
           cards,
           neighbours,
+          changed,
         };
+        // The batch the card writer took is done with a file once its card is current.
+        if (cards) cardWriter.writing = cardWriter.writing.filter((p) => !cards.fresh.includes(p));
+        await act.registerCardWriter();
         $.ui.invalidate('ui.render');
       },
       // What a refresh waits on: the graph's files, the followed file, and the session's tool calls.
@@ -157,7 +178,56 @@ export function register(on) {
       // Cards: asked of the lead, which writes them with the cards skill or hands them to the agent
       // working on those files. Not a person's act: any agent may write a card, and the hooks ask the
       // agent that edits a file for its card anyway.
+      // CARDW-2: the card writer's agent, registered again when its model changes.
+      registerCardWriter: async () => {
+        const wanted = setting('card_writer_model', '');
+        if (cardWriter.model === wanted) return;
+        cardWriter.model = wanted;
+        const spec = cardWriterSpec({ ctx: cli, skill: `${$.plugin.root}/skills/cards/SKILL.md`, model: wanted || undefined });
+        cardWriter.agent =
+          (
+            await $.agent.register(spec).catch((err) => {
+              $.ui.log(`Context Graph: the card writer isn't available: ${err?.message ?? err}`);
+              return null;
+            })
+          )?.agent ?? null;
+      },
+      // CARDW-1, CARDW-5: with the lead idle, the card writer on and the plan below its pause point,
+      // the lead is asked to start it on the next batch.
+      cardWriterStep: async () => {
+        if (!setting('card_writer', false) || !cardWriter.agent || cardWriter.writing.length || leadTurn) return;
+        if (pausedAt(rateLimits, setting('pause_at_percent', 80)).paused) return;
+        const jobs = act.cardJobsNow(await $.clock.now()).slice(0, BATCH);
+        if (!jobs.length) return;
+        cardWriter.writing = jobs.map((j) => j.path);
+        for (const j of jobs) {
+          const at = asked.indexOf(j.path);
+          if (at >= 0) asked.splice(at, 1);
+        }
+        $.ui.invalidate('ui.render');
+        $.prompt.submit({ text: startCardWriterPrompt({ agent: cardWriter.agent, jobs }) }).catch(() => {
+          cardWriter.writing = [];
+        });
+      },
+      cardJobsNow: (now) =>
+        cardJobs({
+          asked,
+          owed: [...new Set((model.agents ?? []).flatMap((a) => a.cardsOwed ?? []))],
+          changed: model.changed ? [...model.changed.stale, ...model.changed.missing] : [],
+          editedAt,
+          now,
+        }),
       askForCards: async (scope, what) => {
+        // CARDW-4: with the card writer on, the files go to it instead of the lead.
+        if (setting('card_writer', false) && cardWriter.agent) {
+          const files = scope.startsWith('L:') ? ((await json('cards', '--module', scope)) ?? { stale: [], missing: [] }) : null;
+          const paths = files ? [...files.stale, ...files.missing] : [scope];
+          for (const p of paths) if (!asked.includes(p)) asked.push(p);
+          model = { ...model, notice: { ok: true, text: `Queued the ${what} for the card writer.` } };
+          $.ui.invalidate('ui.render');
+          await act.cardWriterStep();
+          return;
+        }
         await $.prompt.submit({
           text: `Write the Context Graph ${what}: run /context-graph:cards ${scope}, or ask the agent working on ${scope} to.`,
         });
@@ -320,10 +390,37 @@ export function register(on) {
       $.ui.invalidate('ui.render');
     } else if (!refused && EDIT_TOOLS.has(e.tool) && path) {
       edits.set(e.tool_use_id, { path, agentId: e.agentId ?? null });
+      editedAt[path] = await $.clock.now();
       if (edits.size > KEPT) edits.delete(edits.keys().next().value);
     }
     return res;
   }).catch(($, e, next) => next(e)); // whatever fails here, the call goes on as it would
+
+  // CARDW-5: the plan's 5-hour use, as Claude Code measures it.
+  on('session.measure', async ($, e, next) => {
+    if (e.changed.includes('rateLimits')) {
+      rateLimits = e.rateLimits;
+      $.ui.invalidate('ui.render');
+    }
+    return next(e);
+  });
+  on('turn.start', async ($, e, next) => {
+    leadTurn = e.turnId;
+    return next(e);
+  });
+  // The lead is idle: the card writer's next batch, if one is due. A card writer's own last turn ends
+  // its batch; what it didn't write waits for the next.
+  on('turn.complete', async ($, e, next) => {
+    const res = await next(e);
+    if (e.agentId) {
+      const agent = ((await $.agent.list()) ?? []).find((a) => a.id === e.agentId);
+      if (agent && cardWriter.agent && agent.type === cardWriter.agent) cardWriter.writing = [];
+    } else if (!leadTurn || leadTurn === e.turnId) {
+      leadTurn = null;
+      await act?.cardWriterStep().catch(() => {});
+    }
+    return res;
+  });
 
   // VIEW-4: an edit's tag on its tool row; ASSIST-1: the refused edit's result drawn as its reading list.
   const owedNow = (agentId, path) =>
@@ -353,12 +450,20 @@ export function register(on) {
   const listLength = (tab) => (tab === 'proposals' ? model.proposals.length : tab === 'coverage' ? model.agents.length : 0);
 
   on('ui.render', { component: 'Pane', requestId: PANE_ID }, async ($, e) => {
+    const now = await $.clock.now();
+    const plan = pausedAt(rateLimits, setting('pause_at_percent', 80));
     const view = {
       ...model,
       ui: paneUi,
       deferred,
+      cardWriterLine: cardWriterLine({
+        on: setting('card_writer', false),
+        ...plan,
+        writing: cardWriter.writing,
+        waiting: act ? act.cardJobsNow(now).filter((j) => !cardWriter.writing.includes(j.path)).map((j) => j.path) : [],
+      }),
       assists: [...assists.values()].slice(-10),
-      now: await $.clock.now(),
+      now,
       health: healthNow(),
       followed: followed && {
         ...followed,

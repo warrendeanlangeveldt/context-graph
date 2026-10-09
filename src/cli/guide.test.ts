@@ -97,4 +97,12 @@ describe('ctx next and ctx cards', () => {
     // package.json (a default exclusion) and gen/ (the project's) are both out.
     expect(r.missing).toEqual(['src/a.ts']);
   });
+
+  it("CARDW-4 a module's files: those whose chain names it", () => {
+    withGraph();
+    mkdirSync(join(repo, 'lib'));
+    writeFileSync(join(repo, 'lib/x.ts'), 'export const x = 1;\n');
+    expect(cardsReport(openRepo({ repo }), { module: 'L:src' }).missing).toEqual(['src/a.ts']);
+    expect(cardsReport(openRepo({ repo }), { module: 'L:repo' }).missing).toEqual(['lib/x.ts', 'src/a.ts']);
+  });
 });

@@ -58,7 +58,15 @@ export async function run(args: Args, env: { json: boolean }): Promise<number> {
   }
   if (sub !== undefined) throw new Error('ctx settings [--json] | ctx settings set <key> <value> --reason "<why>"');
   const inForce = ctx.config.harness as unknown as Record<string, unknown>;
-  const rows = HARNESS_KEYS.map((k) => ({ key: k, value: inForce[k], default: HARNESS[k].default, about: HARNESS[k].about }));
+  // A tool sharing the repository may set the pause point itself (code-kit's harness): it wins.
+  const pausedBy = toolAdapters(ctx.root).map((a) => ({ name: a.name, at: a.pauseAtPercent?.(ctx.root) })).find((p) => p.at !== undefined);
+  const rows = HARNESS_KEYS.map((k) => ({
+    key: k,
+    value: inForce[k],
+    default: HARNESS[k].default,
+    about: HARNESS[k].about,
+    ...(k === 'pause_at_percent' && pausedBy ? { inForce: pausedBy.at, from: pausedBy.name } : {}),
+  }));
   const problems = harnessProblems(section);
   if (env.json) {
     console.log(JSON.stringify(rows, null, 2));

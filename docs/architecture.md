@@ -41,7 +41,7 @@ Context Graph's half of the harness, beside code-kit's (code-kit `docs/architect
 | Side questions | `…/mod/why.mjs`                                  | Pure: the question's slice from `ctx`, the side call's prompt, and the answer's sources.                                   |
 | Views          | `…/mod/views/`                                   | Pure drawing: header and band line, file (rendered card, chips, neighbourhood graph), proposals queue, coverage, map.      |
 | Settings       | `src/core/context.ts`, `ctx settings`            | The `[harness]` section, read and validated; `ctx settings set <key> <value> --reason …` writes it as the person's change. |
-| Register       | `…/mod/register.mjs`                             | The only file calling the mods API; starts the agents with `$.agent.spawn`, the side calls with `$.model.fork`.            |
+| Register       | `…/mod/register.mjs`                             | The only file calling the mods API; registers the agents and has the lead start them (auto mode refuses a mod's own spawn), the side calls with `$.model.fork`. |
 
 ### New CLI JSON the mod reads
 

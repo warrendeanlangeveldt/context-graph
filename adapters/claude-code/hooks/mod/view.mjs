@@ -248,7 +248,10 @@ export function contextPane(model, els, handlers) {
     tab === 'proposals'
       ? proposalsQueue(model.proposals, els, handlers, { selected: ui.selected, deferred: model.deferred ?? new Set(), now: model.now })
       : tab === 'coverage'
-        ? coverageSection(model.agents, model.types ?? {}, els, ui.selected, model.assists ?? [])
+        ? [
+            ...(model.cardWriterLine ? [els.Text({ key: 'card-writer', dimColor: true, children: [model.cardWriterLine] })] : []),
+            ...coverageSection(model.agents, model.types ?? {}, els, ui.selected, model.assists ?? []),
+          ]
         : fileSection(model.followed, model.file, els, handlers, model.neighbours ?? null);
   const keys =
     ui.tab === 'proposals' ? queueKeys(model.proposals, els, handlers, { selected: ui.selected, deferred: model.deferred ?? new Set() }) : [];

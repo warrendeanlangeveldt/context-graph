@@ -55,6 +55,10 @@ function project() {
     setExit: 0,
     cards: { fresh: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'], stale: ['j'], missing: [] } as any,
     editRefusal: '',
+    changed: { fresh: [], stale: [], missing: [] } as any,
+    moduleCards: { fresh: [], stale: [], missing: [] } as any,
+    registered: [] as any[],
+    limits: [] as any[],
     sent: [] as { to: any; text: string }[],
     neighbours: {
       'src/a.ts': { path: 'src/a.ts', card: 'current', breaks: [], imports: [{ path: 'src/b.ts', card: 'missing', breaks: [] }], importers: [] },
@@ -71,6 +75,8 @@ function stub(on: any, w: World) {
     const sub = argv[2];
     if (sub === 'info') return ran(0, JSON.stringify(w.info));
     if (sub === 'proposals') return ran(0, JSON.stringify(w.proposals));
+    if (sub === 'cards' && argv.includes('--changed')) return ran(0, JSON.stringify(w.changed));
+    if (sub === 'cards' && argv.includes('--module')) return ran(0, JSON.stringify(w.moduleCards));
     if (sub === 'cards') return ran(0, JSON.stringify(w.cards));
     if (sub === 'neighbours') return ran(0, JSON.stringify(w.neighbours[argv[3]] ?? null));
     if (sub === 'agents') return ran(0, JSON.stringify(w.agents));
@@ -104,6 +110,13 @@ function stub(on: any, w: World) {
   on('ui.render', () => ({ type: 'Box', props: {}, children: [] }));
   on('tool.call', { tool: 'Read' }, () => ({ result: { type: 'text', file: {} } }));
   on('tool.call', { tool: 'Edit' }, () => (w.editRefusal ? { deny: w.editRefusal } : { result: {} }));
+  on('agent.register', ($: any, e: any) => {
+    w.registered.push(e);
+    return { value: { agent: `context-graph:${e.name}` } };
+  });
+  on('session.usage', () => ({ value: { startedAt: 0, context: {}, rateLimits: w.limits } }));
+  on('turn.start', ($: any, e: any) => e);
+  on('turn.complete', () => ({ text: '' }));
   on('session.send', ($: any, e: any) => {
     w.sent.push({ to: e.to, text: e.text });
     return { isDelivered: true };
@@ -567,4 +580,98 @@ test('VIEW-4 an edit that owes a card carries the tag on its row while it does',
   use = await row($, 'ToolUse', 'e2');
   expect(await use.find({ type: 'Text', text: '  card owed' })).toBeUndefined();
   await use.unmount();
+});
+
+// --- the card writer --------------------------------------------------------------------------------
+
+/** A project with the card writer on, src/a.ts owed a card and src/b.ts changed on the branch without one. */
+function writing() {
+  const w = project();
+  w.settings = [
+    { key: 'card_writer', value: true, default: false, about: '' },
+    { key: 'card_writer_model', value: 'haiku', default: '', about: '' },
+    { key: 'pause_at_percent', value: 80, default: 80, about: '', inForce: 70, from: 'code-kit' },
+  ];
+  w.agents = [{ agent: 'agent-web', agentType: 'web-engineer', read: [], searched: [], edited: [], cardsOwed: ['src/a.ts'] }];
+  w.changed = { fresh: [], stale: ['src/b.ts'], missing: [] };
+  return w;
+}
+const leadTurn = async ($: any, clock: any, id = 't-1') => {
+  await $.turn.start({ turnId: id, text: '' } as any);
+  await $.turn.complete({ turnId: id, answer: '', durationMs: 1, isAborted: false } as any);
+  for (let i = 0; i < 3; i++) await clock.advance(1);
+};
+
+test('CARDW-1 and CARDW-2 with the lead idle, the lead starts the card writer on the cards owed and missing', async ($, on) => {
+  const w = writing();
+  const clock = await start($, on, w);
+  expect(w.registered[0]).toMatchObject({ name: 'card-writer', model: 'haiku', disallowedTools: ['Edit', 'MultiEdit', 'Write', 'NotebookEdit'] });
+  expect(w.registered[0].prompt).toMatch(/Read it in full, with what it imports/);
+  await leadTurn($, clock);
+  expect(w.prompts).toEqual([
+    'Start Context Graph\'s card writer in the background: use the Agent tool with subagent_type "context-graph:card-writer", run_in_background true, description "Write 2 cards (Context Graph)", and the prompt "Write the cards for: src/a.ts, src/b.ts." Then carry on; it only writes cards.',
+  ]);
+  // One batch at a time: the next lead turn starts no second card writer.
+  await leadTurn($, clock, 't-2');
+  expect(w.prompts).toHaveLength(1);
+  await ctx($);
+  const ui = await mountPane($, PANE);
+  await press($, 'tab-coverage', PANE);
+  expect(await ui.find({ type: 'Text', text: 'Card writer: writing 2 (src/a.ts, src/b.ts)' })).toBeDefined();
+  await ui.unmount();
+});
+
+test('CARDW-1 a file an agent edited in the last 2 minutes waits', async ($, on) => {
+  const w = writing();
+  const clock = await start($, on, w);
+  await $.tool.call({ tool: 'Edit', tool_use_id: 'e1', file_path: '/work/src/a.ts', agentId: 'agent-web' } as any);
+  await leadTurn($, clock);
+  expect(w.prompts[0]).toMatch(/"Write the cards for: src\/b\.ts\."/);
+});
+
+test("CARDW-3 a batch's cards are done once current, and the writer's own end frees it for the next", async ($, on) => {
+  const w = writing();
+  const clock = await start($, on, w);
+  await leadTurn($, clock);
+  w.cards = { fresh: ['src/a.ts', 'src/b.ts'], stale: [], missing: [] };
+  w.agents = [{ ...w.agents[0], cardsOwed: [] }];
+  w.changed = { fresh: ['src/b.ts'], stale: [], missing: [] };
+  w.running = [{ id: 'cw1', type: 'context-graph:card-writer', status: 'completed' }];
+  await $.turn.complete({ turnId: 't-cw', agentId: 'cw1', answer: 'written', durationMs: 1, isAborted: false } as any);
+  await $.tool.call({ tool: 'Read', tool_use_id: 'r1', file_path: '/work/src/a.ts' } as any);
+  await clock.advance(2000);
+  await ctx($);
+  const ui = await mountPane($, PANE);
+  await press($, 'tab-coverage', PANE);
+  expect(await ui.find({ type: 'Text', text: 'Card writer: nothing owed' })).toBeDefined();
+  await ui.unmount();
+});
+
+test('CARDW-4 with the card writer on, Cards for this module queue its files for it, not for the lead', async ($, on) => {
+  const w = writing();
+  w.agents = [];
+  w.changed = { fresh: [], stale: [], missing: [] };
+  w.moduleCards = { fresh: ['src/a.ts'], stale: ['src/b.ts'], missing: ['src/c.ts'] };
+  const clock = await start($, on, w);
+  await $.tool.call({ tool: 'Read', tool_use_id: 'r1', file_path: '/work/src/a.ts' } as any);
+  await clock.advance(2000);
+  await ctx($);
+  const ui = await mountPane($, PANE);
+  await press($, 'module-cards', PANE);
+  expect(w.prompts).toEqual([expect.stringMatching(/"Write the cards for: src\/b\.ts, src\/c\.ts\."/)]);
+  expect(await ui.find({ type: 'Text', text: /Queued the cards for the files in L:src/ })).toBeDefined();
+  await ui.unmount();
+});
+
+test("CARDW-5 past the pause point (code-kit's, when it sets one) no batch starts", async ($, on) => {
+  const w = writing();
+  w.limits = [{ kind: 'five_hour', percentUsed: 75 }];
+  const clock = await start($, on, w);
+  await leadTurn($, clock);
+  expect(w.prompts).toEqual([]);
+  await ctx($);
+  const ui = await mountPane($, PANE);
+  await press($, 'tab-coverage', PANE);
+  expect(await ui.find({ type: 'Text', text: 'Card writer: paused, the plan at 75%' })).toBeDefined();
+  await ui.unmount();
 });

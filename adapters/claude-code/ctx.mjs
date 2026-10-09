@@ -5332,6 +5332,16 @@ var init_code_kit = __esm({
         );
         return r.status === 0 ? ["code-kit's approval log keeps it as your change when it's committed."] : [];
       },
+      // code-kit's harness pauses background agents at harness.background.pauseAtPercent (80 unless set).
+      pauseAtPercent(root) {
+        try {
+          const c = JSON.parse(readFileSync11(join11(root, ".claude", "code-kit.json"), "utf8"));
+          const v = c.harness?.background?.pauseAtPercent;
+          return typeof v === "number" && v > 0 && v <= 100 ? v : 80;
+        } catch {
+          return void 0;
+        }
+      },
       protectedBranches(root) {
         try {
           const c = JSON.parse(readFileSync11(join11(root, ".claude", "code-kit.json"), "utf8"));
@@ -36100,6 +36110,7 @@ function cardsReport(ctx, opts = {}) {
   const files = opts.changed ? changedFiles(ctx) : (git(ctx.root, ["ls-files", "--cached", "--others", "--exclude-standard"]) ?? "").split("\n").filter(Boolean);
   for (const f of files.sort()) {
     if (exemptFromCards(f, ctx.config.cardsExclude)) continue;
+    if (opts.module && !walk(g, f, { maxDecisions: 0 }).chain.includes(opts.module)) continue;
     const s = cardState(g, ctx.root, f);
     if (s.hash === void 0) continue;
     (s.fresh ? report.fresh : s.card ? report.stale : report.missing).push(f);
@@ -36152,7 +36163,8 @@ function nextStep(ctx, opts = {}) {
 async function run7(args, env) {
   const ctx = openFromArgs(args);
   if (args.cmd === "cards") {
-    const r = cardsReport(ctx, { changed: args.flags.changed === true });
+    const module = str(args.flags.module);
+    const r = cardsReport(ctx, { changed: args.flags.changed === true, ...module ? { module } : {} });
     if (!ctx.graph) {
       console.error("no graph for this repository: ctx init");
       return 1;
@@ -36188,6 +36200,7 @@ var init_guide = __esm({
     init_store();
     init_recorder();
     init_git();
+    init_walk();
     init_doctor();
     init_main();
   }
@@ -36345,7 +36358,14 @@ async function run10(args, env) {
   }
   if (sub !== void 0) throw new Error('ctx settings [--json] | ctx settings set <key> <value> --reason "<why>"');
   const inForce = ctx.config.harness;
-  const rows = HARNESS_KEYS.map((k) => ({ key: k, value: inForce[k], default: HARNESS[k].default, about: HARNESS[k].about }));
+  const pausedBy = toolAdapters(ctx.root).map((a) => ({ name: a.name, at: a.pauseAtPercent?.(ctx.root) })).find((p) => p.at !== void 0);
+  const rows = HARNESS_KEYS.map((k) => ({
+    key: k,
+    value: inForce[k],
+    default: HARNESS[k].default,
+    about: HARNESS[k].about,
+    ...k === "pause_at_percent" && pausedBy ? { inForce: pausedBy.at, from: pausedBy.name } : {}
+  }));
   const problems = harnessProblems(section);
   if (env.json) {
     console.log(JSON.stringify(rows, null, 2));
@@ -36906,7 +36926,7 @@ var init_main = __esm({
 
 Start here
   ctx next [--json]                                the one thing to do now, and the skill that does it
-  ctx cards [--changed] [--missing|--stale]        which files have a card matching them
+  ctx cards [--changed] [--module <L:id>] [--missing|--stale]  which files have a card matching them
 
 Graph
   ctx slice <path> [--symbol name]                 slice injected before an edit

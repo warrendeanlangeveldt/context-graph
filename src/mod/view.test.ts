@@ -8,6 +8,8 @@ import { queueOrder, spark } from '../../adapters/claude-code/hooks/mod/views/pr
 // @ts-expect-error: the mod is plain JavaScript beside the bundled CLI, outside the TypeScript build
 import { progressText, readingList, readingMessage } from '../../adapters/claude-code/hooks/mod/views/assist.mjs';
 import { describeMissing } from '../enforce/read-before-edit.js';
+// @ts-expect-error: the mod is plain JavaScript beside the bundled CLI, outside the TypeScript build
+import { cardJobs, cardWriterLine, pausedAt } from '../../adapters/claude-code/hooks/mod/card-writer.mjs';
 
 /** Stand-ins for the elements `$.ui.resolve` gives the mod. */
 type Node = { type: string; props: Record<string, unknown>; children: Node[] | string[] };
@@ -175,5 +177,22 @@ describe('the Context Graph mod: what it draws', () => {
     expect(progressText(list, ['src/c.ts'])).toBe('1 of 2 read');
     expect(progressText(list, [])).toBe('understood');
     expect(readingList('Context Graph: something else')).toBeNull();
+  });
+
+  it('CARDW-1, CARDW-4 and CARDW-5 the card jobs in order, a moving file waiting, and the pause point', () => {
+    const now = 10 * 60000;
+    const jobs = cardJobs({ asked: ['src/x.ts'], owed: ['src/a.ts', 'src/x.ts'], changed: ['src/b.ts', 'src/a.ts', 'src/c.ts'], editedAt: { 'src/c.ts': now - 60000, 'src/b.ts': now - 3 * 60000 }, now });
+    expect(jobs).toEqual([
+      { path: 'src/x.ts', reason: 'asked' },
+      { path: 'src/a.ts', reason: 'owed' },
+      { path: 'src/b.ts', reason: 'changed' },
+    ]);
+    expect(pausedAt([{ kind: 'five_hour', percentUsed: 81 }], 80)).toEqual({ percent: 81, paused: true });
+    expect(pausedAt([{ kind: 'five_hour', percentUsed: 80 }], 80).paused).toBe(false);
+    expect(pausedAt([], 80)).toEqual({ percent: null, paused: false });
+    expect(cardWriterLine({ on: false })).toMatch(/^Card writer: off/);
+    expect(cardWriterLine({ on: true, paused: true, percent: 82 })).toBe('Card writer: paused, the plan at 82%');
+    expect(cardWriterLine({ on: true, writing: ['a', 'b', 'c', 'd'], waiting: ['e'] })).toBe('Card writer: writing 4 (a, b, c, …), 1 waiting');
+    expect(cardWriterLine({ on: true, waiting: ['e'] })).toBe('Card writer: 1 waiting for the lead to be idle');
   });
 });

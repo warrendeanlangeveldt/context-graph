@@ -74,6 +74,11 @@ describe('ctx settings: the harness settings, changed as the person', () => {
     expect(await ctx('set', 'curator', 'true')({ reason: 'try it for a sprint', via: 'pane' })).toBe(0);
     expect(JSON.parse(readFileSync(said, 'utf8'))).toEqual(['approve', 'ctx', '--reason', 'curator = true: try it for a sprint', '--via', 'context-graph']);
     expect(out.at(-1)).toMatch(/code-kit's approval log keeps it as your change/);
+    // CARDW-5: code-kit's pause point wins over Context Graph's own.
+    writeFileSync(join(repo, '.claude/code-kit.json'), JSON.stringify({ harness: { background: { pauseAtPercent: 70 } } }));
+    out.length = 0;
+    await ctx()({ json: true });
+    expect((JSON.parse(out[0]!) as { key: string }[]).find((r) => r.key === 'pause_at_percent')).toMatchObject({ value: 80, inForce: 70, from: 'code-kit' });
   });
 
   it('the harness section: values over the defaults, a wrong one giving way, and its problems', () => {

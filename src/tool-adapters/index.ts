@@ -28,6 +28,8 @@ export interface ToolAdapter {
    * config.toml), so its log keeps it as theirs. Returns what it recorded, in a sentence, if anything.
    */
   recordPersonsChange?(root: string, change: { file: string; reason: string; via: 'pane' | 'terminal' }): string[];
+  /** The plan use at which the tool pauses background agents, when it sets one: it wins over Context Graph's own. */
+  pauseAtPercent?(root: string): number | undefined;
 }
 
 export const TOOL_ADAPTERS: ToolAdapter[] = [codeKitAdapter];
