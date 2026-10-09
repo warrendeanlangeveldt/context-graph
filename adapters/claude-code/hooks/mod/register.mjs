@@ -9,6 +9,7 @@
 import { DROP_ID, NO_GRAPH, PANE_ID, contextPane, dropPane, followedPath, parseJson } from './view.mjs';
 import { SETTINGS_ID, settingsView } from './views/settings.mjs';
 import { DEFAULT_UI, bandHealth, closeGoesBack, healthOf, moved } from './views/frame.mjs';
+import { assistCard, editTag, readingList, readingMessage } from './views/assist.mjs';
 
 let model = {
   kind: null,
@@ -22,6 +23,11 @@ let model = {
 let followed = null; // the file the pane follows: { path, agentId, pinned? }; pinned by /graph <path>
 let paneUi = { ...DEFAULT_UI }; // the pane's tab, selection, and where Esc goes back to (VIEW-5)
 const deferred = new Set(); // proposals the person put to the back of the queue this session (VIEW-3)
+// Read-assist (spec 06): edits refused for unread files, by the refused call's id, with the agent's progress.
+const assists = new Map(); // tool_use_id → { id, agentId, edit, files, missing }
+const edits = new Map(); // tool_use_id → { path, agentId }: edits that went through, for their card-owed tag (VIEW-4)
+const KEPT = 200;
+const EDIT_TOOLS = new Set(['Edit', 'MultiEdit', 'Write', 'NotebookEdit']);
 let activity = 0; // tool calls seen: coverage changes with them
 let dropping = null; // the open Drop confirmation: { proposal, reason, error }
 let act = null; // the session's actions, made at session start
@@ -83,6 +89,12 @@ export function register(on) {
           : null;
         // VIEW-2: what the followed file imports and what imports it.
         const neighbours = followed ? await json('neighbours', followed.path) : null;
+        // ASSIST-2: each open reading list's progress, from the agent's own reads as ctx judges them.
+        for (const a of [...assists.values()].slice(-20)) {
+          if (a.missing && !a.files.some((f) => a.missing.includes(f))) continue;
+          const f = await json('file', a.edit, '--session', session, ...(a.agentId ? ['--agent', a.agentId] : []));
+          if (f?.understood) a.missing = f.understood.missing.map((m) => m.path);
+        }
         model = {
           ...model,
           kind: 'graph',
@@ -298,8 +310,36 @@ export function register(on) {
     activity += 1;
     const path = model.root ? followedPath(e, model.root) : null;
     if (path && !followed?.pinned) followed = { path, agentId: e.agentId ?? null };
+    // ASSIST-1: a refusal for unread files: kept for its card, and the agent told what to read.
+    const refused = res?.deny ?? (res?.isError ? (res.text ?? '') : null);
+    const list = refused ? readingList(refused) : null;
+    if (list) {
+      assists.set(e.tool_use_id, { id: e.tool_use_id, agentId: e.agentId ?? null, ...list, missing: null });
+      if (assists.size > KEPT) assists.delete(assists.keys().next().value);
+      if (e.agentId) await $.session.send({ to: { agentId: e.agentId }, text: readingMessage(list) }).catch(() => {});
+      $.ui.invalidate('ui.render');
+    } else if (!refused && EDIT_TOOLS.has(e.tool) && path) {
+      edits.set(e.tool_use_id, { path, agentId: e.agentId ?? null });
+      if (edits.size > KEPT) edits.delete(edits.keys().next().value);
+    }
     return res;
   }).catch(($, e, next) => next(e)); // whatever fails here, the call goes on as it would
+
+  // VIEW-4: an edit's tag on its tool row; ASSIST-1: the refused edit's result drawn as its reading list.
+  const owedNow = (agentId, path) =>
+    (model.agents ?? []).some((a) => (a.agent === (agentId ?? 'main') || (!agentId && a.agentType === null)) && a.cardsOwed?.includes(path));
+  on('ui.render', { component: 'ToolUse' }, async ($, e, next) => {
+    const id = e.props.tool_use_id;
+    const edit = edits.get(id);
+    const tag = editTag(assists.has(id) ? { refused: true } : edit ? { owed: owedNow(edit.agentId, edit.path) } : null, $.ui.resolve(e).Text);
+    const row = await next(e);
+    return tag ? $.ui.resolve(e).Box({ flexDirection: 'row', children: [row, tag] }) : row;
+  });
+  on('ui.render', { component: 'ToolResult' }, async ($, e, next) => {
+    const assist = assists.get(e.props.tool_use_id);
+    if (!assist) return next(e);
+    return assistCard({ ...assist, agentType: assist.agentId ? (model.types?.[assist.agentId] ?? null) : null }, $.ui.resolve(e));
+  });
 
   // VIEW-1: the graph's health from what the mod last read.
   const healthNow = () =>
@@ -317,6 +357,7 @@ export function register(on) {
       ...model,
       ui: paneUi,
       deferred,
+      assists: [...assists.values()].slice(-10),
       now: await $.clock.now(),
       health: healthNow(),
       followed: followed && {

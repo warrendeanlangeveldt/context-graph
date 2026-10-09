@@ -116,7 +116,7 @@ Proposals with evidence and sparklines; ratify, drop and defer on keys.
 **Lane:** lead
 **Requirements:** ASSIST-1, ASSIST-2, ASSIST-3, VIEW-4
 **Depends on:** ST-8
-**Status:** todo
+**Status:** done
 
 The refusal's reading list delivered to the agent, its progress, and tags on tool rows.
 

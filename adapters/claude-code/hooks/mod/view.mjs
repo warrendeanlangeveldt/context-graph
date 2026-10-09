@@ -5,6 +5,7 @@
 
 import { DEFAULT_UI, frame, healthOf } from './views/frame.mjs';
 import { proposalsQueue, queueKeys } from './views/proposals.mjs';
+import { progressText } from './views/assist.mjs';
 
 export const PANE_ID = 'context-graph';
 export const DROP_ID = 'context-graph-drop';
@@ -196,10 +197,10 @@ function fileSection(followed, file, els, { onLanes, onWriteCard, onModuleCards,
 }
 
 /** COV-1 and COV-3: each agent's coverage as a table, with edits made without understanding marked; the selected agent marked (VIEW-5). */
-function coverageSection(agents, types, els, selected = -1) {
+function coverageSection(agents, types, els, selected = -1, assists = []) {
   const { Box } = els;
   const { text, heading } = layout(els);
-  if (!agents.length) return [heading('Coverage'), text('Nothing read or edited yet this session.', { dimColor: true })];
+  if (!agents.length && !assists.length) return [heading('Coverage'), text('Nothing read or edited yet this session.', { dimColor: true })];
   const name = (a) => (a.agent === 'main' ? 'main session' : (a.agentType ?? types[a.agent] ?? a.agent));
   const width = Math.max(14, ...agents.map((a) => name(a).length + 2));
   const cells = (values, style = {}) =>
@@ -225,6 +226,13 @@ function coverageSection(agents, types, els, selected = -1) {
       }),
     ),
     ...marked,
+    // ASSIST-2: each reading list a refused edit gave, with the agent's progress through it.
+    ...assists.map((x) =>
+      text(`${progressText(x, x.missing) === 'understood' ? '✓' : '…'} ${x.agentId ? (types[x.agentId] ?? x.agentId) : 'main session'} reading to edit ${x.edit}: ${progressText(x, x.missing)}`, {
+        key: `reading-${x.id}`,
+        ...(progressText(x, x.missing) === 'understood' ? { dimColor: true } : { color: 'yellow' }),
+      }),
+    ),
   ];
 }
 
@@ -240,7 +248,7 @@ export function contextPane(model, els, handlers) {
     tab === 'proposals'
       ? proposalsQueue(model.proposals, els, handlers, { selected: ui.selected, deferred: model.deferred ?? new Set(), now: model.now })
       : tab === 'coverage'
-        ? coverageSection(model.agents, model.types ?? {}, els, ui.selected)
+        ? coverageSection(model.agents, model.types ?? {}, els, ui.selected, model.assists ?? [])
         : fileSection(model.followed, model.file, els, handlers, model.neighbours ?? null);
   const keys =
     ui.tab === 'proposals' ? queueKeys(model.proposals, els, handlers, { selected: ui.selected, deferred: model.deferred ?? new Set() }) : [];

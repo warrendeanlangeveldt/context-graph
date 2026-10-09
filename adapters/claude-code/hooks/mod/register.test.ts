@@ -54,6 +54,8 @@ function project() {
     ] as any[],
     setExit: 0,
     cards: { fresh: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'], stale: ['j'], missing: [] } as any,
+    editRefusal: '',
+    sent: [] as { to: any; text: string }[],
     neighbours: {
       'src/a.ts': { path: 'src/a.ts', card: 'current', breaks: [], imports: [{ path: 'src/b.ts', card: 'missing', breaks: [] }], importers: [] },
       'src/b.ts': { path: 'src/b.ts', card: 'missing', breaks: [], imports: [], importers: [{ path: 'src/a.ts', card: 'current', breaks: [] }] },
@@ -101,7 +103,11 @@ function stub(on: any, w: World) {
   on('session.start', () => ({ cwd: '/work' }));
   on('ui.render', () => ({ type: 'Box', props: {}, children: [] }));
   on('tool.call', { tool: 'Read' }, () => ({ result: { type: 'text', file: {} } }));
-  on('tool.call', { tool: 'Edit' }, () => ({ result: {} }));
+  on('tool.call', { tool: 'Edit' }, () => (w.editRefusal ? { deny: w.editRefusal } : { result: {} }));
+  on('session.send', ($: any, e: any) => {
+    w.sent.push({ to: e.to, text: e.text });
+    return { isDelivered: true };
+  });
   on('tool.call', { tool: 'AskUserQuestion' }, ($: any, e: any) => ({
     result: { questions: e.questions, answers: { [e.questions[0].question]: w.answer } },
   }));
@@ -488,4 +494,77 @@ test('VIEW-3 each proposal has its sparklines; r ratifies, d drops and f defers 
   await press($, 'key-ratify', PANE);
   expect(w.acts).toEqual([['ratify', 'C:events', '--commit']]);
   await ui.unmount();
+});
+
+// --- read-assist and transcript tags ----------------------------------------------------------------
+
+const unread =
+  'Context Graph: read before you edit.\nBefore editing src/a.ts, its context has to be in this agent\'s context:\n  - src/b.ts: it has no card yet, so read it in full\n  - src/c.ts: it has no card yet, so read it in full\nRead those, then make the edit again.';
+const row = ($: any, component: 'ToolUse' | 'ToolResult', id: string, tool = 'Edit') =>
+  $.ui.mount({
+    plugin: 'context-graph',
+    component,
+    requestId: id,
+    surface: 'terminal',
+    viewport: { columns: 120, rows: 40 },
+    props:
+      component === 'ToolUse'
+        ? { tool_use_id: id, tool, input: {}, isRunning: false, isErrored: true, isInterrupted: false, output: null }
+        : { tool_use_id: id, tool, output: null, isErrored: true },
+  });
+
+test('ASSIST-1 an edit refused for unread files is drawn as its reading list, and the agent is told what to read', async ($, on) => {
+  const w = project();
+  w.editRefusal = unread;
+  await start($, on, w);
+  await $.tool.call({ tool: 'Edit', tool_use_id: 'e1', file_path: '/work/src/a.ts', agentId: 'agent-web' } as any);
+  expect(w.sent).toEqual([{ to: 'agent-web', text: 'Read src/b.ts and src/c.ts in full, then edit src/a.ts again.' }]);
+  const card = await row($, 'ToolResult', 'e1');
+  expect((await card.find({ key: 'assist-e1' }))?.text).toMatch(/Read before editing src\/a\.ts\s*0 of 2 read○ src\/b\.ts○ src\/c\.ts/);
+  await card.unmount();
+  const use = await row($, 'ToolUse', 'e1');
+  expect(await use.find({ type: 'Text', text: '  not understood' })).toBeDefined();
+  await use.unmount();
+});
+
+test("ASSIST-2 and ASSIST-3 progress follows the agent's own reads, as ctx judges them, to understood", async ($, on) => {
+  const w = project();
+  w.editRefusal = unread;
+  const clock = await start($, on, w);
+  await $.tool.call({ tool: 'Edit', tool_use_id: 'e1', file_path: '/work/src/a.ts', agentId: 'agent-web' } as any);
+  w.files['src/a.ts'] = { ...w.files['src/a.ts'], understood: { ok: false, missing: [{ path: 'src/c.ts', why: 'imported' }] } };
+  await $.tool.call({ tool: 'Read', tool_use_id: 'r1', file_path: '/work/src/b.ts', agentId: 'agent-web' } as any);
+  await clock.advance(2000);
+  let card = await row($, 'ToolResult', 'e1');
+  expect((await card.find({ key: 'assist-e1' }))?.text).toMatch(/1 of 2 read✓ src\/b\.ts○ src\/c\.ts/);
+  await card.unmount();
+  await ctx($);
+  const pane = await mountPane($, PANE);
+  await press($, 'tab-coverage', PANE);
+  expect(await pane.find({ type: 'Text', text: /reading to edit src\/a\.ts: 1 of 2 read/ })).toBeDefined();
+  await pane.unmount();
+  w.files['src/a.ts'] = { ...w.files['src/a.ts'], understood: { ok: true, missing: [] } };
+  await $.tool.call({ tool: 'Read', tool_use_id: 'r2', file_path: '/work/src/c.ts', agentId: 'agent-web' } as any);
+  await clock.advance(2000);
+  card = await row($, 'ToolResult', 'e1');
+  expect((await card.find({ key: 'assist-e1' }))?.text).toMatch(/understood/);
+  await card.unmount();
+  expect(w.acts).toEqual([]);
+});
+
+test('VIEW-4 an edit that owes a card carries the tag on its row while it does', async ($, on) => {
+  const w = project();
+  w.agents = [{ agent: 'agent-web', agentType: 'web-engineer', read: [], searched: [], edited: [], cardsOwed: ['src/a.ts'] }];
+  const clock = await start($, on, w);
+  await $.tool.call({ tool: 'Edit', tool_use_id: 'e2', file_path: '/work/src/a.ts', agentId: 'agent-web' } as any);
+  await clock.advance(2000);
+  let use = await row($, 'ToolUse', 'e2');
+  expect(await use.find({ type: 'Text', text: '  card owed' })).toBeDefined();
+  await use.unmount();
+  w.agents = [{ ...w.agents[0], cardsOwed: [] }];
+  await $.tool.call({ tool: 'Read', tool_use_id: 'r3', file_path: '/work/src/b.ts', agentId: 'agent-web' } as any);
+  await clock.advance(2000);
+  use = await row($, 'ToolUse', 'e2');
+  expect(await use.find({ type: 'Text', text: '  card owed' })).toBeUndefined();
+  await use.unmount();
 });

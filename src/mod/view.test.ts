@@ -5,6 +5,9 @@ import { NO_GRAPH, contextPane, followedPath } from '../../adapters/claude-code/
 import { DEFAULT_UI, bandHealth, closeGoesBack, healthOf, moved } from '../../adapters/claude-code/hooks/mod/views/frame.mjs';
 // @ts-expect-error: the mod is plain JavaScript beside the bundled CLI, outside the TypeScript build
 import { queueOrder, spark } from '../../adapters/claude-code/hooks/mod/views/proposals.mjs';
+// @ts-expect-error: the mod is plain JavaScript beside the bundled CLI, outside the TypeScript build
+import { progressText, readingList, readingMessage } from '../../adapters/claude-code/hooks/mod/views/assist.mjs';
+import { describeMissing } from '../enforce/read-before-edit.js';
 
 /** Stand-ins for the elements `$.ui.resolve` gives the mod. */
 type Node = { type: string; props: Record<string, unknown>; children: Node[] | string[] };
@@ -157,5 +160,20 @@ describe('the Context Graph mod: what it draws', () => {
     expect(spark(['2026-09-01'], now, 8)).toBe('▁▁█▁▁▁▁▁');
     const ps = [{ id: 'a' }, { id: 'b' }, { id: 'c' }];
     expect(queueOrder(ps, new Set(['a'])).map((p: { id: string }) => p.id)).toEqual(['b', 'c', 'a']);
+  });
+
+  it("ASSIST-1 and ASSIST-2 the reading list read from the hooks' own refusal, the message, and the progress", () => {
+    const refusal = describeMissing(
+      [{ path: 'src/a.ts', missing: [{ path: 'src/b.ts', rule: 'read-before-edit', why: 'it has no card yet, so read it in full' }, { path: 'src/c.ts', rule: 'dependencies', why: 'imported; it has no fresh card, so read it in full' }], uncheckedImporters: 0 }] as never,
+      ['read-before-edit', 'dependencies'],
+    );
+    const list = readingList(`PreToolUse:Edit hook error: ${refusal}`);
+    expect(list).toEqual({ edit: 'src/a.ts', files: ['src/b.ts', 'src/c.ts'] });
+    expect(readingMessage(list)).toBe('Read src/b.ts and src/c.ts in full, then edit src/a.ts again.');
+    expect(readingMessage({ edit: 'x.ts', files: ['y.ts'] })).toBe('Read y.ts in full, then edit x.ts again.');
+    expect(progressText(list, null)).toBe('0 of 2 read');
+    expect(progressText(list, ['src/c.ts'])).toBe('1 of 2 read');
+    expect(progressText(list, [])).toBe('understood');
+    expect(readingList('Context Graph: something else')).toBeNull();
   });
 });
