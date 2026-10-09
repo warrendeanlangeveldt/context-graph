@@ -3,6 +3,8 @@
 // API, files or processes, so it is tested with vitest (src/mod/view.test.ts) as well as with
 // `claude plugin test`.
 
+import { DEFAULT_UI, frame, healthOf } from './views/frame.mjs';
+
 export const PANE_ID = 'context-graph';
 export const DROP_ID = 'context-graph-drop';
 export const NO_GRAPH = 'No graph here yet: run /context-graph:init';
@@ -31,12 +33,6 @@ export function followedPath(call, root) {
 
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 const who = (agentType) => agentType ?? 'the main session';
-
-/** The band's line (RAT-2): proposals waiting, or nothing. */
-export function bandLine(proposals) {
-  const n = proposals?.length ?? 0;
-  return n ? { text: `${plural(n, 'proposal', 'proposals')} to ratify` } : null;
-}
 
 // The pane's layout: a heading per section, then rows of a fixed-width label and its value.
 const LABEL = 12;
@@ -166,18 +162,19 @@ function fileSection(followed, file, els, { onLanes, onWriteCard, onModuleCards 
   return rows;
 }
 
-/** RAT-1: every proposal with its evidence, and Ratify and Drop. */
-function proposalsSection(proposals, els, { onRatify, onDrop }) {
+/** RAT-1: every proposal with its evidence, and Ratify and Drop; the selected one marked (VIEW-5). */
+function proposalsSection(proposals, els, { onRatify, onDrop }, selected = -1) {
   const { Box, Button } = els;
   const { text, heading } = layout(els);
   if (!proposals.length) return [heading('Proposals'), text('None waiting.', { dimColor: true })];
   return [
     heading('Proposals', `${plural(proposals.length, 'waits', 'wait')} for you to ratify or drop`),
-    ...proposals.map((p) =>
+    ...proposals.map((p, i) =>
       Box({
         key: `proposal-${p.id}`,
         flexDirection: 'column',
-        borderStyle: 'round',
+        borderStyle: i === selected ? 'bold' : 'round',
+        ...(i === selected ? { borderColor: 'cyan' } : {}),
         paddingX: 1,
         children: [
           Box({
@@ -204,8 +201,8 @@ function proposalsSection(proposals, els, { onRatify, onDrop }) {
   ];
 }
 
-/** COV-1 and COV-3: each agent's coverage as a table, with edits made without understanding marked. */
-function coverageSection(agents, types, els) {
+/** COV-1 and COV-3: each agent's coverage as a table, with edits made without understanding marked; the selected agent marked (VIEW-5). */
+function coverageSection(agents, types, els, selected = -1) {
   const { Box } = els;
   const { text, heading } = layout(els);
   if (!agents.length) return [heading('Coverage'), text('Nothing read or edited yet this session.', { dimColor: true })];
@@ -227,31 +224,35 @@ function coverageSection(agents, types, els) {
   return [
     heading('Coverage', 'this session'),
     cells(['agent', 'read', 'searched', 'edited', 'cards owed'], { dimColor: true }),
-    ...agents.map((a) =>
+    ...agents.map((a, i) =>
       Box({
         key: `agent-${a.agent}`,
-        children: [cells([name(a), a.read.length, a.searched.length, a.edited.length, a.cardsOwed.length])],
+        children: [cells([`${i === selected ? '› ' : ''}${name(a)}`, a.read.length, a.searched.length, a.edited.length, a.cardsOwed.length], i === selected ? { color: 'cyan' } : {})],
       }),
     ),
     ...marked,
   ];
 }
 
-/** The Context pane: the followed file, proposals, coverage, and what the person's last act did. */
+/**
+ * The Context pane (spec 09): the graph's health, the tabs (the followed file, the proposals, each
+ * agent's coverage) and the keys. `model.ui` is the pane's own state; `model.health` is healthOf's.
+ */
 export function contextPane(model, els, handlers) {
-  const { Box, Text } = els;
+  const { Text } = els;
   if (!model || model.kind === 'none') return Text({ dimColor: true, children: [NO_GRAPH] });
-  return Box({
-    flexDirection: 'column',
-    rowGap: 1,
-    children: [
-      ...(model.notice ? [Text({ color: model.notice.ok ? 'green' : 'red', children: [model.notice.text] })] : []),
-      Box({ key: 'file', flexDirection: 'column', children: fileSection(model.followed, model.file, els, handlers) }),
-      Box({ key: 'proposals', flexDirection: 'column', children: proposalsSection(model.proposals, els, handlers) }),
-      Box({ key: 'coverage', flexDirection: 'column', children: coverageSection(model.agents, model.types ?? {}, els) }),
-      Text({ dimColor: true, children: ['Esc or /graph closes the pane.'] }),
-    ],
-  });
+  const ui = model.ui ?? DEFAULT_UI;
+  const body = (tab) =>
+    tab === 'proposals'
+      ? proposalsSection(model.proposals, els, handlers, ui.selected)
+      : tab === 'coverage'
+        ? coverageSection(model.agents, model.types ?? {}, els, ui.selected)
+        : fileSection(model.followed, model.file, els, handlers);
+  return frame(
+    { health: model.health ?? healthOf({ proposals: model.proposals.length }), notice: model.notice, ui, body },
+    els,
+    handlers,
+  );
 }
 
 /** RAT-4: the reason a proposal is dropped for, typed by the person. */

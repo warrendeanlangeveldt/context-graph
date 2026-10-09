@@ -6,8 +6,9 @@
 // session's folder; what it draws is built by the pure functions in view.mjs. It acts only on the
 // person's presses: ratifying with a commit, and dropping a proposal. The hooks refuse both commands
 // from every agent, so no agent reaches them.
-import { DROP_ID, NO_GRAPH, PANE_ID, bandLine, contextPane, dropPane, followedPath, parseJson } from './view.mjs';
+import { DROP_ID, NO_GRAPH, PANE_ID, contextPane, dropPane, followedPath, parseJson } from './view.mjs';
 import { SETTINGS_ID, settingsView } from './views/settings.mjs';
+import { DEFAULT_UI, bandHealth, closeGoesBack, healthOf, moved } from './views/frame.mjs';
 
 let model = {
   kind: null,
@@ -18,7 +19,8 @@ let model = {
   types: {},
   notice: null,
 };
-let followed = null; // the file the pane follows: { path, agentId }
+let followed = null; // the file the pane follows: { path, agentId, pinned? }; pinned by /graph <path>
+let paneUi = { ...DEFAULT_UI }; // the pane's tab, selection, and where Esc goes back to (VIEW-5)
 let activity = 0; // tool calls seen: coverage changes with them
 let dropping = null; // the open Drop confirmation: { proposal, reason, error }
 let act = null; // the session's actions, made at session start
@@ -72,6 +74,8 @@ export function register(on) {
         const types = {};
         for (const a of await $.agent.list()) types[a.id] = a.type;
         const proposals = (await json('proposals')) ?? [];
+        // VIEW-1: the share of files with a current card.
+        const cards = await json('cards');
         const agents = (await json('agents', '--session', session)) ?? [];
         const file = followed
           ? await json('file', followed.path, '--session', session, ...(followed.agentId ? ['--agent', followed.agentId] : []))
@@ -85,6 +89,7 @@ export function register(on) {
           agents,
           file,
           types,
+          cards,
         };
         $.ui.invalidate('ui.render');
       },
@@ -96,8 +101,16 @@ export function register(on) {
         for (const f of files) stamps.push(await stamp(`${dir}/${f}`));
         return [...stamps, followed?.path ?? '', followed?.agentId ?? '', activity].join('\n');
       },
-      // FILE-1: /graph opens the pane, or close it when it's open.
-      toggle: async () => {
+      // FILE-1: /graph opens the pane, or close it when it's open. /graph <path> opens it on that file
+      // (code-kit's combined view asks for this), kept there until the person follows the agents again.
+      toggle: async (path = '') => {
+        const asked = path.trim().replace(/^\.\//, '');
+        if (asked) {
+          followed = { path: asked, agentId: null, pinned: true };
+          paneUi = { ...paneUi, tab: 'file', back: [] };
+          await act.open();
+          return {};
+        }
         if ((await $.ui.panes()).some((p) => p.id === PANE_ID)) {
           await $.ui.close({ id: PANE_ID });
           return {};
@@ -269,7 +282,7 @@ export function register(on) {
 
   on('command.run', { command: 'graph' }, async ($, e) =>
     act
-      ? act.toggle()
+      ? act.toggle(e.args ?? '')
       : {
           text: 'Context Graph is still starting; try /graph again in a moment.',
         },
@@ -280,25 +293,74 @@ export function register(on) {
     const res = await next(e);
     activity += 1;
     const path = model.root ? followedPath(e, model.root) : null;
-    if (path) followed = { path, agentId: e.agentId ?? null };
+    if (path && !followed?.pinned) followed = { path, agentId: e.agentId ?? null };
     return res;
   }).catch(($, e, next) => next(e)); // whatever fails here, the call goes on as it would
+
+  // VIEW-1: the graph's health from what the mod last read.
+  const healthNow = () =>
+    healthOf({
+      cards: model.cards,
+      owed: new Set((model.agents ?? []).flatMap((a) => a.cardsOwed ?? [])).size,
+      proposals: (model.proposals ?? []).length,
+      flagged: (model.flagged ?? []).length,
+    });
+  // VIEW-5: how many things the tab's list holds, for j/k.
+  const listLength = (tab) => (tab === 'proposals' ? model.proposals.length : tab === 'coverage' ? model.agents.length : 0);
 
   on('ui.render', { component: 'Pane', requestId: PANE_ID }, async ($, e) => {
     const view = {
       ...model,
+      ui: paneUi,
+      health: healthNow(),
       followed: followed && {
         ...followed,
         agentType: followed.agentId ? (model.types[followed.agentId] ?? null) : null,
       },
     };
     return contextPane(view, $.ui.resolve(e), {
+      onTab: (tab) => {
+        paneUi = { ...paneUi, tab, selected: -1, back: [] };
+        $.ui.invalidate('ui.render');
+      },
+      onMove: (step) => {
+        const n = listLength(paneUi.tab);
+        if (!n) return;
+        paneUi = { ...paneUi, selected: moved(paneUi.selected, step, n) };
+        $.ui.invalidate('ui.render');
+      },
+      // Enter on an agent opens the file it last edited, without understanding first if it has one.
+      onOpen: () => {
+        if (paneUi.tab !== 'coverage') return;
+        const agent = model.agents[paneUi.selected];
+        const edit = agent?.edited.find((x) => !x.understood) ?? agent?.edited.at(-1);
+        if (!edit) return;
+        followed = { path: edit.path, agentId: agent.agent === 'main' ? null : agent.agent, pinned: true };
+        paneUi = { ...paneUi, tab: 'file', back: [...paneUi.back, { tab: 'coverage', selected: paneUi.selected }] };
+        act.reload();
+      },
+      onSettings: () => act.settings(),
+      onFollowAgents: () => {
+        followed = followed ? { ...followed, pinned: false } : null;
+        $.ui.invalidate('ui.render');
+      },
       onRatify: (p) => act.ratify(p),
       onDrop: (p) => act.drop(p),
       onLanes: () => act.lanes(),
       onWriteCard: (path) => act.askForCards(path, `card for ${path}`),
       onModuleCards: (module) => act.askForCards(module, `cards for the files in ${module} without a current one`),
     });
+  });
+
+  // VIEW-5: Escape goes back to where the person came from, then closes the pane.
+  on('ui.close', async ($, e, next) => {
+    if (closeGoesBack(e, PANE_ID, paneUi)) {
+      const to = paneUi.back.at(-1);
+      paneUi = { ...paneUi, tab: to.tab, selected: to.selected, back: paneUi.back.slice(0, -1) };
+      $.ui.invalidate('ui.render');
+      return;
+    }
+    return next(e);
   });
 
   on('ui.render', { component: 'Pane', requestId: SETTINGS_ID }, async ($, e) =>
@@ -329,7 +391,7 @@ export function register(on) {
   // RAT-2: one line while proposals wait, above whatever else the band holds (another plugin's, or
   // Claude Code's own), so the two mods' lines stand together.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    const line = model.kind === 'graph' ? bandLine(model.proposals) : null;
+    const line = model.kind === 'graph' ? bandHealth(healthNow()) : null;
     if (!line || !act) return next(e);
     const { Box, Text, Button } = $.ui.resolve(e);
     const below = await next(e);
@@ -342,7 +404,7 @@ export function register(on) {
           columnGap: 2,
           children: [
             Text({ color: 'cyan', children: ['Context Graph'] }),
-            Text({ children: [line.text] }),
+            Text({ color: line.color, children: [line.text] }),
             Button({
               key: 'band-context',
               label: 'Context',

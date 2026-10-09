@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 // @ts-expect-error: the mod is plain JavaScript beside the bundled CLI, outside the TypeScript build
-import { NO_GRAPH, bandLine, contextPane, followedPath } from '../../adapters/claude-code/hooks/mod/view.mjs';
+import { NO_GRAPH, contextPane, followedPath } from '../../adapters/claude-code/hooks/mod/view.mjs';
+// @ts-expect-error: the mod is plain JavaScript beside the bundled CLI, outside the TypeScript build
+import { DEFAULT_UI, bandHealth, closeGoesBack, healthOf, moved } from '../../adapters/claude-code/hooks/mod/views/frame.mjs';
 
 /** Stand-ins for the elements `$.ui.resolve` gives the mod. */
 type Node = { type: string; props: Record<string, unknown>; children: Node[] | string[] };
@@ -67,13 +69,13 @@ describe('the Context Graph mod: what it draws', () => {
       { id: 'src.small', kind: 'guidance', module: 'L:src', text: 'keep modules small', served: 3, overridden: 1, violations: null },
       { id: 'C:events', kind: 'concepts', module: null, text: 'Change goes through events', served: 0, overridden: 0, violations: null },
     ];
-    const pane = contextPane({ kind: 'graph', followed: null, file: null, proposals, agents: [] }, els, none);
+    const pane = contextPane({ kind: 'graph', followed: null, file: null, proposals, agents: [], ui: { ...DEFAULT_UI, tab: 'proposals' } }, els, none);
     expect(texts(pane)).toContain('Evidence: served by 3 decisions, overridden by 1 decision');
     expect(texts(pane)).toContain('Evidence: no decision has cited it yet');
     expect(texts(pane)).toContain('rule (guidance) on L:src');
     expect(keys(pane)).toEqual(expect.arrayContaining(['ratify-src.small', 'drop-src.small', 'ratify-C:events']));
-    expect(bandLine(proposals)).toEqual({ text: '2 proposals to ratify' });
-    expect(bandLine([])).toBeNull();
+    expect(bandHealth(healthOf({ proposals: proposals.length }))).toEqual({ text: '☀ 0 owed · 2 proposals', color: 'green' });
+    expect(bandHealth(healthOf({ proposals: 0 }))).toBeNull();
   });
 
   it('COV-1 and COV-3 give each agent its counts, and mark an edit made without understanding', () => {
@@ -91,12 +93,34 @@ describe('the Context Graph mod: what it draws', () => {
         cardsOwed: ['src/a.ts'],
       },
     ];
-    const shown = texts(contextPane({ kind: 'graph', followed: null, file: null, proposals: [], agents }, els, none));
+    const shown = texts(contextPane({ kind: 'graph', followed: null, file: null, proposals: [], agents, ui: { ...DEFAULT_UI, tab: 'coverage' } }, els, none));
     expect(shown).toEqual(expect.arrayContaining(['agent', 'read', 'searched', 'edited', 'cards owed']));
     const row = (who: string) => shown.slice(shown.indexOf(who), shown.indexOf(who) + 5);
     expect(row('web-engineer')).toEqual(['web-engineer', '4', '3', '2', '1']);
     expect(row('main session')).toEqual(['main session', '2', '0', '0', '0']);
     expect(shown).toContain('✓ web-engineer edited src/a.ts, understood first');
     expect(shown).toContain('✗ web-engineer edited src/c.ts without understanding it: src/d.ts, src/e.ts unread');
+  });
+
+  it("VIEW-1 the graph's health: the carded share, owed cards, proposals and overridden rules, as a glyph and a colour", () => {
+    const cards = { fresh: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'], stale: ['j'], missing: [] };
+    expect(healthOf({ cards, owed: 0, proposals: 0 })).toMatchObject({ carded: 90, level: 'good', text: '☀ 90% carded · 0 owed · 0 proposals' });
+    expect(healthOf({ cards, owed: 1, proposals: 1 })).toMatchObject({ level: 'amber', glyph: '⛅' });
+    expect(healthOf({ cards: { fresh: ['a'], stale: ['b'], missing: [] }, owed: 0 })).toMatchObject({ carded: 50, level: 'amber' });
+    expect(healthOf({ cards, owed: 5 })).toMatchObject({ level: 'red', glyph: '⛈' });
+    expect(healthOf({ cards, flagged: 3 }).text).toBe('⛈ 90% carded · 0 owed · 0 proposals · 3 rules overridden');
+    expect(bandHealth(healthOf({ cards, owed: 0, proposals: 0 }))).toBeNull();
+    expect(bandHealth(healthOf({ cards, owed: 2 }))).toEqual({ text: '⛅ 90% carded · 2 owed · 0 proposals', color: 'yellow' });
+  });
+
+  it('VIEW-5 j/k move from nothing selected, and Escape goes back while there is somewhere to go', () => {
+    expect(moved(-1, 1, 3)).toBe(0);
+    expect(moved(-1, -1, 3)).toBe(2);
+    expect(moved(2, 1, 3)).toBe(0);
+    expect(moved(0, 1, 0)).toBe(-1);
+    const person = { id: 'context-graph', origin: { kind: 'person' } };
+    expect(closeGoesBack(person, 'context-graph', { back: [{ tab: 'coverage', selected: 1 }] })).toBe(true);
+    expect(closeGoesBack(person, 'context-graph', { back: [] })).toBe(false);
+    expect(closeGoesBack({ ...person, origin: { kind: 'plugin' } }, 'context-graph', { back: [{}] })).toBe(false);
   });
 });

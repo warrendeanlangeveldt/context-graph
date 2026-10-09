@@ -53,6 +53,7 @@ function project() {
       { key: 'pause_at_percent', value: 80, default: 80, about: 'The pause point' },
     ] as any[],
     setExit: 0,
+    cards: { fresh: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'], stale: ['j'], missing: [] } as any,
   };
 }
 type World = ReturnType<typeof project>;
@@ -64,6 +65,7 @@ function stub(on: any, w: World) {
     const sub = argv[2];
     if (sub === 'info') return ran(0, JSON.stringify(w.info));
     if (sub === 'proposals') return ran(0, JSON.stringify(w.proposals));
+    if (sub === 'cards') return ran(0, JSON.stringify(w.cards));
     if (sub === 'agents') return ran(0, JSON.stringify(w.agents));
     if (sub === 'file') {
       w.fileAsks.push([...argv.slice(3)]);
@@ -227,11 +229,12 @@ test('RAT-1 and RAT-2 the proposals show their evidence, and the band counts the
   const w = project();
   await start($, on, w);
   const band = await bandUi($);
-  expect(await band.find({ type: 'Text', text: '2 proposals to ratify' })).toBeDefined();
+  expect(await band.find({ type: 'Text', text: '☀ 90% carded · 0 owed · 2 proposals' })).toBeDefined();
   await press($, 'band-context');
   expect(w.opened).toContain(PANE);
   await band.unmount();
   const ui = await mountPane($, PANE);
+  await press($, 'tab-proposals', PANE);
   expect(await ui.find({ type: 'Text', text: 'Evidence: served by 3 decisions, overridden by 1 decision' })).toBeDefined();
   await ui.unmount();
 });
@@ -241,6 +244,7 @@ test('RAT-3 Ratify confirms, then ratifies and commits as the person', async ($,
   await start($, on, w);
   await ctx($);
   const ui = await mountPane($, PANE);
+  await press($, 'tab-proposals', PANE);
   await press($, 'ratify-src.small', PANE);
   expect(w.acts).toEqual([['ratify', 'src.small', '--commit']]);
   expect(await ui.find({ type: 'Text', text: /Ratified src.small: committed abc1234 with Ctx-Ratified-By: warren/ })).toBeDefined();
@@ -253,6 +257,7 @@ test('RAT-3 on a protected branch nothing changes, and the pane says to switch',
   await start($, on, w);
   await ctx($);
   const ui = await mountPane($, PANE);
+  await press($, 'tab-proposals', PANE);
   await press($, 'ratify-src.small', PANE);
   expect(await ui.find({ type: 'Text', text: /Nothing ratified: main is protected. Switch to a branch/ })).toBeDefined();
   await ui.unmount();
@@ -264,6 +269,7 @@ test('RAT-3 cancelling the confirmation ratifies nothing', async ($, on) => {
   await start($, on, w);
   await ctx($);
   const ui = await mountPane($, PANE);
+  await press($, 'tab-proposals', PANE);
   await press($, 'ratify-src.small', PANE);
   expect(w.acts).toEqual([]);
   await ui.unmount();
@@ -274,6 +280,7 @@ test('RAT-4 Drop asks why, needs a reason, and drops it with that reason', async
   await start($, on, w);
   await ctx($);
   const ui = await mountPane($, PANE);
+  await press($, 'tab-proposals', PANE);
   await press($, 'drop-src.small', PANE);
   expect(w.opened).toContain(DROP);
   const dialog = await mountPane($, DROP);
@@ -294,6 +301,7 @@ test('COV-1 and COV-2 coverage per agent rises within 2 seconds of a read', asyn
   w.agents = [{ agent: 'agent-web', agentType: 'web-engineer', read: ['src/a.ts'], searched: [], edited: [], cardsOwed: [] }];
   await ctx($);
   const before = await mountPane($, PANE);
+  await press($, 'tab-coverage', PANE);
   expect(shownIn(await before.find({ key: 'agent-agent-web' }))).toEqual(['web-engineer', '1', '0', '0', '0']);
   await before.unmount();
   w.agents = [{ ...w.agents[0], read: ['src/a.ts', 'src/b.ts'] }];
@@ -319,6 +327,7 @@ test('COV-3 an edit made without understanding is marked, with what was unread',
   await start($, on, w);
   await ctx($);
   const ui = await mountPane($, PANE);
+  await press($, 'tab-coverage', PANE);
   expect(await ui.find({ type: 'Text', text: '✗ web-engineer edited src/a.ts without understanding it: src/b.ts unread' })).toBeDefined();
   await ui.unmount();
 });
@@ -375,4 +384,63 @@ test('VIEW-6 a value the CLI refuses shows why, and Cancel leaves it', async ($,
   await $.ui.press({ plugin: 'context-graph', key: 'settings-cancel', requestId: SETTINGS });
   expect(await ui.find({ key: 'settings-confirm' })).toBeUndefined();
   await ui.unmount();
+});
+
+// --- panes v2: the health header, tabs and keys -----------------------------------------------------
+
+test("VIEW-1 the header and the band sum up the graph's health: carded share, cards owed and proposals", async ($, on) => {
+  const w = project();
+  w.proposals = [];
+  w.agents = [{ agent: 'agent-web', agentType: 'web-engineer', read: [], searched: [], edited: [], cardsOwed: ['src/a.ts'] }];
+  await start($, on, w);
+  await ctx($);
+  const ui = await mountPane($, PANE);
+  const header = await ui.find({ type: 'Text', text: '⛅ 90% carded · 1 owed · 0 proposals' });
+  expect(header?.props.color).toBe('yellow');
+  await ui.unmount();
+  const band = await bandUi($);
+  expect((await band.find({ type: 'Text', text: '⛅ 90% carded · 1 owed · 0 proposals' }))?.props.color).toBe('yellow');
+  await band.unmount();
+});
+
+test('VIEW-1 with nothing waiting and the graph healthy there is no band line', async ($, on) => {
+  const w = project();
+  w.proposals = [];
+  w.cards = { fresh: ['a', 'b'], stale: [], missing: [] };
+  await start($, on, w);
+  const band = await bandUi($);
+  expect(await band.find({ type: 'Text', text: /carded/ })).toBeUndefined();
+  await band.unmount();
+});
+
+test('VIEW-5 tabs on 1 to 3; j/k select an agent and Enter opens the file it edited without understanding', async ($, on) => {
+  const w = project();
+  w.agents = [
+    { agent: 'main', agentType: null, read: [], searched: [], edited: [], cardsOwed: [] },
+    { agent: 'agent-web', agentType: 'web-engineer', read: [], searched: [], edited: [{ path: 'src/a.ts', understood: false, missing: ['src/b.ts'] }], cardsOwed: [] },
+  ];
+  await start($, on, w);
+  await ctx($);
+  const ui = await mountPane($, PANE);
+  expect((await ui.find({ key: 'tab-coverage' }))?.props.hotkey).toBe('3');
+  await press($, 'tab-coverage', PANE);
+  await press($, 'move-prev', PANE);
+  expect((await ui.find({ key: 'agent-agent-web' }))?.text).toMatch(/^› web-engineer/);
+  expect((await ui.find({ key: 'open-selected' }))?.props.hotkey).toBe('o');
+  await press($, 'open-selected', PANE);
+  expect(w.fileAsks.at(-1)).toEqual(['src/a.ts', '--session', 's1', '--agent', 'agent-web', '--json']);
+  expect((await ui.find({ key: 'tab-file' }))?.props.variant).toBe('primary');
+  expect(await ui.find({ type: 'Text', text: 'Esc: back' })).toBeDefined();
+  await ui.unmount();
+});
+
+test("/graph <path> opens the pane on that file, and keeps it there while agents read others", async ($, on) => {
+  const w = project();
+  const clock = await start($, on, w);
+  await $.command.run({ command: 'graph', args: 'src/b.ts' });
+  expect(w.opened).toContain(PANE);
+  expect(w.fileAsks.at(-1)?.[0]).toBe('src/b.ts');
+  await $.tool.call({ tool: 'Read', tool_use_id: 'r9', file_path: '/work/src/a.ts', agentId: 'agent-web' } as any);
+  await clock.advance(2000);
+  expect(w.fileAsks.at(-1)?.[0]).toBe('src/b.ts');
 });

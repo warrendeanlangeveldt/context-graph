@@ -89,7 +89,7 @@ The `[harness]` section in `.ctx/config.toml`, validated; `ctx settings`; the Se
 **Lane:** lead
 **Requirements:** VIEW-1, VIEW-5
 **Depends on:** ST-7
-**Status:** todo
+**Status:** done
 
 The new frame, the band line with the graph's health, the keyboard model.
 
