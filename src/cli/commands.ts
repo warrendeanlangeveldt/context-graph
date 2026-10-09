@@ -27,6 +27,8 @@ export async function extraCommands(args: Args, env: { json: boolean; usage: str
       return (await import('./module.js')).run(args, env);
     case 'settings':
       return (await import('./settings.js')).run(args, env);
+    case 'neighbours':
+      return (await import('./neighbours.js')).run(args, env);
     default:
       return undefined;
   }

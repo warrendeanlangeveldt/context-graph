@@ -54,6 +54,10 @@ function project() {
     ] as any[],
     setExit: 0,
     cards: { fresh: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'], stale: ['j'], missing: [] } as any,
+    neighbours: {
+      'src/a.ts': { path: 'src/a.ts', card: 'current', breaks: [], imports: [{ path: 'src/b.ts', card: 'missing', breaks: [] }], importers: [] },
+      'src/b.ts': { path: 'src/b.ts', card: 'missing', breaks: [], imports: [], importers: [{ path: 'src/a.ts', card: 'current', breaks: [] }] },
+    } as Record<string, any>,
   };
 }
 type World = ReturnType<typeof project>;
@@ -66,6 +70,7 @@ function stub(on: any, w: World) {
     if (sub === 'info') return ran(0, JSON.stringify(w.info));
     if (sub === 'proposals') return ran(0, JSON.stringify(w.proposals));
     if (sub === 'cards') return ran(0, JSON.stringify(w.cards));
+    if (sub === 'neighbours') return ran(0, JSON.stringify(w.neighbours[argv[3]] ?? null));
     if (sub === 'agents') return ran(0, JSON.stringify(w.agents));
     if (sub === 'file') {
       w.fileAsks.push([...argv.slice(3)]);
@@ -443,4 +448,21 @@ test("/graph <path> opens the pane on that file, and keeps it there while agents
   await $.tool.call({ tool: 'Read', tool_use_id: 'r9', file_path: '/work/src/a.ts', agentId: 'agent-web' } as any);
   await clock.advance(2000);
   expect(w.fileAsks.at(-1)?.[0]).toBe('src/b.ts');
+});
+
+// --- the file view ----------------------------------------------------------------------------------
+
+test('VIEW-2 the File tab draws the card as Markdown and the neighbourhood, and a neighbour opens in its place', async ($, on) => {
+  const w = project();
+  await start($, on, w);
+  await $.tool.call({ tool: 'Read', tool_use_id: 'r1', file_path: '/work/src/a.ts', agentId: 'agent-web' } as any);
+  await ctx($);
+  const ui = await mountPane($, PANE);
+  expect((await ui.find({ type: 'Markdown' }))?.props.text).toBe('Holds a.');
+  expect((await ui.find({ key: 'imports-src/b.ts' }))?.props.label).toBe('○ src/b.ts');
+  await press($, 'imports-src/b.ts', PANE);
+  expect(w.fileAsks.at(-1)?.[0]).toBe('src/b.ts');
+  expect((await ui.find({ key: 'importers-src/a.ts' }))?.props.label).toBe('● src/a.ts');
+  expect(await ui.find({ type: 'Text', text: 'Esc: back' })).toBeDefined();
+  await ui.unmount();
 });

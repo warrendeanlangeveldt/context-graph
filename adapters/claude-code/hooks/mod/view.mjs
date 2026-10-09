@@ -68,7 +68,46 @@ const evidence = (p) => {
 };
 
 /** FILE-2 to FILE-4: the followed file. */
-function fileSection(followed, file, els, { onLanes, onWriteCard, onModuleCards }) {
+/** Each rule kind's chip (VIEW-2): its word on a background colour. */
+const CHIP = { enforced: 'red', guidance: 'blue', proposed: 'yellow' };
+/** A neighbour's card as a glyph (VIEW-2), readable without colour. */
+const CARD_GLYPH = { current: '●', stale: '◐', missing: '○', exempt: '·' };
+
+/** VIEW-2: what the file imports and what imports it, each a press away, uncarded and rule-breaking ones marked. */
+function neighbourhood(n, els, onNeighbour) {
+  const { Box, Button, Text } = els;
+  const side = (title, list, key) =>
+    Box({
+      key,
+      flexDirection: 'column',
+      children: [
+        Text({ dimColor: true, children: [title] }),
+        ...(list.length
+          ? list.map((x) =>
+              Button({
+                key: `${key}-${x.path}`,
+                label: `${CARD_GLYPH[x.card]} ${x.path}${x.breaks.length ? ` ✗ ${x.breaks.join(', ')}` : ''}`,
+                plain: true,
+                ...(x.card === 'current' && !x.breaks.length ? { dimColor: true } : {}),
+                onPress: () => onNeighbour(x.path),
+              }),
+            )
+          : [Text({ dimColor: true, children: ['none'] })]),
+      ],
+    });
+  return Box({
+    key: 'neighbours',
+    flexDirection: 'row',
+    columnGap: 2,
+    children: [
+      side('imports', n.imports, 'imports'),
+      Text({ children: [`→ ${n.path} ←`] }),
+      side('imported by', n.importers, 'importers'),
+    ],
+  });
+}
+
+function fileSection(followed, file, els, { onLanes, onWriteCard, onModuleCards, onNeighbour = () => {} }, near = null) {
   const { Box, Button } = els;
   const { text, heading, row } = layout(els);
   const by = followed ? `${followed.agentType ? `last touched by ${followed.agentType}` : 'last touched by the main session'}` : null;
@@ -79,7 +118,7 @@ function fileSection(followed, file, els, { onLanes, onWriteCard, onModuleCards 
   const cardButton = (label) => Button({ key: 'write-card', label, onPress: () => onWriteCard(file.path) });
   rows.push(
     file.card?.fresh
-      ? row('Card', file.card.text)
+      ? row('Card', els.Markdown ? els.Markdown({ key: 'card', text: file.card.text }) : text(file.card.text))
       : row(
           'Card',
           Box({
@@ -123,9 +162,9 @@ function fileSection(followed, file, els, { onLanes, onWriteCard, onModuleCards 
                 flexDirection: 'row',
                 columnGap: 1,
                 children: [
+                  text(` ${ruleKind(r)} `, { backgroundColor: CHIP[ruleKind(r)], color: 'black' }),
                   text(r.id, { bold: true }),
                   text(r.text),
-                  text(`(${ruleKind(r)})`, ruleKind(r) === 'proposed' ? { color: 'yellow' } : { dimColor: true }),
                 ],
               }),
             ),
@@ -143,6 +182,8 @@ function fileSection(followed, file, els, { onLanes, onWriteCard, onModuleCards 
       { dimColor: true },
     ),
   );
+  if (near?.path === file.path)
+    rows.push(row('Neighbours', neighbourhood(near, els, onNeighbour)));
   // FILE-4: what a tool sharing the repository says of the file (code-kit: lane, layer, requirement).
   if (file.tools?.lines?.length)
     rows.push(
@@ -247,7 +288,7 @@ export function contextPane(model, els, handlers) {
       ? proposalsSection(model.proposals, els, handlers, ui.selected)
       : tab === 'coverage'
         ? coverageSection(model.agents, model.types ?? {}, els, ui.selected)
-        : fileSection(model.followed, model.file, els, handlers);
+        : fileSection(model.followed, model.file, els, handlers, model.neighbours ?? null);
   return frame(
     { health: model.health ?? healthOf({ proposals: model.proposals.length }), notice: model.notice, ui, body },
     els,

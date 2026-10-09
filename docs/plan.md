@@ -98,7 +98,7 @@ The new frame, the band line with the graph's health, the keyboard model.
 **Lane:** lead
 **Requirements:** VIEW-2
 **Depends on:** ST-8
-**Status:** todo
+**Status:** done
 
 The card rendered, rules as chips, and the neighbourhood graph from `ctx neighbours`.
 

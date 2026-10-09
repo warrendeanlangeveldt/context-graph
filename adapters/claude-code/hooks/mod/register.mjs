@@ -80,6 +80,8 @@ export function register(on) {
         const file = followed
           ? await json('file', followed.path, '--session', session, ...(followed.agentId ? ['--agent', followed.agentId] : []))
           : null;
+        // VIEW-2: what the followed file imports and what imports it.
+        const neighbours = followed ? await json('neighbours', followed.path) : null;
         model = {
           ...model,
           kind: 'graph',
@@ -90,6 +92,7 @@ export function register(on) {
           file,
           types,
           cards,
+          neighbours,
         };
         $.ui.invalidate('ui.render');
       },
@@ -340,6 +343,13 @@ export function register(on) {
         act.reload();
       },
       onSettings: () => act.settings(),
+      // VIEW-2: a neighbour opens in the File tab; Escape comes back to this file.
+      onNeighbour: (path) => {
+        const from = followed;
+        followed = { path, agentId: null, pinned: true };
+        paneUi = { ...paneUi, tab: 'file', back: [...paneUi.back, { tab: 'file', selected: -1, followed: from }] };
+        act.reload();
+      },
       onFollowAgents: () => {
         followed = followed ? { ...followed, pinned: false } : null;
         $.ui.invalidate('ui.render');
@@ -357,6 +367,10 @@ export function register(on) {
     if (closeGoesBack(e, PANE_ID, paneUi)) {
       const to = paneUi.back.at(-1);
       paneUi = { ...paneUi, tab: to.tab, selected: to.selected, back: paneUi.back.slice(0, -1) };
+      if (to.followed) {
+        followed = to.followed;
+        act?.reload();
+      }
       $.ui.invalidate('ui.render');
       return;
     }

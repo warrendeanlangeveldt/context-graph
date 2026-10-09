@@ -35641,17 +35641,17 @@ async function runBench(ctx, tasks, opts) {
   mkdirSync8(wtRoot, { recursive: true });
   for (const task of selected) {
     for (const arm of opts.arms) {
-      for (let run11 = 1; run11 <= opts.runs; run11++) {
-        const label = `${task.id} ${arm} #${run11}`;
-        const wt = join29(wtRoot, `${task.id}-${arm}-${run11}`);
+      for (let run12 = 1; run12 <= opts.runs; run12++) {
+        const label = `${task.id} ${arm} #${run12}`;
+        const wt = join29(wtRoot, `${task.id}-${arm}-${run12}`);
         rmWorktree(root, wt);
         log(`${label}: worktree at ${task.base}`);
         execFileSync4("git", ["worktree", "add", "--detach", "-f", wt, task.base], { cwd: root, stdio: "ignore" });
         const started = Date.now();
-        const rec = { task: task.id, stratum: task.stratum, arm, harness: opts.harness, run: run11, startedAt: new Date(started).toISOString(), durationMs: 0, passed: null, checkExit: null, tokensIn: null, tokensOut: null, turns: null, toolCalls: 0, reads: 0, edits: 0, rework: 0, testFailures: 0, slicesInjected: 0, callersLoaded: 0, callersTotal: 0, darkTotal: 0, reach: 0, decisions: [], session: null, harnessError: null };
+        const rec = { task: task.id, stratum: task.stratum, arm, harness: opts.harness, run: run12, startedAt: new Date(started).toISOString(), durationMs: 0, passed: null, checkExit: null, tokensIn: null, tokensOut: null, turns: null, toolCalls: 0, reads: 0, edits: 0, rework: 0, testFailures: 0, slicesInjected: 0, callersLoaded: 0, callersTotal: 0, darkTotal: 0, reach: 0, decisions: [], session: null, harnessError: null };
         try {
           const env = prepareArm(ctx, task, arm, wt, opts.harness);
-          const session = `bench-${task.id}-${arm}-${run11}-${stamp}`;
+          const session = `bench-${task.id}-${arm}-${run12}-${stamp}`;
           env.CTX_SESSION = session;
           const h = runHarness(opts, task, wt, env, session, log);
           rec.session = h.session;
@@ -35662,7 +35662,7 @@ async function runBench(ctx, tasks, opts) {
           const check2 = spawnSync2("sh", ["-c", task.check], { cwd: wt, encoding: "utf8", timeout: opts.timeoutMs ?? 10 * 6e4, env: { ...process.env, CI: "1" } });
           rec.checkExit = check2.status;
           rec.passed = check2.status === 0;
-          writeFileSync11(join29(dir, `${task.id}-${arm}-${run11}.check.log`), `${check2.stdout ?? ""}
+          writeFileSync11(join29(dir, `${task.id}-${arm}-${run12}.check.log`), `${check2.stdout ?? ""}
 ${check2.stderr ?? ""}`);
           if (h.session) collectMetrics(rec, new ObservationStore(wt, h.session).readAll().length ? new ObservationStore(wt, h.session) : new ObservationStore(root, h.session));
         } catch (e) {
@@ -36360,6 +36360,52 @@ var init_settings = __esm({
   }
 });
 
+// src/cli/neighbours.ts
+var neighbours_exports = {};
+__export(neighbours_exports, {
+  neighbours: () => neighbours,
+  run: () => run11
+});
+function neighbours(ctx, path) {
+  const g = needGraph(ctx);
+  const index = loadOrBuildImportIndex(ctx.root);
+  const broken = /* @__PURE__ */ new Map();
+  for (const [id, vs] of conformanceReport(ctx)) for (const v of vs) broken.set(v.from, [...broken.get(v.from) ?? [], id]);
+  const mark = (p) => {
+    if (exemptFromCards(p, ctx.config.cardsExclude)) return "exempt";
+    const s = cardState(g, ctx.root, p);
+    return s.fresh ? "current" : s.card ? "stale" : "missing";
+  };
+  const of = (p) => ({ path: p, card: mark(p), breaks: [...new Set(broken.get(p) ?? [])] });
+  return {
+    path,
+    card: mark(path),
+    breaks: [...new Set(broken.get(path) ?? [])],
+    imports: (index.imports[path] ?? []).slice().sort().map(of),
+    importers: callersOf(index, path).map(of)
+  };
+}
+async function run11(args, env) {
+  const ctx = openFromArgs(args);
+  const path = args.positional[0];
+  if (!path) throw new Error("ctx neighbours <path>");
+  const n = neighbours(ctx, path.replace(/^\.\//, ""));
+  const line = (x) => `  ${x.path}  card ${x.card}${x.breaks.length ? `, breaks ${x.breaks.join(", ")}` : ""}`;
+  console.log(
+    env.json ? JSON.stringify(n, null, 2) : [`${n.path}  card ${n.card}`, "imports:", ...n.imports.length ? n.imports.map(line) : ["  (none)"], "imported by:", ...n.importers.length ? n.importers.map(line) : ["  (none)"]].join("\n")
+  );
+  return 0;
+}
+var init_neighbours = __esm({
+  "src/cli/neighbours.ts"() {
+    "use strict";
+    init_cards();
+    init_imports();
+    init_conformance();
+    init_main();
+  }
+});
+
 // src/cli/commands.ts
 async function extraCommands(args, env) {
   switch (args.cmd) {
@@ -36392,6 +36438,8 @@ async function extraCommands(args, env) {
       return (await Promise.resolve().then(() => (init_module(), module_exports))).run(args, env);
     case "settings":
       return (await Promise.resolve().then(() => (init_settings(), settings_exports))).run(args, env);
+    case "neighbours":
+      return (await Promise.resolve().then(() => (init_neighbours(), neighbours_exports))).run(args, env);
     default:
       return void 0;
   }
@@ -36875,6 +36923,7 @@ Graph
                                                    propose a rule for a path's module; a person ratifies it
   ctx file <path> [--agent <id>]                   a file's card, rules, decisions, and whether an agent understood it
   ctx agents [--session <id>]                      each agent's coverage: read, searched, edited, cards owed
+  ctx neighbours <path>                            what a file imports and what imports it, with their cards and broken rules
   ctx settings [set <key> <value> --reason "\u2026"]     the mod's harness settings; set is the person's change
   ctx provenance                                   which of this branch's decisions are committed, and where
 

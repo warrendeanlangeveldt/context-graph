@@ -37,7 +37,7 @@ describe('the Context Graph mod: what it draws', () => {
     const shown = texts(contextPane({ kind: 'graph', followed: { path: 'src/a.ts', agentType: 'web-engineer' }, file, proposals: [], agents: [] }, els, none));
     expect(shown).toEqual(expect.arrayContaining(['FILE', 'last touched by web-engineer', 'Path', 'src/a.ts']));
     expect(shown).toContain('Holds a.');
-    expect(shown).toEqual(expect.arrayContaining(['src.pure', 'no side effects', '(guidance)', 'src.typed', '(enforced)']));
+    expect(shown).toEqual(expect.arrayContaining([' guidance ', 'src.pure', 'no side effects', ' enforced ', 'src.typed']));
     expect(shown).toContain('L:src › L:repo');
     expect(shown).toContain('2026-10-03  keep a constant  (warren/claude)');
     expect(shown).toContain('✗ not yet: still to read src/b.ts');
@@ -122,5 +122,29 @@ describe('the Context Graph mod: what it draws', () => {
     expect(closeGoesBack(person, 'context-graph', { back: [{ tab: 'coverage', selected: 1 }] })).toBe(true);
     expect(closeGoesBack(person, 'context-graph', { back: [] })).toBe(false);
     expect(closeGoesBack({ ...person, origin: { kind: 'plugin' } }, 'context-graph', { back: [{}] })).toBe(false);
+  });
+
+  it('VIEW-2 the card as Markdown, the rules as coloured chips, and the neighbourhood with uncarded and rule-breaking files marked', () => {
+    const md = { ...els, Markdown: make('Markdown') };
+    const near = {
+      path: 'src/a.ts',
+      card: 'current',
+      breaks: [],
+      imports: [
+        { path: 'src/b.ts', card: 'stale', breaks: [] },
+        { path: 'lib/c.ts', card: 'missing', breaks: ['src.no-lib'] },
+      ],
+      importers: [{ path: 'src/d.ts', card: 'current', breaks: [] }],
+    };
+    const pane = contextPane({ kind: 'graph', followed: { path: 'src/a.ts', agentType: null }, file, proposals: [], agents: [], neighbours: near }, md, none);
+    const find = (n: Node | string, pred: (x: Node) => boolean): Node | undefined =>
+      typeof n === 'string' ? undefined : pred(n) ? n : (n.children as Node[]).map((c) => find(c, pred)).find(Boolean);
+    expect(find(pane, (n) => n.type === 'Markdown')?.props.text).toBe('Holds a.');
+    expect(find(pane, (n) => n.type === 'Text' && (n.children as string[])[0] === ' enforced ')?.props.backgroundColor).toBe('red');
+    const labels = (find(pane, (n) => n.props.key === 'neighbours') as Node);
+    const buttons: string[] = [];
+    const walk = (n: Node | string) => { if (typeof n === 'string') return; if (n.type === 'Button') buttons.push(String(n.props.label)); (n.children as Node[]).forEach(walk); };
+    walk(labels);
+    expect(buttons).toEqual(['◐ src/b.ts', '○ lib/c.ts ✗ src.no-lib', '● src/d.ts']);
   });
 });
