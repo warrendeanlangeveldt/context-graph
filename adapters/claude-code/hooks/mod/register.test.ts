@@ -660,7 +660,7 @@ test('CARDW-1 and CARDW-2 with the lead idle, the lead starts the card writer on
   expect(w.registered[0].prompt).toMatch(/Read it in full, with what it imports/);
   await leadTurn($, clock);
   expect(w.prompts).toEqual([
-    'Start Context Graph\'s card writer in the background: use the Agent tool with subagent_type "context-graph:card-writer", run_in_background true, description "Write 2 cards (Context Graph)", and the prompt "Write the cards for: src/a.ts, src/b.ts." Then carry on; it only writes cards. If the person has asked you not to card these now, say so and don\'t start it: Context Graph won\'t offer these files again this session.',
+    'Start Context Graph\'s card writer in the background: use the Agent tool with subagent_type "context-graph:card-writer", run_in_background true, description "Write 2 cards (Context Graph)", and the prompt "Write the cards for: src/a.ts, src/b.ts." Then carry on; it only writes cards. If the person has asked you not to card these now, say so and don\'t start it: Context Graph won\'t offer the card writer again this session.',
   ]);
   // The lead starts it, as asked; one batch at a time, so the next turn starts no second one.
   w.running = [{ id: 'cw1', type: 'context-graph:card-writer', description: 'Write 2 cards (Context Graph)', status: 'running' }];
@@ -1019,8 +1019,28 @@ test('MAP-2 the heat map has Write cards for this module on c', async ($, on) =>
   await ui.unmount();
 });
 
-test("a batch the lead declines isn't offered again this session, until the person offers it again", async ($, on) => {
+test("with code-kit's loop paused by the person, the card writer isn't started, and the pane says why", async ($, on) => {
   const w = writing();
+  w.settings = w.settings.map((r: any) => (r.key === 'card_writer' ? { ...r, pausedBy: 'code-kit' } : r));
+  const clock = await start($, on, w);
+  await leadTurn($, clock);
+  await leadTurn($, clock, 't-2');
+  expect(w.prompts).toEqual([]);
+  await ctx($);
+  const ui = await mountPane($, PANE);
+  await press($, 'tab-coverage', PANE);
+  expect(await ui.find({ type: 'Text', text: "Card writer: paused with code-kit's loop" })).toBeDefined();
+  await ui.unmount();
+  // Resumed: the next idle turn starts it.
+  w.settings = w.settings.map((r: any) => ({ ...r, pausedBy: undefined }));
+  await leadTurn($, clock, 't-3');
+  expect(w.prompts).toHaveLength(1);
+});
+
+test("once the lead declines a batch, no other batch is offered this session, until the person offers it again", async ($, on) => {
+  const w = writing();
+  // More files than one batch: declining the first mustn't bring the next ten.
+  w.changed = { fresh: [], stale: Array.from({ length: 25 }, (_, i) => `src/f${i}.ts`), missing: [] };
   const clock = await start($, on, w);
   await leadTurn($, clock);
   expect(w.prompts).toHaveLength(1);
@@ -1031,7 +1051,7 @@ test("a batch the lead declines isn't offered again this session, until the pers
   await ctx($);
   const ui = await mountPane($, PANE);
   await press($, 'tab-coverage', PANE);
-  expect(await ui.find({ type: 'Text', text: "The lead didn't start the card writer on 2 files; they aren't offered again this session." })).toBeDefined();
+  expect(await ui.find({ type: 'Text', text: "The lead declined the card writer; it isn't offered again this session." })).toBeDefined();
   await press($, 'offer-again', PANE);
   expect(w.prompts).toHaveLength(2);
   await ui.unmount();

@@ -67,11 +67,11 @@ export const batchDescription = (n) => `Write ${n} card${n === 1 ? '' : 's'} (Co
 
 /**
  * The lead's prompt that starts the card writer on its batch, in the background (CARDW-1). It says the
- * lead may decline, and that a declined batch isn't offered again this session.
+ * lead may decline, and that once it does, the card writer isn't offered again this session.
  */
 export function startCardWriterPrompt({ agent, jobs }) {
   const files = jobs.map((j) => j.path);
-  return `Start Context Graph's card writer in the background: use the Agent tool with subagent_type "${agent}", run_in_background true, description "${batchDescription(files.length)}", and the prompt "Write the cards for: ${files.join(', ')}." Then carry on; it only writes cards. If the person has asked you not to card these now, say so and don't start it: Context Graph won't offer these files again this session.`;
+  return `Start Context Graph's card writer in the background: use the Agent tool with subagent_type "${agent}", run_in_background true, description "${batchDescription(files.length)}", and the prompt "Write the cards for: ${files.join(', ')}." Then carry on; it only writes cards. If the person has asked you not to card these now, say so and don't start it: Context Graph won't offer the card writer again this session.`;
 }
 
 /** The backfill's line, for the band and the Map tab: how much of the existing code is carded. */
@@ -83,8 +83,9 @@ export function backfillLine({ scope, left, inScope, paused }) {
 }
 
 /** The pane's line for the card writer: off, paused, writing, or waiting. */
-export function cardWriterLine({ on, paused, percent, writing = [], waiting = [] }) {
+export function cardWriterLine({ on, paused, percent, heldBy = null, writing = [], waiting = [] }) {
   if (!on) return 'Card writer: off (/graph-settings turns it on)';
+  if (heldBy && !writing.length) return `Card writer: paused with ${heldBy}'s loop`;
   if (paused) return `Card writer: paused, the plan at ${percent}%`;
   if (writing.length) return `Card writer: writing ${writing.length} (${writing.slice(0, 3).join(', ')}${writing.length > 3 ? ', …' : ''})${waiting.length ? `, ${waiting.length} waiting` : ''}`;
   return waiting.length ? `Card writer: ${waiting.length} waiting for the lead to be idle` : 'Card writer: nothing owed';

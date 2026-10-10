@@ -11,6 +11,9 @@ import { openFromArgs, str, type Args } from './main.js';
  * where a tool that shares the repository keeps a log of such changes (code-kit's approval log), recorded
  * there as theirs. The hooks refuse `settings set` from every agent.
  */
+/** The settings for the background agents, which pause with a tool's paused loop. */
+const BACKGROUND = new Set<string>(['card_writer', 'backfill', 'curator']);
+
 export async function run(args: Args, env: { json: boolean }): Promise<number> {
   const ctx = openFromArgs(args);
   if (!ctx.graphDir) {
@@ -60,12 +63,15 @@ export async function run(args: Args, env: { json: boolean }): Promise<number> {
   const inForce = ctx.config.harness as unknown as Record<string, unknown>;
   // A tool sharing the repository may set the pause point itself (code-kit's harness): it wins.
   const pausedBy = toolAdapters(ctx.root).map((a) => ({ name: a.name, at: a.pauseAtPercent?.(ctx.root) })).find((p) => p.at !== undefined);
+  // A tool whose background loop the person paused holds Context Graph's background agents too.
+  const heldBy = toolAdapters(ctx.root).find((a) => a.backgroundPaused?.(ctx.root))?.name;
   const rows = HARNESS_KEYS.map((k) => ({
     key: k,
     value: inForce[k],
     default: HARNESS[k].default,
     about: HARNESS[k].about,
     ...(k === 'pause_at_percent' && pausedBy ? { inForce: pausedBy.at, from: pausedBy.name } : {}),
+    ...(BACKGROUND.has(k) && heldBy ? { pausedBy: heldBy } : {}),
   }));
   const problems = harnessProblems(section);
   if (env.json) {

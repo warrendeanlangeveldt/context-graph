@@ -55,8 +55,9 @@ export function startCuratorPrompt({ agent, since }) {
 }
 
 /** The pane's line for the curator: off, paused, running, or how many decisions until its next run. */
-export function curatorLine({ on, paused, percent, running, decisions, baseline }) {
+export function curatorLine({ on, paused, percent, heldBy = null, running, decisions, baseline }) {
   if (!on) return 'Curator: off (/graph-settings turns it on)';
+  if (heldBy && !running) return `Curator: paused with ${heldBy}'s loop`;
   if (paused) return `Curator: paused, the plan at ${percent}%`;
   if (running) return 'Curator: reviewing the decisions';
   const left = Math.max(0, EVERY - (decisions - baseline));

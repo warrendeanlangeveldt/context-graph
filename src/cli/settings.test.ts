@@ -79,6 +79,12 @@ describe('ctx settings: the harness settings, changed as the person', () => {
     out.length = 0;
     await ctx()({ json: true });
     expect((JSON.parse(out[0]!) as { key: string }[]).find((r) => r.key === 'pause_at_percent')).toMatchObject({ value: 80, inForce: 70, from: 'code-kit' });
+    // The person paused code-kit's lead loop: the background agents' settings say they're held by it.
+    writeFileSync(join(bin, 'code-kit.mjs'), `if (process.argv[2] === 'loop') console.log(JSON.stringify({ paused: true, at: null }));\n`);
+    out.length = 0;
+    await ctx()({ json: true });
+    const rows = JSON.parse(out[0]!) as { key: string; pausedBy?: string }[];
+    expect(rows.filter((r) => r.pausedBy === 'code-kit').map((r) => r.key)).toEqual(['card_writer', 'backfill', 'curator']);
   });
 
   it('the harness section: values over the defaults, a wrong one giving way, and its problems', () => {

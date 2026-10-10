@@ -33,8 +33,8 @@ const KEPT = 200;
 const EDIT_TOOLS = new Set(['Edit', 'MultiEdit', 'Write', 'NotebookEdit']);
 // The card writer (spec 04): its registered agent, the batch it's writing, and what the person asked for.
 // batch: the one asked for: { description, files, turnId (the lead's turn the prompt started), agentId }.
-const cardWriter = { agent: null, model: null, writing: [], batch: null };
-const declined = new Set(); // files whose batch the lead didn't start: not offered again this session
+const cardWriter = { agent: null, model: null, writing: [], batch: null, declined: false };
+const declined = new Set(); // files whose batch the lead didn't start (the card writer then stops offering for the session)
 const asked = []; // paths queued for the card writer from the pane (CARDW-4)
 let backfillPaused = false; // the person paused the backfill for this session, from the band
 // The curator (spec 05): its agent, whether it's running, and the decision count at its last run.
@@ -49,6 +49,8 @@ const setting = (key, fallback) => {
   const row = settingRowsNow.find((x) => x.key === key);
   return row ? (row.inForce ?? row.value) : fallback;
 };
+/** The tool whose paused loop holds the background agents (code-kit's band's Pause), or null. */
+const heldBy = () => settingRowsNow.find((x) => x.pausedBy)?.pausedBy ?? null;
 let activity = 0; // tool calls seen: coverage changes with them
 let dropping = null; // the open Drop confirmation: { proposal, reason, error }
 let act = null; // the session's actions, made at session start
@@ -231,7 +233,9 @@ export function register(on) {
       // CUR-1, CUR-4: after 10 new decisions (or when the person asks), with the lead idle and the plan
       // below the pause point, the lead is asked to start the curator. True when it asked.
       curatorStep: async () => {
-        if (!curator.agent || leadTurn || pausedAt(rateLimits, setting('pause_at_percent', 80)).paused) return false;
+        if (!curator.agent || leadTurn) return false;
+        settingRowsNow = (await json('settings')) ?? settingRowsNow;
+        if (heldBy() || pausedAt(rateLimits, setting('pause_at_percent', 80)).paused) return false;
         const due = curatorDue({ on: setting('curator', false), running: curator.running, decisions: model.decisions ?? 0, baseline: curator.baseline ?? 0, asked: curator.asked });
         if (!due) return false;
         const since = (model.decisions ?? 0) - (curator.baseline ?? 0);
@@ -289,7 +293,11 @@ export function register(on) {
       cardWriterStep: async () => {
         const backfilling = setting('backfill', 'off') !== 'off' && !backfillPaused;
         if (!(setting('card_writer', false) || backfilling) || !cardWriter.agent || cardWriter.writing.length || leadTurn) return false;
-        if (pausedAt(rateLimits, setting('pause_at_percent', 80)).paused) return false;
+        // The lead declined a batch: no other batch is offered this session until the person offers it again.
+        if (cardWriter.declined) return false;
+        // Read now, not at the last refresh: a pause the person just made holds this batch.
+        settingRowsNow = (await json('settings')) ?? settingRowsNow;
+        if (heldBy() || pausedAt(rateLimits, setting('pause_at_percent', 80)).paused) return false;
         const jobs = act.cardJobsNow(await $.clock.now()).slice(0, BATCH);
         if (!jobs.length) return false;
         cardWriter.writing = jobs.map((j) => j.path);
@@ -319,6 +327,7 @@ export function register(on) {
       // The person offers the declined files again: the next idle turn asks the lead once more.
       offerAgain: async () => {
         declined.clear();
+        cardWriter.declined = false;
         curator.declined = false;
         $.ui.invalidate('ui.render');
         await act.cardWriterStep();
@@ -333,6 +342,9 @@ export function register(on) {
           const files = scope.startsWith('L:') ? ((await json('cards', '--module', scope)) ?? { stale: [], missing: [] }) : null;
           const paths = files ? [...files.stale, ...files.missing] : [scope];
           for (const p of paths) if (!asked.includes(p)) asked.push(p);
+          // The person asked for these: a decline earlier in the session doesn't hold them back.
+          for (const p of paths) declined.delete(p);
+          cardWriter.declined = false;
           model = { ...model, notice: { ok: true, text: `Queued the ${what} for the card writer.` } };
           $.ui.invalidate('ui.render');
           await act.cardWriterStep();
@@ -571,6 +583,7 @@ export function register(on) {
         if (started) batch.agentId = started.id;
         else {
           for (const f of batch.files) declined.add(f);
+          cardWriter.declined = true;
           cardWriter.writing = [];
           cardWriter.batch = null;
         }
@@ -639,16 +652,18 @@ export function register(on) {
       curatorLine: curatorLine({
         on: setting('curator', false),
         ...plan,
+        heldBy: heldBy(),
         running: curator.running,
         decisions: model.decisions ?? 0,
         baseline: curator.baseline ?? 0,
       }),
       backfillLine: backfillNow(),
-      declined: declined.size,
+      declined: cardWriter.declined ? declined.size || 1 : 0,
       curatorDeclined: curator.declined,
       cardWriterLine: cardWriterLine({
         on: setting('card_writer', false) || setting('backfill', 'off') !== 'off',
         ...plan,
+        heldBy: heldBy(),
         writing: cardWriter.writing,
         waiting: act ? act.cardJobsNow(now).filter((j) => !cardWriter.writing.includes(j.path)).map((j) => j.path) : [],
       }),

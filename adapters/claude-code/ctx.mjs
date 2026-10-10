@@ -5350,6 +5350,18 @@ var init_code_kit = __esm({
           return void 0;
         }
       },
+      // The person paused code-kit's lead loop (its band's Pause): the card writer and curator wait too.
+      backgroundPaused(root) {
+        const bin = codeKitCli();
+        if (!bin) return false;
+        const r = spawnSync(process.execPath, [bin, "loop", "--json"], { cwd: root, encoding: "utf8", timeout: 3e3 });
+        if (r.status !== 0) return false;
+        try {
+          return JSON.parse(r.stdout).paused === true;
+        } catch {
+          return false;
+        }
+      },
       protectedBranches(root) {
         try {
           const c = JSON.parse(readFileSync11(join11(root, ".claude", "code-kit.json"), "utf8"));
@@ -36432,12 +36444,14 @@ async function run10(args, env) {
   if (sub !== void 0) throw new Error('ctx settings [--json] | ctx settings set <key> <value> --reason "<why>"');
   const inForce = ctx.config.harness;
   const pausedBy = toolAdapters(ctx.root).map((a) => ({ name: a.name, at: a.pauseAtPercent?.(ctx.root) })).find((p) => p.at !== void 0);
+  const heldBy = toolAdapters(ctx.root).find((a) => a.backgroundPaused?.(ctx.root))?.name;
   const rows = HARNESS_KEYS.map((k) => ({
     key: k,
     value: inForce[k],
     default: HARNESS[k].default,
     about: HARNESS[k].about,
-    ...k === "pause_at_percent" && pausedBy ? { inForce: pausedBy.at, from: pausedBy.name } : {}
+    ...k === "pause_at_percent" && pausedBy ? { inForce: pausedBy.at, from: pausedBy.name } : {},
+    ...BACKGROUND.has(k) && heldBy ? { pausedBy: heldBy } : {}
   }));
   const problems = harnessProblems(section);
   if (env.json) {
@@ -36449,6 +36463,7 @@ async function run10(args, env) {
   for (const p of problems) console.log(`problem: ${p}; the default holds`);
   return 0;
 }
+var BACKGROUND;
 var init_settings = __esm({
   "src/cli/settings.ts"() {
     "use strict";
@@ -36456,6 +36471,7 @@ var init_settings = __esm({
     init_tool_adapters();
     init_toml();
     init_main();
+    BACKGROUND = /* @__PURE__ */ new Set(["card_writer", "backfill", "curator"]);
   }
 });
 

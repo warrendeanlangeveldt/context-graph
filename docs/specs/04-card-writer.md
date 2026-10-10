@@ -46,6 +46,15 @@ Write card and Cards for this module in the pane queue jobs for the card writer 
 
 It starts no new job while the plan's 5-hour use is past the harness's pause point (code-kit's, or Context Graph's own setting when code-kit isn't installed).
 
+### CARDW-6 Declined, and paused with the person
+
+The lead may decline a batch. Once it does, no other batch is offered this session (not the next ten files either), until the person offers it again from the Coverage tab or asks for cards. And while the person has paused code-kit's lead loop (its band's Pause), the card writer and the curator start nothing; they carry on when it resumes.
+
+**Acceptance**
+
+- Given 25 files owed and the lead declining the first batch, then no further batch is offered until the person presses Offer it again.
+- Given code-kit's loop paused, when the lead goes idle, then the card writer isn't started and the Coverage tab reads "Card writer: paused with code-kit's loop".
+
 ## Open questions
 
 | Question                         | Owner  | Blocks   |
