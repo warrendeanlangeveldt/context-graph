@@ -49,7 +49,7 @@ node "${CLAUDE_PLUGIN_ROOT}/ctx.mjs" init --write      # proposals into .ctx/
 ```
 
 Then:
-1. **Ratifiers.** Set `[repo] ratifiers` in `.ctx/config.toml` to the git identities allowed to ratify. Without them, nothing proposed can ever be ratified.
+1. **Ratifiers.** Set `[repo] ratifiers` in `.ctx/config.toml` to the git identities allowed to ratify. Without them, nothing proposed can ever be ratified. Propose this repository's own identity as the default: run `git config user.name` and `git config user.email` in it, and offer `Name <email>` from those. Take it from nowhere else (not a global or account email): a ratification is checked against the identity that commits here, so any other address can't ratify.
 2. **The loop.** Explain `[enforce]`:
    - `read_before_edit`, `dependencies` and `cards` default to `block`: an edit without understanding is refused, and a card is owed after every edit;
    - a repository adopting ctx gradually can start at `nudge`;
