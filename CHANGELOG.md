@@ -2,6 +2,38 @@
 
 What changed in each release of Context Graph, newest first. Versions follow the plugin manifests and the npm package `@warren-dean/context-graph`. Each release is also on [GitHub Releases](https://github.com/warrendeanlangeveldt/context-graph/releases).
 
+## 0.4.0 (2026-10-10)
+
+The harness, in Context Graph's mod (Claude Code 2.1.287 or later): background agents that keep the graph current, and panes that show it.
+
+**Settings**
+
+- **`[harness]` in `.ctx/config.toml`** holds the background agents and side questions: `card_writer`, `backfill`, `curator`, `side_questions`, a model for each, and `pause_at_percent`, the plan's 5-hour use at which they pause (code-kit's setting wins when it's installed). A wrong value gives way to its default, and `ctx doctor` reports it.
+- **`ctx settings`** lists them; `ctx settings set <key> <value>` changes one, as the person. **`/graph-settings`** opens them in the session.
+
+**Background agents**
+
+- **The card writer** writes the cards owed and missing, from full reads of each file, in batches while the lead is idle. The lead may decline a batch; a declined batch isn't offered again.
+- **Backfill for existing code.** With `backfill = "active"` (modules changed in the last 90 days) or `"all"`, the card writer also cards a brownfield project's code, leaves first. `init` offers it, and the Map tab has "Write cards for this module".
+- **The curator** reads the decisions recorded and proposes the rules they show, and flags rules overridden again and again. It only proposes; you decide.
+- **Read-assist:** the files an edit needs understood are delivered as a reading list, with its progress shown, and edits are tagged in the transcript.
+
+**What you see**
+
+- **The Context pane, redone:** the graph's health, tabs, keys, and `/graph <path>` to open a file. A file's card shows as Markdown, its rules as chips, and its neighbourhood (what it imports and what imports it).
+- **Proposals in plain words:** **Accept**, **Reject…** and **Later** on a, r and l, grouped by module with **Accept all**, and the evidence for each with a sparkline once there is some.
+- **`/why <path, module, rule or question>`** answers beside the conversation, from the graph's cards, rules and decisions only, citing each, with its cost.
+- **The Map tab:** the modules as a tree, with a coverage heat map.
+- New commands: `ctx neighbours <path>`, `ctx map`, `ctx cards --module`, `ctx cards --backfill --scope`.
+
+**Fixes**
+
+- Data files (`.jsonl`, `.ndjson`, `.csv`, `.tsv`) and tool config files (`*.config.js` and the like) owe no card.
+- A person's act (`ratify --commit`, `drop`, `settings set`) is recognised only where a command runs it, not in a heredoc or quoted text such as a commit message.
+- `init` proposes the repository's own git identity as the ratifier, never an address from elsewhere.
+- The health line goes amber only for cards owed or rules flagged, not for a brownfield project still being carded, and an empty coverage bar draws grey.
+- The mod keeps working in a headless session where the agent list or registration fails.
+
 ## 0.3.2 (2026-10-07)
 
 Gaps found while an autonomous lead gives each engineering pattern its own rule:

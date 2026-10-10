@@ -283,6 +283,8 @@ One line per link in the chain: the graph and its ratifiers, the instruction blo
 ctx record --node <path> --serves <constraint-or-concept> --text "<why>" [--overrides <constraint>]
 ctx why <node>              ctx history <node> [--timeline]     # a path or module gives its own decisions; a rule id gives every decision that serves or overrides it
 ctx card <path> --text "<why the file exists, what it relies on, what it must keep true>" [--req ID,ID]
+ctx cards [--changed] [--module <L:id>] [--missing|--stale]   ctx cards --backfill [--scope active|all]   # cards current, stale or missing; what a backfill would card, leaves first
+ctx neighbours <path>       ctx map                             # what a file imports and what imports it; every module with its rules, decisions and cards
 ctx pending                 ctx coverage [--session <id>]
 ctx provenance              # which of this branch's decisions are committed, and in which commit
 ctx install git-hooks       # post-commit: refresh the embedding index when enabled
