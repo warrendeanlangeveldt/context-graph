@@ -251,7 +251,7 @@ export function moduleGraph(map, els, view = {}, handlers = {}) {
     text('MODULES', { bold: true, color: 'cyan' }),
     ...(backfill ? [text(backfill, { key: 'map-backfill', color: 'yellow' })] : []),
     Box({ key: 'graph', flexDirection: 'column', children: drawing }),
-    text('r rules · +n? proposed · carded/files · red: a rule overridden · blue: a decision just recorded', { key: 'graph-legend', dimColor: true }),
+    text("r rules · +n? proposed · files with their why/files (a file's why is its card) · red: a rule overridden · blue: a decision just recorded", { key: 'graph-legend', dimColor: true }),
     ...detail,
     text(m ? 'Enter opens its files.' : 'j/k select a module; Enter opens its files.', { dimColor: true }),
   ];
@@ -278,7 +278,7 @@ function moduleDetail(m, map, { flagged, proposals, now }, { Box, Text, Button }
           children: [
             text(`${m.name} (${m.id})`, { bold: true }),
             text(`${m.rules.agreed} rule${m.rules.agreed === 1 ? '' : 's'}${m.rules.proposed ? `, ${m.rules.proposed} proposed` : ''}`, { dimColor: true }),
-            text(`${carded}/${total} carded`, { dimColor: true }),
+            text(`${carded} of ${total} files have their why`, { dimColor: true }),
             ...(m.decisions.length ? [text(`decisions ${spark(m.decisions, now, 10, 3)}`, { color: 'blue' })] : []),
           ],
         }),

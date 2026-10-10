@@ -300,7 +300,7 @@ test('RAT-1 and RAT-2 the proposals show their evidence, and the band counts the
   const w = project();
   await start($, on, w);
   const band = await bandUi($);
-  expect(await band.find({ type: 'Text', text: '☀ 90% carded · 0 owed · 2 proposals' })).toBeDefined();
+  expect(await band.find({ type: 'Text', text: '☀ 90% have their why · 0 owed · 2 proposals' })).toBeDefined();
   await press($, 'band-context');
   expect(w.opened).toContain(PANE);
   await band.unmount();
@@ -466,11 +466,11 @@ test("VIEW-1 the header and the band sum up the graph's health: carded share, ca
   await start($, on, w);
   await ctx($);
   const ui = await mountPane($, PANE);
-  const header = await ui.find({ type: 'Text', text: '⛅ 90% carded · 1 owed · 0 proposals' });
+  const header = await ui.find({ type: 'Text', text: '⛅ 90% have their why · 1 owed · 0 proposals' });
   expect(header?.props.color).toBe('yellow');
   await ui.unmount();
   const band = await bandUi($);
-  expect((await band.find({ type: 'Text', text: '⛅ 90% carded · 1 owed · 0 proposals' }))?.props.color).toBe('yellow');
+  expect((await band.find({ type: 'Text', text: '⛅ 90% have their why · 1 owed · 0 proposals' }))?.props.color).toBe('yellow');
   await band.unmount();
 });
 
@@ -480,7 +480,7 @@ test('VIEW-1 with nothing waiting and the graph healthy there is no band line', 
   w.cards = { fresh: ['a', 'b'], stale: [], missing: [] };
   await start($, on, w);
   const band = await bandUi($);
-  expect(await band.find({ type: 'Text', text: /carded/ })).toBeUndefined();
+  expect(await band.find({ type: 'Text', text: /have their why/ })).toBeUndefined();
   await band.unmount();
 });
 
@@ -1020,7 +1020,7 @@ test('backfill: the band shows its progress with Pause; paused, no batch starts 
   const w = backfilling();
   const clock = await start($, on, w);
   let band = await bandUi($);
-  expect(await band.find({ type: 'Text', text: 'Card backfill: 2 of 12 carded (modules changed in the last 90 days)' })).toBeDefined();
+  expect(await band.find({ type: 'Text', text: 'Card backfill: 2 of 12 files have their why (modules changed in the last 90 days)' })).toBeDefined();
   await press($, 'band-backfill-pause');
   await band.unmount();
   await leadTurn($, clock);
@@ -1041,7 +1041,7 @@ test("MAP-4 the Map shows the backfill's progress above the graph, a module's co
   await ctx($);
   const ui = await mountPane($, PANE);
   await press($, 'tab-map', PANE);
-  expect(await ui.find({ type: 'Text', text: /^Card backfill: 2 of 12 carded/ })).toBeDefined();
+  expect(await ui.find({ type: 'Text', text: /^Card backfill: 2 of 12 files have their why/ })).toBeDefined();
   const rows = (await ui.findAll({ type: 'Box' })).filter((b) => /^graph-row-/.test(String(b.key))).map((b) => b.text);
   expect(rows).toEqual(['┌ src ' + '─'.repeat(rows[0].length - 7) + '┐', expect.stringMatching(/^│ 1r 0\/1\s*│$/), expect.stringMatching(/^└─+┘$/)]);
   await ui.unmount();

@@ -31,7 +31,7 @@ export function healthOf({ cards = null, owed = 0, proposals = 0, flagged = 0 })
     owed >= 5 || flagged >= 3 ? 'red' : owed || flagged ? 'amber' : 'good';
   const glyph = { good: '☀', amber: '⛅', red: '⛈' }[level];
   const parts = [
-    ...(carded !== null ? [`${carded}% carded`] : []),
+    ...(carded !== null ? [`${carded}% have their why`] : []),
     plural(owed, 'owed', 'owed'),
     plural(proposals, 'proposal', 'proposals'),
     ...(flagged ? [plural(flagged, 'rule overridden', 'rules overridden')] : []),

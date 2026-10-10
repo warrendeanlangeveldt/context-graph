@@ -78,8 +78,8 @@ export function startCardWriterPrompt({ agent, jobs }) {
 export function backfillLine({ scope, left, inScope, paused }) {
   if (!scope || scope === 'off' || !inScope) return null;
   const where = scope === 'all' ? 'all modules' : 'modules changed in the last 90 days';
-  if (!left) return `Card backfill done: ${inScope} files carded (${where})`;
-  return `Card backfill${paused ? ' paused' : ''}: ${inScope - left} of ${inScope} carded (${where})`;
+  if (!left) return `Card backfill done: ${inScope} files have their why (${where})`;
+  return `Card backfill${paused ? ' paused' : ''}: ${inScope - left} of ${inScope} files have their why (${where})`;
 }
 
 /** The pane's line for the card writer: off, paused, writing, or waiting. */

@@ -18,7 +18,7 @@ export function coverageBar(files) {
   if (!files.length) return { filled: '', empty: '', words: 'no files' };
   const current = files.filter((f) => f.card === 'current').length;
   const full = Math.round((current / files.length) * 10);
-  return { filled: '█'.repeat(full), empty: '░'.repeat(10 - full), words: `${current}/${files.length} carded` };
+  return { filled: '█'.repeat(full), empty: '░'.repeat(10 - full), words: `${current}/${files.length} have their why` };
 }
 
 /**

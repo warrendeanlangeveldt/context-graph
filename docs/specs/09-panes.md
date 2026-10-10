@@ -10,7 +10,7 @@
 - Tabs: File, Proposals, Coverage, Map (08); a fixed header with the graph's health.
 - The file's card as rendered Markdown, its rules as coloured chips, and a small graph of what it imports and what relies on it.
 - Proposals as a queue with their evidence and a sparkline of how often each was served or overridden; ratify, drop and defer on keys.
-- A band line: "☀ 92% carded · 2 owed · 1 proposal", turning amber then red as cards owed or overrides pile up.
+- A band line: "☀ 92% have their why · 2 owed · 1 proposal" (a file's why is its card; the panes don't say "carded"), turning amber then red as cards owed or overrides pile up.
 - Tags on transcript tool rows for edits the graph refused or that owe a card.
 - A `[harness]` section in `.ctx/config.toml` (card writer, curator, side questions: on, model) edited from a Settings view, as the person's change.
 
