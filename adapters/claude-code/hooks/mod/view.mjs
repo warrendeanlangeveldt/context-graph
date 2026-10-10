@@ -6,7 +6,8 @@
 import { DEFAULT_UI, frame, healthOf } from './views/frame.mjs';
 import { proposalsQueue, queueKeys } from './views/proposals.mjs';
 import { progressText } from './views/assist.mjs';
-import { heatMap, mapTree } from './views/map.mjs';
+import { heatMap } from './views/map.mjs';
+import { moduleGraph } from './views/graph.mjs';
 
 export const PANE_ID = 'context-graph';
 export const DROP_ID = 'context-graph-drop';
@@ -285,7 +286,21 @@ export function contextPane(model, els, handlers) {
     tab === 'map'
       ? inMap(tab)
         ? heatMap(inMap(tab), owed, els, { selected: ui.selected }, handlers)
-        : mapTree(model.map ?? [], els, { selected: ui.selected, now: model.now, backfill: model.backfillLine ?? null })
+        : moduleGraph(
+            model.map ?? [],
+            els,
+            {
+              surface: model.surface ?? 'terminal',
+              selected: ui.selected,
+              flagged: model.flagged ?? [],
+              pulsing: model.pulsing ?? new Set(),
+              beat: model.beat ?? 0,
+              proposals: model.proposals ?? [],
+              now: model.now,
+              backfill: model.backfillLine ?? null,
+            },
+            handlers,
+          )
       : tab === 'proposals'
       ? [
           ...proposalsQueue(model.proposals, els, handlers, { selected: ui.selected, deferred: model.deferred ?? new Set(), now: model.now }),

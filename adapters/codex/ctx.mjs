@@ -36554,6 +36554,19 @@ function graphMap(ctx, now = Date.now()) {
     if (!parents.length) roots.push(id);
     for (const p of parents) children.set(p, [...children.get(p) ?? [], id]);
   }
+  const index = loadOrBuildImportIndex(ctx.root);
+  const imported = /* @__PURE__ */ new Map();
+  for (const [from, targets] of Object.entries(index.imports)) {
+    const a = g.mapPath(from)?.logical;
+    if (!a) continue;
+    for (const t of targets) {
+      const b = g.mapPath(t)?.logical;
+      if (!b || b === a) continue;
+      const row = imported.get(a) ?? /* @__PURE__ */ new Map();
+      row.set(b, (row.get(b) ?? 0) + 1);
+      imported.set(a, row);
+    }
+  }
   const out = [];
   const seen = /* @__PURE__ */ new Set();
   const visit = (id, depth) => {
@@ -36566,6 +36579,8 @@ function graphMap(ctx, now = Date.now()) {
       depth,
       parents: g.parentsOf(id),
       rules: { agreed: ks.filter((k) => k.mode !== "G?").length, proposed: ks.filter((k) => k.mode === "G?").length },
+      ruleList: ks.map((k) => ({ id: k.id, text: k.text, mode: k.mode })),
+      imports: [...(imported.get(id) ?? /* @__PURE__ */ new Map()).entries()].sort(([a], [b]) => a.localeCompare(b)).map(([to, n]) => ({ to, n })),
       decisions: (decided.get(id) ?? []).sort(),
       files: byModule.get(id) ?? []
     });
@@ -36593,6 +36608,7 @@ var init_map2 = __esm({
     "use strict";
     init_cards();
     init_records();
+    init_imports();
     init_git();
     init_main();
     DAYS = 30;

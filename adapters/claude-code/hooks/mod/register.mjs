@@ -9,6 +9,7 @@
 import { DROP_ID, NO_GRAPH, PANE_ID, contextPane, dropPane, followedPath, parseJson } from './view.mjs';
 import { SETTINGS_ID, settingsView } from './views/settings.mjs';
 import { DEFAULT_UI, bandHealth, closeGoesBack, healthOf, moved } from './views/frame.mjs';
+import { grewDecisions } from './views/graph.mjs';
 import { assistCard, editTag, readingList, readingMessage } from './views/assist.mjs';
 import { BATCH, backfillLine, batchDescription, cardJobs, cardWriterLine, cardWriterSpec, pausedAt, startCardWriterPrompt } from './card-writer.mjs';
 import { CURATE_DESCRIPTION, curatorDue, curatorLine, curatorSpec, flaggedRules, startCuratorPrompt } from './curator.mjs';
@@ -44,6 +45,8 @@ const editedAt = {}; // path → when an agent last edited it: a file still movi
 let settingRowsNow = []; // ctx settings --json, read on each refresh
 let rateLimits = []; // the session's limits, as session.measure last gave them (CARDW-5)
 let leadTurn = null; // the lead's running turn
+const pulseUntil = new Map(); // MAP-4: module id → when its pulse ends, after a decision is recorded on it
+const PULSE_MS = 8000;
 /** A harness setting in force, from ctx settings --json; the pause point the one a tool sets, if any. */
 const setting = (key, fallback) => {
   const row = settingRowsNow.find((x) => x.key === key);
@@ -124,6 +127,11 @@ export function register(on) {
           : null;
         // MAP-1: the modules, read while the Map tab shows them.
         const map = paneUi.tab === 'map' ? await json('map') : (model.map ?? null);
+        // MAP-4: a module whose decisions grew since the last read pulses for a few seconds.
+        if (map && model.map) {
+          const at = await $.clock.now();
+          for (const id of grewDecisions(model.map, map)) pulseUntil.set(id, at + PULSE_MS);
+        }
         // VIEW-2: what the followed file imports and what imports it.
         const neighbours = followed ? await json('neighbours', followed.path) : null;
         // ASSIST-2: each open reading list's progress, from the agent's own reads as ctx judges them.
@@ -484,6 +492,12 @@ export function register(on) {
       if (busy) return;
       busy = true;
       try {
+        // MAP-4: while a module pulses, the pane is drawn each beat, and once more as the pulse ends.
+        const t = await $.clock.now();
+        if (pulseUntil.size) {
+          $.ui.invalidate('ui.render');
+          for (const [id, until] of pulseUntil) if (until <= t) pulseUntil.delete(id);
+        }
         const now = await act.fingerprint();
         quiet += 1;
         if (now === seen && quiet < 30) return;
@@ -669,6 +683,9 @@ export function register(on) {
       }),
       assists: [...assists.values()].slice(-10),
       now,
+      surface: e.surface,
+      pulsing: new Set([...pulseUntil].filter(([, until]) => until > now).map(([id]) => id)),
+      beat: Math.floor(now / 1000),
       health: healthNow(),
       followed: followed && {
         ...followed,

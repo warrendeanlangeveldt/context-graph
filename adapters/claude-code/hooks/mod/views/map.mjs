@@ -1,8 +1,6 @@
-// The graph explorer (docs/specs/08-graph-explorer.md): the Context pane's Map tab. The modules as a
-// tree with their rules, decision activity and card coverage (MAP-1), and within a module a coverage
-// heat map, a cell per file (MAP-2). Pure: the mod passes `ctx map --json`, the files owed a card this
-// session, and the selection.
-import { spark } from './proposals.mjs';
+// The graph explorer (docs/specs/08-graph-explorer.md): within a module of the Map tab's graph
+// (views/graph.mjs, MAP-4), a coverage heat map, a cell per file (MAP-2). Pure: the mod passes the
+// module from `ctx map --json`, the files owed a card this session, and the selection.
 
 /** Each file cell's state: its glyph, readable without colour, and its colour (MAP-2). */
 export const HEAT = {
@@ -21,36 +19,6 @@ export function coverageBar(files) {
   const current = files.filter((f) => f.card === 'current').length;
   const full = Math.round((current / files.length) * 10);
   return { filled: '█'.repeat(full), empty: '░'.repeat(10 - full), words: `${current}/${files.length} carded` };
-}
-
-/** MAP-1: the module tree, each row its name, rules, proposals, a 30-day decision sparkline and its coverage. */
-export function mapTree(map, { Box, Text }, { selected = -1, now, backfill = null }) {
-  const text = (value, style = {}) => Text({ ...style, children: [value] });
-  if (!map?.length) return [text('No modules in the graph yet.', { dimColor: true })];
-  return [
-    text('MODULES', { bold: true, color: 'cyan' }),
-    ...(backfill ? [text(backfill, { key: 'map-backfill', color: 'yellow' })] : []),
-    ...map.map((m, i) => {
-      const cov = coverageBar(m.files);
-      return Box({
-        key: `module-${m.id}`,
-        flexDirection: 'row',
-        columnGap: 2,
-        children: [
-          text(`${i === selected ? '›' : ' '} ${'  '.repeat(m.depth)}${m.name}`, i === selected ? { color: 'cyan', bold: true } : { bold: true }),
-          text(m.id, { dimColor: true }),
-          text(`${m.rules.agreed} rule${m.rules.agreed === 1 ? '' : 's'}`, { dimColor: true }),
-          ...(m.rules.proposed ? [text(`◆ ${m.rules.proposed} proposed`, { color: 'yellow' })] : []),
-          // A sparkline only once there are decisions to draw.
-          ...(m.decisions.length ? [text(spark(m.decisions, now, 10, 3), { color: 'blue' })] : []),
-          // The carded part green, the rest grey: an empty bar reads empty.
-          ...(cov.filled || cov.empty ? [Box({ flexDirection: 'row', children: [text(cov.filled, { color: 'green' }), text(cov.empty, { dimColor: true })] })] : []),
-          text(cov.words, { dimColor: true }),
-        ],
-      });
-    }),
-    text('Decisions: the last 30 days, three days a bar. Enter opens a module.', { dimColor: true }),
-  ];
 }
 
 /**

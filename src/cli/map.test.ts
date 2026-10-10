@@ -20,7 +20,7 @@ describe('ctx map: the modules as a tree, with rules, recent decisions and card 
     mkdirSync(join(repo, '.ctx'));
     writeFileSync(join(repo, 'src/a.ts'), A);
     writeFileSync(join(repo, 'src/b.ts'), 'export const b = 1;\n');
-    writeFileSync(join(repo, 'src/billing/invoice.ts'), 'export const i = 1;\n');
+    writeFileSync(join(repo, 'src/billing/invoice.ts'), "import { a } from '../a';\nexport const i = a;\n");
     writeFileSync(
       join(repo, '.ctx/graph.ctx'),
       'M src/billing/** L:billing\nM src/** L:src\nL L:src Source\nL L:billing Billing\nE L:billing in L:src\nK G src.pure L:src no side effects\nK G? billing.cents L:billing money in cents\n',
@@ -44,5 +44,13 @@ describe('ctx map: the modules as a tree, with rules, recent decisions and card 
     ]);
     expect(billing).toMatchObject({ rules: { agreed: 0, proposed: 1 }, decisions: ['2026-10-08', '2026-10-09'], parents: ['L:src'] });
     expect(billing!.files).toEqual([{ path: 'src/billing/invoice.ts', card: 'missing' }]);
+  });
+
+  it('MAP-4 each module carries its rules by id and the modules its files import', () => {
+    const [src, billing] = graphMap(openRepo({ repo }), Date.parse('2026-10-10T12:00:00Z'));
+    expect(src!.ruleList).toEqual([{ id: 'src.pure', text: 'no side effects', mode: 'G' }]);
+    expect(billing!.ruleList).toEqual([{ id: 'billing.cents', text: 'money in cents', mode: 'G?' }]);
+    expect(billing!.imports).toEqual([{ to: 'L:src', n: 1 }]);
+    expect(src!.imports).toEqual([]);
   });
 });

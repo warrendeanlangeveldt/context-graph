@@ -880,16 +880,61 @@ test('ASKQ the file in view has Why? on w', async ($, on) => {
 
 // --- the graph explorer -----------------------------------------------------------------------------
 
-test('MAP-1 the Map tab draws the module tree with rules, proposals, decision activity and coverage', async ($, on) => {
+test('MAP-4 the Map tab draws the module graph: a node per module with its rules and coverage, joined to its parent', async ($, on) => {
   const w = project();
   await start($, on, w);
   await ctx($);
   const ui = await mountPane($, PANE);
   expect((await ui.find({ key: 'tab-map' }))?.props.hotkey).toBe('4');
   await press($, 'tab-map', PANE);
-  const billing = (await ui.find({ key: 'module-L:billing' }))?.text ?? '';
-  expect(billing).toMatch(/^\s+Billing\s*L:billing\s*1 rule\s*◆ 1 proposed/);
-  expect(billing).toMatch(/██████░░░░\s*6\/10 carded$/);
+  const rows = (await ui.findAll({ type: 'Box' })).filter((b) => /^graph-row-/.test(String(b.key))).map((b) => b.text);
+  expect(rows.filter((r) => r.includes('┌ src ')).length).toBe(1);
+  expect(rows.filter((r) => r.includes('┌ billing ')).length).toBe(1);
+  // src's middle line carries the edge to billing, which holds its counts.
+  expect(rows.find((r) => r.includes('2r 1/1'))).toMatch(/│ 2r 1\/1\s*│────│ 1r \+1\? 6\/10\s*│/);
+  await press($, 'move-next', PANE);
+  await press($, 'move-next', PANE);
+  expect((await ui.findAll({ type: 'Text' })).some((t) => /┌ ›billing/.test(t.text) && t.props.color === 'cyan')).toBe(true);
+  expect(await ui.find({ type: 'Text', text: 'Billing (L:billing)' })).toBeDefined();
+  await ui.unmount();
+});
+
+test('MAP-4 a module whose rule is overridden is outlined red, and selecting it shows the rule and the proposals on it to accept', async ($, on) => {
+  const w = project();
+  w.map[1].ruleList = [{ id: 'billing.cents', text: 'Money is held in cents', mode: 'G' }];
+  w.hygiene = [{ signal: 'overridden-since-ratified', target: 'billing.cents', evidence: ['d-1 …', 'd-2 …', 'd-3 …'], proposal: 'reword billing.cents to match how the team works', level: 'propose' }];
+  w.proposals = [{ id: 'billing.minor', kind: 'guidance', module: 'L:billing', text: 'Money is held in minor units', served: 0, overridden: 0, violations: null, servedOn: [], overriddenOn: [] }];
+  await start($, on, w);
+  await ctx($);
+  const ui = await mountPane($, PANE);
+  await press($, 'tab-map', PANE);
+  expect((await ui.findAll({ type: 'Text' })).some((t) => /┌ billing/.test(t.text) && t.props.color === 'red')).toBe(true);
+  await press($, 'move-next', PANE);
+  await press($, 'move-next', PANE);
+  expect(await ui.find({ type: 'Text', text: 'billing.cents overridden 3×' })).toBeDefined();
+  expect(await ui.find({ type: 'Text', text: 'Money is held in cents' })).toBeDefined();
+  expect(await ui.find({ type: 'Text', text: 'reword billing.cents to match how the team works' })).toBeDefined();
+  await press($, 'graph-accept-billing.minor', PANE);
+  expect(w.acts).toEqual([['ratify', 'billing.minor', '--commit']]);
+  await ui.unmount();
+});
+
+test('MAP-4 a module where a decision was just recorded pulses, then stops', async ($, on) => {
+  const w = project();
+  const clock = await start($, on, w);
+  await ctx($);
+  const ui = await mountPane($, PANE);
+  await press($, 'tab-map', PANE);
+  const billingColor = async () => (await ui.findAll({ type: 'Text' })).find((t) => /┌ billing/.test(t.text))?.props.color;
+  expect(await billingColor()).toBeUndefined();
+  // A decision is recorded on billing: the next read of the map has one more.
+  w.map = w.map.map((m: any) => (m.id === 'L:billing' ? { ...m, decisions: [...m.decisions, '2026-10-10'] } : m));
+  await $.tool.call({ tool: 'Read', tool_use_id: 'r9', file_path: '/work/src/a.ts' } as any);
+  await clock.advance(2000);
+  expect(await billingColor()).toBe('blue');
+  await clock.advance(10_000);
+  await clock.advance(2000);
+  expect(await billingColor()).toBeUndefined();
   await ui.unmount();
 });
 
@@ -989,7 +1034,7 @@ test('backfill: the band shows its progress with Pause; paused, no batch starts 
   expect(w.prompts).toHaveLength(1);
 });
 
-test("MAP-1 the Map shows the backfill's progress, an empty coverage bar in grey, and no sparkline without decisions", async ($, on) => {
+test("MAP-4 the Map shows the backfill's progress above the graph, a module's coverage counted", async ($, on) => {
   const w = backfilling();
   w.map = [{ id: 'L:src', name: 'Source', depth: 0, parents: [], rules: { agreed: 1, proposed: 0 }, decisions: [], files: [{ path: 'src/f00.ts', card: 'missing' }] }];
   await start($, on, w);
@@ -997,10 +1042,8 @@ test("MAP-1 the Map shows the backfill's progress, an empty coverage bar in grey
   const ui = await mountPane($, PANE);
   await press($, 'tab-map', PANE);
   expect(await ui.find({ type: 'Text', text: /^Card backfill: 2 of 12 carded/ })).toBeDefined();
-  expect((await ui.find({ key: 'module-L:src' }))?.text).toMatch(/1 rule\s*░{10}\s*0\/1 carded$/);
-  const filled = (await ui.findAll({ type: 'Text' })).filter((x) => /^█+$/.test(x.text));
-  expect(filled).toEqual([]);
-  expect(await ui.find({ type: 'Text', text: /^▁+$/ })).toBeUndefined();
+  const rows = (await ui.findAll({ type: 'Box' })).filter((b) => /^graph-row-/.test(String(b.key))).map((b) => b.text);
+  expect(rows).toEqual(['┌ src ' + '─'.repeat(rows[0].length - 7) + '┐', expect.stringMatching(/^│ 1r 0\/1\s*│$/), expect.stringMatching(/^└─+┘$/)]);
   await ui.unmount();
 });
 
