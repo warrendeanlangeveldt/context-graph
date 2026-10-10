@@ -60,6 +60,7 @@ function project() {
     registered: [] as any[],
     limits: [] as any[],
     hygiene: [] as any[],
+    agentsThrow: false,
     map: [
       { id: 'L:src', name: 'Source', depth: 0, parents: [], rules: { agreed: 2, proposed: 0 }, decisions: [], files: [{ path: 'src/a.ts', card: 'current' }] },
       {
@@ -173,7 +174,10 @@ function stub(on: any, w: World) {
     w.prompts.push(e.text);
     return { text: e.text };
   });
-  on('agent.list', () => ({ value: w.running }));
+  on('agent.list', () => {
+    if (w.agentsThrow) throw new Error('no session is bound in this process');
+    return { value: w.running };
+  });
   on('fs.stat', () => ({ value: { kind: 'file', size: 1, mtimeMs: 1, isLink: false } }));
   on('session.cwd', () => ({ value: '/work' }));
   on('session.id', () => ({ value: 's1' }));
@@ -900,5 +904,16 @@ test('MAP-2 and MAP-3 Enter opens a module as a heat map of its files, and a fil
   await press($, 'open-selected', PANE);
   expect(w.fileAsks.at(-1)?.[0]).toBe('src/billing/i.ts');
   expect((await ui.find({ key: 'tab-file' }))?.props.variant).toBe('primary');
+  await ui.unmount();
+});
+
+test("with no session bound (claude -p before it mounts), the agent list's failure leaves the pane working", async ($, on) => {
+  const w = project();
+  w.agentsThrow = true;
+  await start($, on, w);
+  await $.tool.call({ tool: 'Read', tool_use_id: 'r1', file_path: '/work/src/a.ts', agentId: 'agent-web' } as any);
+  await ctx($);
+  const ui = await mountPane($, PANE);
+  expect((await ui.find({ type: 'Markdown' }))?.props.text).toBe('Holds a.');
   await ui.unmount();
 });

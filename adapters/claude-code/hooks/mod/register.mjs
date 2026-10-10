@@ -101,7 +101,7 @@ export function register(on) {
           return;
         }
         const types = {};
-        for (const a of await $.agent.list()) types[a.id] = a.type;
+        for (const a of await $.agent.list().catch(() => [])) types[a.id] = a.type;
         const proposals = (await json('proposals')) ?? [];
         // VIEW-1: the share of files with a current card.
         const cards = await json('cards');
@@ -200,27 +200,26 @@ export function register(on) {
       registerCardWriter: async () => {
         const wanted = setting('card_writer_model', '');
         if (cardWriter.model === wanted) return;
-        cardWriter.model = wanted;
         const spec = cardWriterSpec({ ctx: cli, skill: `${$.plugin.root}/skills/cards/SKILL.md`, model: wanted || undefined });
-        cardWriter.agent =
-          (
-            await $.agent.register(spec).catch((err) => {
-              $.ui.log(`Context Graph: the card writer isn't available: ${err?.message ?? err}`);
-              return null;
-            })
-          )?.agent ?? null;
+        // Until the session is bound (claude -p, early on) registering fails: it's tried again next time.
+        const done = await $.agent.register(spec).catch((err) => {
+          $.ui.log(`Context Graph: the card writer isn't available yet: ${err?.message ?? err}`, { to: 'debug' });
+          return null;
+        });
+        if (!done) return;
+        cardWriter.model = wanted;
+        cardWriter.agent = done.agent ?? null;
       },
       registerCurator: async () => {
         const wanted = setting('curator_model', '');
         if (curator.model === wanted) return;
+        const done = await $.agent.register(curatorSpec({ ctx: cli, model: wanted || undefined })).catch((err) => {
+          $.ui.log(`Context Graph: the curator isn't available yet: ${err?.message ?? err}`, { to: 'debug' });
+          return null;
+        });
+        if (!done) return;
         curator.model = wanted;
-        curator.agent =
-          (
-            await $.agent.register(curatorSpec({ ctx: cli, model: wanted || undefined })).catch((err) => {
-              $.ui.log(`Context Graph: the curator isn't available: ${err?.message ?? err}`);
-              return null;
-            })
-          )?.agent ?? null;
+        curator.agent = done.agent ?? null;
       },
       // CUR-1, CUR-4: after 10 new decisions (or when the person asks), with the lead idle and the plan
       // below the pause point, the lead is asked to start the curator. True when it asked.
@@ -502,7 +501,7 @@ export function register(on) {
   on('turn.complete', async ($, e, next) => {
     const res = await next(e);
     if (e.agentId) {
-      const agent = ((await $.agent.list()) ?? []).find((a) => a.id === e.agentId);
+      const agent = ((await $.agent.list().catch(() => [])) ?? []).find((a) => a.id === e.agentId);
       if (agent && cardWriter.agent && agent.type === cardWriter.agent) cardWriter.writing = [];
       // The curator has reported: its next run counts from here.
       if (agent && curator.agent && agent.type === curator.agent) {
