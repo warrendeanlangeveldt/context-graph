@@ -61,6 +61,7 @@ function project() {
     limits: [] as any[],
     hygiene: [] as any[],
     agentsThrow: false,
+    backfill: { scope: 'active', files: [] as string[], inScope: 0 } as any,
     map: [
       { id: 'L:src', name: 'Source', depth: 0, parents: [], rules: { agreed: 2, proposed: 0 }, decisions: [], files: [{ path: 'src/a.ts', card: 'current' }] },
       {
@@ -108,6 +109,7 @@ function stub(on: any, w: World) {
     if (sub === 'map') return ran(0, JSON.stringify(w.map));
     if (sub === 'why') return w.whys[argv[3]] ? ran(0, JSON.stringify(w.whys[argv[3]])) : ran(1, '', `ctx why <node>`);
     if (sub === 'proposals') return ran(0, JSON.stringify(w.proposals));
+    if (sub === 'cards' && argv.includes('--backfill')) return ran(0, JSON.stringify(w.backfill));
     if (sub === 'cards' && argv.includes('--changed')) return ran(0, JSON.stringify(w.changed));
     if (sub === 'cards' && argv.includes('--module')) return ran(0, JSON.stringify(w.moduleCards));
     if (sub === 'cards') return ran(0, JSON.stringify(w.cards));
@@ -941,5 +943,77 @@ test('VIEW-3 the queue groups proposals by module, and Accept all accepts a modu
   expect(await ui.find({ key: 'accept-all-L:evals' })).toBeUndefined();
   await press($, 'accept-all-L:ai', PANE);
   expect(w.acts).toEqual([['ratify', 'ai.a', 'ai.c', '--commit']]);
+  await ui.unmount();
+});
+
+// --- the backfill: a brownfield project's cards ----------------------------------------------------
+
+function backfilling() {
+  const w = project();
+  w.proposals = [];
+  w.settings = [
+    { key: 'card_writer', value: false, default: false, about: '' },
+    { key: 'backfill', value: 'active', default: 'off', about: '' },
+    { key: 'pause_at_percent', value: 80, default: 80, about: '' },
+  ];
+  const files = Array.from({ length: 12 }, (_, i) => `src/f${String(i).padStart(2, '0')}.ts`);
+  w.backfill = { scope: 'active', files: files.slice(2), inScope: 12 };
+  return w;
+}
+
+test('backfill: the card writer takes the existing code, leaves first, ten at a time, even with the card writer itself off', async ($, on) => {
+  const w = backfilling();
+  const clock = await start($, on, w);
+  await leadTurn($, clock);
+  expect(w.prompts).toHaveLength(1);
+  expect(w.prompts[0]).toMatch(/"Write the cards for: src\/f02\.ts, src\/f03\.ts, .*src\/f11\.ts\."/);
+  expect(w.prompts[0]).toMatch(/Write 10 cards/);
+});
+
+test('backfill: the band shows its progress with Pause; paused, no batch starts until Resume', async ($, on) => {
+  const w = backfilling();
+  const clock = await start($, on, w);
+  let band = await bandUi($);
+  expect(await band.find({ type: 'Text', text: 'Card backfill: 2 of 12 carded (modules changed in the last 90 days)' })).toBeDefined();
+  await press($, 'band-backfill-pause');
+  await band.unmount();
+  await leadTurn($, clock);
+  expect(w.prompts).toEqual([]);
+  band = await bandUi($);
+  expect(await band.find({ type: 'Text', text: /^Card backfill paused: 2 of 12/ })).toBeDefined();
+  expect((await band.find({ key: 'band-backfill-pause' }))?.props.label).toBe('Resume');
+  await press($, 'band-backfill-pause');
+  await band.unmount();
+  await leadTurn($, clock, 't-2');
+  expect(w.prompts).toHaveLength(1);
+});
+
+test("MAP-1 the Map shows the backfill's progress, an empty coverage bar in grey, and no sparkline without decisions", async ($, on) => {
+  const w = backfilling();
+  w.map = [{ id: 'L:src', name: 'Source', depth: 0, parents: [], rules: { agreed: 1, proposed: 0 }, decisions: [], files: [{ path: 'src/f00.ts', card: 'missing' }] }];
+  await start($, on, w);
+  await ctx($);
+  const ui = await mountPane($, PANE);
+  await press($, 'tab-map', PANE);
+  expect(await ui.find({ type: 'Text', text: /^Card backfill: 2 of 12 carded/ })).toBeDefined();
+  expect((await ui.find({ key: 'module-L:src' }))?.text).toMatch(/1 rule\s*░{10}\s*0\/1 carded$/);
+  const filled = (await ui.findAll({ type: 'Text' })).filter((x) => /^█+$/.test(x.text));
+  expect(filled).toEqual([]);
+  expect(await ui.find({ type: 'Text', text: /^▁+$/ })).toBeUndefined();
+  await ui.unmount();
+});
+
+test('MAP-2 the heat map has Write cards for this module on c', async ($, on) => {
+  const w = project();
+  await start($, on, w);
+  await ctx($);
+  const ui = await mountPane($, PANE);
+  await press($, 'tab-map', PANE);
+  await press($, 'move-next', PANE);
+  await press($, 'move-next', PANE);
+  await press($, 'open-selected', PANE);
+  expect((await ui.find({ key: 'module-write-cards' }))?.props.hotkey).toBe('c');
+  await press($, 'module-write-cards', PANE);
+  expect(w.prompts).toEqual(['Write the Context Graph cards for the files in L:billing without a current one: run /context-graph:cards L:billing, or ask the agent working on L:billing to.']);
   await ui.unmount();
 });

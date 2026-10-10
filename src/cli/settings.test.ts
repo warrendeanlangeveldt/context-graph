@@ -39,7 +39,7 @@ describe('ctx settings: the harness settings, changed as the person', () => {
   it('VIEW-6 lists every setting with its value, default and what it does', async () => {
     expect(await ctx()({ json: true })).toBe(0);
     const rows = JSON.parse(out[0]!) as { key: string; value: unknown; default: unknown; about: string }[];
-    expect(rows.map((r) => r.key)).toEqual(['card_writer', 'card_writer_model', 'curator', 'curator_model', 'side_questions', 'side_questions_model', 'pause_at_percent']);
+    expect(rows.map((r) => r.key)).toEqual(['card_writer', 'card_writer_model', 'backfill', 'curator', 'curator_model', 'side_questions', 'side_questions_model', 'pause_at_percent']);
     expect(rows.find((r) => r.key === 'card_writer')).toMatchObject({ value: false, default: false });
     expect(rows.find((r) => r.key === 'pause_at_percent')).toMatchObject({ value: 80 });
   });
@@ -85,7 +85,7 @@ describe('ctx settings: the harness settings, changed as the person', () => {
     expect(harnessFrom({ curator: true, pause_at_percent: 900 })).toMatchObject({ curator: true, pause_at_percent: 80 });
     expect(harnessProblems({ curator: 'yes', judge: true })).toEqual([
       '[harness] curator must be true or false',
-      "[harness] judge isn't a harness setting (they are card_writer, card_writer_model, curator, curator_model, side_questions, side_questions_model, pause_at_percent)",
+      "[harness] judge isn't a harness setting (they are card_writer, card_writer_model, backfill, curator, curator_model, side_questions, side_questions_model, pause_at_percent)",
     ]);
     expect(withHarnessSetting('[harness]\ncurator = false   # off for now\n\n[x]\ny = 1\n', 'curator', true)).toBe('[harness]\ncurator = true   # off for now\n\n[x]\ny = 1\n');
     expect(withHarnessSetting('[harness]\ncurator = false\n\n[x]\ny = 1\n', 'side_questions', false)).toBe('[harness]\ncurator = false\nside_questions = false\n\n[x]\ny = 1\n');

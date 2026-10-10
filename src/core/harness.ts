@@ -9,6 +9,7 @@ import type { TomlValue } from '../util/toml.js';
 export interface HarnessSettings {
   card_writer: boolean;
   card_writer_model: string;
+  backfill: 'off' | 'active' | 'all';
   curator: boolean;
   curator_model: string;
   side_questions: boolean;
@@ -32,6 +33,11 @@ const model = (v: TomlValue): string | null =>
 export const HARNESS: Record<HarnessKey, Setting> = {
   card_writer: { default: false, problem: onOff, about: 'A background agent that writes the cards owed, from full reads' },
   card_writer_model: { default: '', problem: model, about: "The card writer's model; empty means the session's" },
+  backfill: {
+    default: 'off',
+    problem: (v) => (v === 'off' || v === 'active' || v === 'all' ? null : 'must be off, active (the modules changed in the last 90 days) or all'),
+    about: 'The card writer also cards the existing code, leaves first: off, active (modules changed in the last 90 days) or all',
+  },
   curator: { default: false, problem: onOff, about: 'A background agent that proposes rules from the decisions and flags overridden ones' },
   curator_model: { default: '', problem: model, about: "The curator's model; empty means the session's" },
   side_questions: { default: true, problem: onOff, about: '/why answers questions from the graph, beside the conversation' },

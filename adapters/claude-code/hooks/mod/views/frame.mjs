@@ -21,14 +21,14 @@ const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 /**
  * VIEW-1: the graph's health from `ctx cards --json` (fresh, stale, missing), the session's cards owed,
  * the proposals waiting, and the rules flagged as overridden: { carded, owed, proposals, flagged, level,
- * glyph, text }. Amber with anything owed, a flagged rule or under 80% carded; red with 5 or more owed
- * or 3 or more flagged.
+ * glyph, text }. Amber with anything owed or a flagged rule; red with 5 or more owed or 3 or more
+ * flagged. The carded share is shown, not judged: a brownfield project starts at 0% and that's fine.
  */
 export function healthOf({ cards = null, owed = 0, proposals = 0, flagged = 0 }) {
   const total = cards ? cards.fresh.length + cards.stale.length + cards.missing.length : 0;
   const carded = total ? Math.round((cards.fresh.length / total) * 100) : null;
   const level =
-    owed >= 5 || flagged >= 3 ? 'red' : owed || flagged || (carded !== null && carded < 80) ? 'amber' : 'good';
+    owed >= 5 || flagged >= 3 ? 'red' : owed || flagged ? 'amber' : 'good';
   const glyph = { good: '☀', amber: '⛅', red: '⛈' }[level];
   const parts = [
     ...(carded !== null ? [`${carded}% carded`] : []),

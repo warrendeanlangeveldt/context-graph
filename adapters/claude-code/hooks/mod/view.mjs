@@ -285,7 +285,7 @@ export function contextPane(model, els, handlers) {
     tab === 'map'
       ? inMap(tab)
         ? heatMap(inMap(tab), owed, els, { selected: ui.selected }, handlers)
-        : mapTree(model.map ?? [], els, { selected: ui.selected, now: model.now })
+        : mapTree(model.map ?? [], els, { selected: ui.selected, now: model.now, backfill: model.backfillLine ?? null })
       : tab === 'proposals'
       ? [
           ...proposalsQueue(model.proposals, els, handlers, { selected: ui.selected, deferred: model.deferred ?? new Set(), now: model.now }),

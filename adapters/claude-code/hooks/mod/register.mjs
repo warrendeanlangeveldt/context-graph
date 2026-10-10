@@ -10,7 +10,7 @@ import { DROP_ID, NO_GRAPH, PANE_ID, contextPane, dropPane, followedPath, parseJ
 import { SETTINGS_ID, settingsView } from './views/settings.mjs';
 import { DEFAULT_UI, bandHealth, closeGoesBack, healthOf, moved } from './views/frame.mjs';
 import { assistCard, editTag, readingList, readingMessage } from './views/assist.mjs';
-import { BATCH, cardJobs, cardWriterLine, cardWriterSpec, pausedAt, startCardWriterPrompt } from './card-writer.mjs';
+import { BATCH, backfillLine, cardJobs, cardWriterLine, cardWriterSpec, pausedAt, startCardWriterPrompt } from './card-writer.mjs';
 import { curatorDue, curatorLine, curatorSpec, flaggedRules, startCuratorPrompt } from './curator.mjs';
 import { WHY_ID, sourcesOf, targetsOf, whyPane, whyPrompt } from './why.mjs';
 
@@ -34,6 +34,7 @@ const EDIT_TOOLS = new Set(['Edit', 'MultiEdit', 'Write', 'NotebookEdit']);
 // The card writer (spec 04): its registered agent, the batch it's writing, and what the person asked for.
 const cardWriter = { agent: null, model: null, writing: [], agentId: null };
 const asked = []; // paths queued for the card writer from the pane (CARDW-4)
+let backfillPaused = false; // the person paused the backfill for this session, from the band
 // The curator (spec 05): its agent, whether it's running, and the decision count at its last run.
 const curator = { agent: null, model: null, running: false, baseline: null, asked: false };
 let asking = null; // the side question in its pane (spec 07): { question, sources, answer?, error?, ms?, usage?, pending }
@@ -110,6 +111,9 @@ export function register(on) {
         // Spec 04: the harness settings, and the branch's changed files without a current card.
         settingRowsNow = (await json('settings')) ?? settingRowsNow;
         const changed = setting('card_writer', false) ? await json('cards', '--changed') : null;
+        // The backfill: the existing code's files without a current card, leaves first.
+        const backfillScope = setting('backfill', 'off');
+        const backfill = backfillScope !== 'off' ? await json('cards', '--backfill', '--scope', backfillScope) : null;
         const agents = (await json('agents', '--session', session)) ?? [];
         const file = followed
           ? await json('file', followed.path, '--session', session, ...(followed.agentId ? ['--agent', followed.agentId] : []))
@@ -136,6 +140,7 @@ export function register(on) {
           cards,
           neighbours,
           changed,
+          backfill,
           flagged,
           decisions: info.counts?.decisions ?? 0,
           map,
@@ -278,7 +283,8 @@ export function register(on) {
       // CARDW-1, CARDW-5: with the lead idle, the card writer on and the plan below its pause point,
       // the lead is asked to start it on the next batch.
       cardWriterStep: async () => {
-        if (!setting('card_writer', false) || !cardWriter.agent || cardWriter.writing.length || leadTurn) return false;
+        const backfilling = setting('backfill', 'off') !== 'off' && !backfillPaused;
+        if (!(setting('card_writer', false) || backfilling) || !cardWriter.agent || cardWriter.writing.length || leadTurn) return false;
         if (pausedAt(rateLimits, setting('pause_at_percent', 80)).paused) return false;
         const jobs = act.cardJobsNow(await $.clock.now()).slice(0, BATCH);
         if (!jobs.length) return false;
@@ -293,14 +299,21 @@ export function register(on) {
         });
         return true;
       },
-      cardJobsNow: (now) =>
-        cardJobs({
-          asked,
-          owed: [...new Set((model.agents ?? []).flatMap((a) => a.cardsOwed ?? []))],
-          changed: model.changed ? [...model.changed.stale, ...model.changed.missing] : [],
+      cardJobsNow: (now) => {
+        const writing = setting('card_writer', false);
+        return cardJobs({
+          asked: writing ? asked : [],
+          owed: writing ? [...new Set((model.agents ?? []).flatMap((a) => a.cardsOwed ?? []))] : [],
+          changed: writing && model.changed ? [...model.changed.stale, ...model.changed.missing] : [],
+          backfill: setting('backfill', 'off') !== 'off' && !backfillPaused ? (model.backfill?.files ?? []) : [],
           editedAt,
           now,
-        }),
+        });
+      },
+      pauseBackfill: () => {
+        backfillPaused = !backfillPaused;
+        $.ui.invalidate('ui.render');
+      },
       askForCards: async (scope, what) => {
         // CARDW-4: with the card writer on, the files go to it instead of the lead.
         if (setting('card_writer', false) && cardWriter.agent) {
@@ -545,6 +558,10 @@ export function register(on) {
     return assistCard({ ...assist, agentType: assist.agentId ? (model.types?.[assist.agentId] ?? null) : null }, $.ui.resolve(e));
   });
 
+  // The backfill's progress, for the band and the Map tab.
+  const backfillNow = () =>
+    backfillLine({ scope: setting('backfill', 'off'), left: model.backfill?.files.length ?? 0, inScope: model.backfill?.inScope ?? 0, paused: backfillPaused });
+
   // VIEW-1: the graph's health from what the mod last read.
   const healthNow = () =>
     healthOf({
@@ -578,8 +595,9 @@ export function register(on) {
         decisions: model.decisions ?? 0,
         baseline: curator.baseline ?? 0,
       }),
+      backfillLine: backfillNow(),
       cardWriterLine: cardWriterLine({
-        on: setting('card_writer', false),
+        on: setting('card_writer', false) || setting('backfill', 'off') !== 'off',
         ...plan,
         writing: cardWriter.writing,
         waiting: act ? act.cardJobsNow(now).filter((j) => !cardWriter.writing.includes(j.path)).map((j) => j.path) : [],
@@ -718,26 +736,46 @@ export function register(on) {
   // Claude Code's own), so the two mods' lines stand together.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const line = model.kind === 'graph' ? bandHealth(healthNow()) : null;
-    if (!line || !act) return next(e);
+    // The backfill's line while it has files left, with Pause or Resume.
+    const filling = model.kind === 'graph' && model.backfill?.files.length ? backfillNow() : null;
+    if ((!line && !filling) || !act) return next(e);
     const { Box, Text, Button } = $.ui.resolve(e);
     const below = await next(e);
     return Box({
       flexDirection: 'column',
       children: [
-        Box({
-          key: 'band-context-graph',
-          flexDirection: 'row',
-          columnGap: 2,
-          children: [
-            Text({ color: 'cyan', children: ['Context Graph'] }),
-            Text({ color: line.color, children: [line.text] }),
-            Button({
-              key: 'band-context',
-              label: 'Context',
-              onPress: () => act.open(),
-            }),
-          ],
-        }),
+        ...(line
+          ? [
+              Box({
+                key: 'band-context-graph',
+                flexDirection: 'row',
+                columnGap: 2,
+                children: [
+                  Text({ color: 'cyan', children: ['Context Graph'] }),
+                  Text({ color: line.color, children: [line.text] }),
+                  Button({
+                    key: 'band-context',
+                    label: 'Context',
+                    onPress: () => act.open(),
+                  }),
+                ],
+              }),
+            ]
+          : []),
+        ...(filling
+          ? [
+              Box({
+                key: 'band-backfill',
+                flexDirection: 'row',
+                columnGap: 2,
+                children: [
+                  Text({ color: 'cyan', children: ['Context Graph'] }),
+                  Text({ children: [filling] }),
+                  Button({ key: 'band-backfill-pause', label: backfillPaused ? 'Resume' : 'Pause', onPress: () => act.pauseBackfill() }),
+                ],
+              }),
+            ]
+          : []),
         ...(below ? [below] : []),
       ],
     });

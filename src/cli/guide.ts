@@ -1,3 +1,4 @@
+import { backfillOrder, type BackfillScope } from '../cards/backfill.js';
 import { cardState, exemptFromCards } from '../cards/cards.js';
 import type { RepoContext } from '../core/context.js';
 import { hygieneReport } from '../hygiene/hygiene.js';
@@ -123,6 +124,16 @@ export function nextStep(ctx: RepoContext, opts: { doctor?: boolean } = {}): Nex
 export async function run(args: Args, env: { json: boolean }): Promise<number> {
   const ctx = openFromArgs(args);
   if (args.cmd === 'cards') {
+    // The card writer's backfill: the files in scope without a current card, leaves first.
+    if (args.flags.backfill === true) {
+      const scope: BackfillScope = str(args.flags.scope) === 'all' ? 'all' : 'active';
+      const b = backfillOrder(ctx, scope);
+      if (env.json) { console.log(JSON.stringify(b, null, 2)); return 0; }
+      console.log(`backfill (${scope === 'all' ? 'every module' : 'modules changed in the last 90 days'}): ${b.files.length} of ${b.inScope} files to card, leaves first`);
+      for (const f of b.files.slice(0, 20)) console.log(`  ${f}`);
+      if (b.files.length > 20) console.log(`  and ${b.files.length - 20} more`);
+      return 0;
+    }
     const module = str(args.flags.module);
     const r = cardsReport(ctx, { changed: args.flags.changed === true, ...(module ? { module } : {}) });
     if (!ctx.graph) { console.error('no graph for this repository: ctx init'); return 1; }

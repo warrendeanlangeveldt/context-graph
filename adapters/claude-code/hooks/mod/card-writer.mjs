@@ -12,16 +12,18 @@ export const BATCH = 10;
 
 /**
  * CARDW-1, CARDW-4: the card jobs, in order: files the person asked for, files owed a card this
- * session, then files changed on the branch without a current card; none edited in the last 2
- * minutes, none twice. [{ path, reason }], reason `asked`, `owed` or `changed`.
+ * session, files changed on the branch without a current card, then the backfill's (existing code,
+ * leaves first); none edited in the last 2 minutes, none twice. [{ path, reason }], reason `asked`,
+ * `owed`, `changed` or `backfill`.
  */
-export function cardJobs({ asked = [], owed = [], changed = [], editedAt = {}, now }) {
+export function cardJobs({ asked = [], owed = [], changed = [], backfill = [], editedAt = {}, now }) {
   const seen = new Set();
   const jobs = [];
   for (const [list, reason] of [
     [asked, 'asked'],
     [owed, 'owed'],
     [changed, 'changed'],
+    [backfill, 'backfill'],
   ])
     for (const path of list) {
       if (seen.has(path)) continue;
@@ -64,6 +66,14 @@ export function cardWriterSpec({ ctx, skill, model }) {
 export function startCardWriterPrompt({ agent, jobs }) {
   const files = jobs.map((j) => j.path);
   return `Start Context Graph's card writer in the background: use the Agent tool with subagent_type "${agent}", run_in_background true, description "Write ${files.length} card${files.length === 1 ? '' : 's'} (Context Graph)", and the prompt "Write the cards for: ${files.join(', ')}." Then carry on; it only writes cards.`;
+}
+
+/** The backfill's line, for the band and the Map tab: how much of the existing code is carded. */
+export function backfillLine({ scope, left, inScope, paused }) {
+  if (!scope || scope === 'off' || !inScope) return null;
+  const where = scope === 'all' ? 'all modules' : 'modules changed in the last 90 days';
+  if (!left) return `Card backfill done: ${inScope} files carded (${where})`;
+  return `Card backfill${paused ? ' paused' : ''}: ${inScope - left} of ${inScope} carded (${where})`;
 }
 
 /** The pane's line for the card writer: off, paused, writing, or waiting. */

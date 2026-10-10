@@ -3262,6 +3262,11 @@ var init_harness = __esm({
     HARNESS = {
       card_writer: { default: false, problem: onOff, about: "A background agent that writes the cards owed, from full reads" },
       card_writer_model: { default: "", problem: model, about: "The card writer's model; empty means the session's" },
+      backfill: {
+        default: "off",
+        problem: (v) => v === "off" || v === "active" || v === "all" ? null : "must be off, active (the modules changed in the last 90 days) or all",
+        about: "The card writer also cards the existing code, leaves first: off, active (modules changed in the last 90 days) or all"
+      },
       curator: { default: false, problem: onOff, about: "A background agent that proposes rules from the decisions and flags overridden ones" },
       curator_model: { default: "", problem: model, about: "The curator's model; empty means the session's" },
       side_questions: { default: true, problem: onOff, about: "/why answers questions from the graph, beside the conversation" },
@@ -35959,6 +35964,49 @@ ctx bench report [--dir <results dir>]`;
   }
 });
 
+// src/cards/backfill.ts
+function backfillOrder(ctx, scope = "active") {
+  const g = ctx.graph;
+  if (!g) return { scope, files: [], inScope: 0 };
+  const files = (git(ctx.root, ["ls-files", "--cached", "--others", "--exclude-standard"]) ?? "").split("\n").filter((f) => f && !exemptFromCards(f, ctx.config.cardsExclude) && g.mapPath(f));
+  const moduleOf = (f) => g.mapPath(f)?.logical;
+  let inScope = files;
+  if (scope === "active") {
+    const recent = (git(ctx.root, ["log", `--since=${ACTIVE_DAYS}.days`, "--name-only", "--format="]) ?? "").split("\n").filter(Boolean);
+    const active = new Set(recent.map(moduleOf).filter((m) => Boolean(m)));
+    inScope = files.filter((f) => active.has(moduleOf(f)));
+  }
+  const todo = new Set(inScope.filter((f) => {
+    const s = cardState(g, ctx.root, f);
+    return s.hash !== void 0 && !s.fresh;
+  }));
+  const index = loadOrBuildImportIndex(ctx.root);
+  const order = [];
+  const placed = /* @__PURE__ */ new Set();
+  const waitingOn = (f) => (index.imports[f] ?? []).filter((i) => todo.has(i) && !placed.has(i) && i !== f);
+  let left = [...todo].sort();
+  while (left.length) {
+    const ready = left.filter((f) => waitingOn(f).length === 0);
+    const next = ready.length ? ready : [left.slice().sort((a, b) => waitingOn(a).length - waitingOn(b).length || a.localeCompare(b))[0]];
+    for (const f of next) {
+      order.push(f);
+      placed.add(f);
+    }
+    left = left.filter((f) => !placed.has(f));
+  }
+  return { scope, files: order, inScope: inScope.length };
+}
+var ACTIVE_DAYS;
+var init_backfill = __esm({
+  "src/cards/backfill.ts"() {
+    "use strict";
+    init_imports();
+    init_git();
+    init_cards();
+    ACTIVE_DAYS = 90;
+  }
+});
+
 // src/cli/doctor.ts
 import { execFileSync as execFileSync5 } from "node:child_process";
 import { existsSync as existsSync29, readFileSync as readFileSync28, readdirSync as readdirSync8, statSync as statSync7 } from "node:fs";
@@ -36172,6 +36220,18 @@ function nextStep(ctx, opts = {}) {
 async function run7(args, env) {
   const ctx = openFromArgs(args);
   if (args.cmd === "cards") {
+    if (args.flags.backfill === true) {
+      const scope = str(args.flags.scope) === "all" ? "all" : "active";
+      const b = backfillOrder(ctx, scope);
+      if (env.json) {
+        console.log(JSON.stringify(b, null, 2));
+        return 0;
+      }
+      console.log(`backfill (${scope === "all" ? "every module" : "modules changed in the last 90 days"}): ${b.files.length} of ${b.inScope} files to card, leaves first`);
+      for (const f of b.files.slice(0, 20)) console.log(`  ${f}`);
+      if (b.files.length > 20) console.log(`  and ${b.files.length - 20} more`);
+      return 0;
+    }
     const module = str(args.flags.module);
     const r = cardsReport(ctx, { changed: args.flags.changed === true, ...module ? { module } : {} });
     if (!ctx.graph) {
@@ -36203,6 +36263,7 @@ async function run7(args, env) {
 var init_guide = __esm({
   "src/cli/guide.ts"() {
     "use strict";
+    init_backfill();
     init_cards();
     init_hygiene();
     init_instructions();
@@ -37017,6 +37078,7 @@ var init_main = __esm({
 Start here
   ctx next [--json]                                the one thing to do now, and the skill that does it
   ctx cards [--changed] [--module <L:id>] [--missing|--stale]  which files have a card matching them
+  ctx cards --backfill [--scope active|all]        the files to card in a brownfield backfill, leaves first
 
 Graph
   ctx slice <path> [--symbol name]                 slice injected before an edit
