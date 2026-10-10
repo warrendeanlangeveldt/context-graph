@@ -660,9 +660,10 @@ test('CARDW-1 and CARDW-2 with the lead idle, the lead starts the card writer on
   expect(w.registered[0].prompt).toMatch(/Read it in full, with what it imports/);
   await leadTurn($, clock);
   expect(w.prompts).toEqual([
-    'Start Context Graph\'s card writer in the background: use the Agent tool with subagent_type "context-graph:card-writer", run_in_background true, description "Write 2 cards (Context Graph)", and the prompt "Write the cards for: src/a.ts, src/b.ts." Then carry on; it only writes cards.',
+    'Start Context Graph\'s card writer in the background: use the Agent tool with subagent_type "context-graph:card-writer", run_in_background true, description "Write 2 cards (Context Graph)", and the prompt "Write the cards for: src/a.ts, src/b.ts." Then carry on; it only writes cards. If the person has asked you not to card these now, say so and don\'t start it: Context Graph won\'t offer these files again this session.',
   ]);
-  // One batch at a time: the next lead turn starts no second card writer.
+  // The lead starts it, as asked; one batch at a time, so the next turn starts no second one.
+  w.running = [{ id: 'cw1', type: 'context-graph:card-writer', description: 'Write 2 cards (Context Graph)', status: 'running' }];
   await leadTurn($, clock, 't-2');
   expect(w.prompts).toHaveLength(1);
   await ctx($);
@@ -687,7 +688,7 @@ test("CARDW-3 a batch's cards are done once current, and the writer's own end fr
   w.cards = { fresh: ['src/a.ts', 'src/b.ts'], stale: [], missing: [] };
   w.agents = [{ ...w.agents[0], cardsOwed: [] }];
   w.changed = { fresh: ['src/b.ts'], stale: [], missing: [] };
-  w.running = [{ id: 'cw1', type: 'context-graph:card-writer', status: 'completed' }];
+  w.running = [{ id: 'cw1', type: 'context-graph:card-writer', description: 'Write 2 cards (Context Graph)', status: 'completed' }];
   await $.turn.complete({ turnId: 't-cw', agentId: 'cw1', answer: 'written', durationMs: 1, isAborted: false } as any);
   await $.tool.call({ tool: 'Read', tool_use_id: 'r1', file_path: '/work/src/a.ts' } as any);
   await clock.advance(2000);
@@ -756,10 +757,10 @@ test('CUR-1 and CUR-3 after 10 new decisions, the lead starts the curator, which
   await moreDecisions($, w, clock, 15);
   await leadTurn($, clock, 't-2');
   expect(w.prompts).toEqual([
-    'Start Context Graph\'s curator in the background: use the Agent tool with subagent_type "context-graph:curator", run_in_background true, description "Curate the graph (Context Graph)", and the prompt "Review the 10 decisions recorded since you last ran and the graph\'s evidence; propose the rules they show." Then carry on; it only proposes.',
+    'Start Context Graph\'s curator in the background: use the Agent tool with subagent_type "context-graph:curator", run_in_background true, description "Curate the graph (Context Graph)", and the prompt "Review the 10 decisions recorded since you last ran and the graph\'s evidence; propose the rules they show." Then carry on; it only proposes. If the person has asked you not to run it now, say so and don\'t start it: Context Graph won\'t ask again until ten more decisions are recorded.',
   ]);
   // Its report ends its run; the next counts from there.
-  w.running = [{ id: 'cu1', type: 'context-graph:curator', status: 'completed' }];
+  w.running = [{ id: 'cu1', type: 'context-graph:curator', description: 'Curate the graph (Context Graph)', status: 'completed' }];
   await $.turn.complete({ turnId: 't-cu', agentId: 'cu1', answer: 'proposed one', durationMs: 1, isAborted: false } as any);
   await leadTurn($, clock, 't-3');
   expect(w.prompts).toHaveLength(1);
@@ -1016,4 +1017,36 @@ test('MAP-2 the heat map has Write cards for this module on c', async ($, on) =>
   await press($, 'module-write-cards', PANE);
   expect(w.prompts).toEqual(['Write the Context Graph cards for the files in L:billing without a current one: run /context-graph:cards L:billing, or ask the agent working on L:billing to.']);
   await ui.unmount();
+});
+
+test("a batch the lead declines isn't offered again this session, until the person offers it again", async ($, on) => {
+  const w = writing();
+  const clock = await start($, on, w);
+  await leadTurn($, clock);
+  expect(w.prompts).toHaveLength(1);
+  // The prompt's turn ends with no card writer started: declined.
+  await leadTurn($, clock, 't-2');
+  await leadTurn($, clock, 't-3');
+  expect(w.prompts).toHaveLength(1);
+  await ctx($);
+  const ui = await mountPane($, PANE);
+  await press($, 'tab-coverage', PANE);
+  expect(await ui.find({ type: 'Text', text: "The lead didn't start the card writer on 2 files; they aren't offered again this session." })).toBeDefined();
+  await press($, 'offer-again', PANE);
+  expect(w.prompts).toHaveLength(2);
+  await ui.unmount();
+});
+
+test("the lead's own card writers finishing don't end the batch the mod asked for", async ($, on) => {
+  const w = writing();
+  const clock = await start($, on, w);
+  await leadTurn($, clock);
+  w.running = [
+    { id: 'cw1', type: 'context-graph:card-writer', description: 'Write 2 cards (Context Graph)', status: 'running' },
+    { id: 'own', type: 'context-graph:card-writer', description: 'Card field domain files', status: 'completed' },
+  ];
+  await leadTurn($, clock, 't-2');
+  await $.turn.complete({ turnId: 't-own', agentId: 'own', answer: 'done', durationMs: 1, isAborted: false } as any);
+  await leadTurn($, clock, 't-3');
+  expect(w.prompts).toHaveLength(1);
 });

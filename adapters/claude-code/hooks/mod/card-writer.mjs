@@ -62,10 +62,16 @@ export function cardWriterSpec({ ctx, skill, model }) {
   };
 }
 
-/** The lead's prompt that starts the card writer on its batch, in the background (CARDW-1). */
+/** The description the card writer's batch is started with: how the mod knows its own batch's agent. */
+export const batchDescription = (n) => `Write ${n} card${n === 1 ? '' : 's'} (Context Graph)`;
+
+/**
+ * The lead's prompt that starts the card writer on its batch, in the background (CARDW-1). It says the
+ * lead may decline, and that a declined batch isn't offered again this session.
+ */
 export function startCardWriterPrompt({ agent, jobs }) {
   const files = jobs.map((j) => j.path);
-  return `Start Context Graph's card writer in the background: use the Agent tool with subagent_type "${agent}", run_in_background true, description "Write ${files.length} card${files.length === 1 ? '' : 's'} (Context Graph)", and the prompt "Write the cards for: ${files.join(', ')}." Then carry on; it only writes cards.`;
+  return `Start Context Graph's card writer in the background: use the Agent tool with subagent_type "${agent}", run_in_background true, description "${batchDescription(files.length)}", and the prompt "Write the cards for: ${files.join(', ')}." Then carry on; it only writes cards. If the person has asked you not to card these now, say so and don't start it: Context Graph won't offer these files again this session.`;
 }
 
 /** The backfill's line, for the band and the Map tab: how much of the existing code is carded. */

@@ -10,8 +10,8 @@ import { DROP_ID, NO_GRAPH, PANE_ID, contextPane, dropPane, followedPath, parseJ
 import { SETTINGS_ID, settingsView } from './views/settings.mjs';
 import { DEFAULT_UI, bandHealth, closeGoesBack, healthOf, moved } from './views/frame.mjs';
 import { assistCard, editTag, readingList, readingMessage } from './views/assist.mjs';
-import { BATCH, backfillLine, cardJobs, cardWriterLine, cardWriterSpec, pausedAt, startCardWriterPrompt } from './card-writer.mjs';
-import { curatorDue, curatorLine, curatorSpec, flaggedRules, startCuratorPrompt } from './curator.mjs';
+import { BATCH, backfillLine, batchDescription, cardJobs, cardWriterLine, cardWriterSpec, pausedAt, startCardWriterPrompt } from './card-writer.mjs';
+import { CURATE_DESCRIPTION, curatorDue, curatorLine, curatorSpec, flaggedRules, startCuratorPrompt } from './curator.mjs';
 import { WHY_ID, sourcesOf, targetsOf, whyPane, whyPrompt } from './why.mjs';
 
 let model = {
@@ -32,11 +32,13 @@ const edits = new Map(); // tool_use_id → { path, agentId }: edits that went t
 const KEPT = 200;
 const EDIT_TOOLS = new Set(['Edit', 'MultiEdit', 'Write', 'NotebookEdit']);
 // The card writer (spec 04): its registered agent, the batch it's writing, and what the person asked for.
-const cardWriter = { agent: null, model: null, writing: [], agentId: null };
+// batch: the one asked for: { description, files, turnId (the lead's turn the prompt started), agentId }.
+const cardWriter = { agent: null, model: null, writing: [], batch: null };
+const declined = new Set(); // files whose batch the lead didn't start: not offered again this session
 const asked = []; // paths queued for the card writer from the pane (CARDW-4)
 let backfillPaused = false; // the person paused the backfill for this session, from the band
 // The curator (spec 05): its agent, whether it's running, and the decision count at its last run.
-const curator = { agent: null, model: null, running: false, baseline: null, asked: false };
+const curator = { agent: null, model: null, running: false, baseline: null, asked: false, turnId: null, awaiting: false, declined: false };
 let asking = null; // the side question in its pane (spec 07): { question, sources, answer?, error?, ms?, usage?, pending }
 const editedAt = {}; // path → when an agent last edited it: a file still moving waits (CARDW-1)
 let settingRowsNow = []; // ctx settings --json, read on each refresh
@@ -235,6 +237,8 @@ export function register(on) {
         const since = (model.decisions ?? 0) - (curator.baseline ?? 0);
         curator.running = true;
         curator.asked = false;
+        curator.awaiting = true;
+        curator.declined = false;
         $.ui.invalidate('ui.render');
         $.prompt.submit({ text: startCuratorPrompt({ agent: curator.agent, since: since || 'latest' }) }).catch(() => {
           curator.running = false;
@@ -289,6 +293,7 @@ export function register(on) {
         const jobs = act.cardJobsNow(await $.clock.now()).slice(0, BATCH);
         if (!jobs.length) return false;
         cardWriter.writing = jobs.map((j) => j.path);
+        cardWriter.batch = { description: batchDescription(jobs.length), files: cardWriter.writing, turnId: null, agentId: null, awaiting: true };
         for (const j of jobs) {
           const at = asked.indexOf(j.path);
           if (at >= 0) asked.splice(at, 1);
@@ -296,19 +301,27 @@ export function register(on) {
         $.ui.invalidate('ui.render');
         $.prompt.submit({ text: startCardWriterPrompt({ agent: cardWriter.agent, jobs }) }).catch(() => {
           cardWriter.writing = [];
+          cardWriter.batch = null;
         });
         return true;
       },
       cardJobsNow: (now) => {
         const writing = setting('card_writer', false);
         return cardJobs({
-          asked: writing ? asked : [],
-          owed: writing ? [...new Set((model.agents ?? []).flatMap((a) => a.cardsOwed ?? []))] : [],
-          changed: writing && model.changed ? [...model.changed.stale, ...model.changed.missing] : [],
-          backfill: setting('backfill', 'off') !== 'off' && !backfillPaused ? (model.backfill?.files ?? []) : [],
+          asked: writing ? asked.filter((p) => !declined.has(p)) : [],
+          owed: writing ? [...new Set((model.agents ?? []).flatMap((a) => a.cardsOwed ?? []))].filter((p) => !declined.has(p)) : [],
+          changed: writing && model.changed ? [...model.changed.stale, ...model.changed.missing].filter((p) => !declined.has(p)) : [],
+          backfill: setting('backfill', 'off') !== 'off' && !backfillPaused ? (model.backfill?.files ?? []).filter((p) => !declined.has(p)) : [],
           editedAt,
           now,
         });
+      },
+      // The person offers the declined files again: the next idle turn asks the lead once more.
+      offerAgain: async () => {
+        declined.clear();
+        curator.declined = false;
+        $.ui.invalidate('ui.render');
+        await act.cardWriterStep();
       },
       pauseBackfill: () => {
         backfillPaused = !backfillPaused;
@@ -520,6 +533,15 @@ export function register(on) {
   });
   on('turn.start', async ($, e, next) => {
     leadTurn = e.turnId;
+    // The turn the mod's prompt starts: whether it starts the agent asked for is judged when it ends.
+    if (cardWriter.batch?.awaiting) {
+      cardWriter.batch.turnId = e.turnId;
+      cardWriter.batch.awaiting = false;
+    }
+    if (curator.awaiting) {
+      curator.turnId = e.turnId;
+      curator.awaiting = false;
+    }
     return next(e);
   });
   // The lead is idle: the card writer's next batch, if one is due. A card writer's own last turn ends
@@ -528,14 +550,40 @@ export function register(on) {
     const res = await next(e);
     if (e.agentId) {
       const agent = ((await $.agent.list().catch(() => [])) ?? []).find((a) => a.id === e.agentId);
-      if (agent && cardWriter.agent && agent.type === cardWriter.agent) cardWriter.writing = [];
+      // Only the batch the mod asked for ends it: the lead may run card writers of its own.
+      const batch = cardWriter.batch;
+      if (agent && batch && agent.type === cardWriter.agent && (agent.id === batch.agentId || agent.description === batch.description)) {
+        cardWriter.writing = [];
+        cardWriter.batch = null;
+      }
       // The curator has reported: its next run counts from here.
-      if (agent && curator.agent && agent.type === curator.agent) {
+      if (agent && curator.agent && agent.type === curator.agent && agent.description === CURATE_DESCRIPTION) {
         curator.running = false;
         curator.baseline = model.decisions ?? curator.baseline;
       }
     } else if (!leadTurn || leadTurn === e.turnId) {
       leadTurn = null;
+      // The lead's answer to a prompt of the mod's: an agent started for it, or a decline, remembered.
+      const running = (await $.agent.list().catch(() => [])) ?? [];
+      const batch = cardWriter.batch;
+      if (batch && batch.turnId === e.turnId) {
+        const started = running.find((a) => a.type === cardWriter.agent && a.description === batch.description);
+        if (started) batch.agentId = started.id;
+        else {
+          for (const f of batch.files) declined.add(f);
+          cardWriter.writing = [];
+          cardWriter.batch = null;
+        }
+      }
+      if (curator.running && curator.turnId === e.turnId) {
+        if (!running.some((a) => a.type === curator.agent && a.description === CURATE_DESCRIPTION)) {
+          curator.running = false;
+          curator.declined = true;
+          curator.baseline = model.decisions ?? curator.baseline;
+        }
+        curator.turnId = null;
+      }
+      $.ui.invalidate('ui.render');
       // One background agent started per idle turn: the card writer's batch first, then the curator.
       if (act && !(await act.cardWriterStep().catch(() => false))) await act.curatorStep().catch(() => {});
     }
@@ -596,6 +644,8 @@ export function register(on) {
         baseline: curator.baseline ?? 0,
       }),
       backfillLine: backfillNow(),
+      declined: declined.size,
+      curatorDeclined: curator.declined,
       cardWriterLine: cardWriterLine({
         on: setting('card_writer', false) || setting('backfill', 'off') !== 'off',
         ...plan,
@@ -656,6 +706,7 @@ export function register(on) {
         $.ui.invalidate('ui.render');
       },
       onCurate: () => act.curateNow(),
+      onOfferAgain: () => act.offerAgain(),
       onWhy: (path) => act.why(path),
       // VIEW-3: defer puts a proposal at the back of the queue for the session; again brings it back.
       onDefer: (p) => {

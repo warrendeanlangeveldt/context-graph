@@ -3332,7 +3332,10 @@ function defaultConfig() {
       "**/*.{yml,yaml,toml,ini,cfg}",
       "**/*.snap",
       "**/LICENSE*",
-      "**/*.txt"
+      "**/*.txt",
+      // Data and tool configuration: fixtures, CSVs, and a tool's config file (eslint.config.mjs, vite.config.ts).
+      "**/*.{jsonl,ndjson,csv,tsv}",
+      "**/*.config.{js,cjs,mjs,ts,cts,mts}"
     ]
   };
 }

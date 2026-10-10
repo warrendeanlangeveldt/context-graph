@@ -43,9 +43,15 @@ export function curatorSpec({ ctx, model }) {
   };
 }
 
-/** The lead's prompt that starts the curator in the background (CUR-1). */
+/** The description the curator is started with: how the mod knows its agent. */
+export const CURATE_DESCRIPTION = 'Curate the graph (Context Graph)';
+
+/**
+ * The lead's prompt that starts the curator in the background (CUR-1). It says the lead may decline,
+ * and that it isn't asked again until ten more decisions are recorded.
+ */
 export function startCuratorPrompt({ agent, since }) {
-  return `Start Context Graph's curator in the background: use the Agent tool with subagent_type "${agent}", run_in_background true, description "Curate the graph (Context Graph)", and the prompt "Review the ${since} decisions recorded since you last ran and the graph's evidence; propose the rules they show." Then carry on; it only proposes.`;
+  return `Start Context Graph's curator in the background: use the Agent tool with subagent_type "${agent}", run_in_background true, description "${CURATE_DESCRIPTION}", and the prompt "Review the ${since} decisions recorded since you last ran and the graph's evidence; propose the rules they show." Then carry on; it only proposes. If the person has asked you not to run it now, say so and don't start it: Context Graph won't ask again until ten more decisions are recorded.`;
 }
 
 /** The pane's line for the curator: off, paused, running, or how many decisions until its next run. */

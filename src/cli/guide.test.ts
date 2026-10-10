@@ -92,9 +92,12 @@ describe('ctx next and ctx cards', () => {
     withGraph();
     mkdirSync(join(repo, 'gen'));
     writeFileSync(join(repo, 'gen/out.ts'), 'export const g = 1;\n');
+    mkdirSync(join(repo, 'fixtures'));
+    writeFileSync(join(repo, 'fixtures/cases.jsonl'), '{}\n');
+    writeFileSync(join(repo, 'eslint.config.mjs'), 'export default [];\n');
     writeFileSync(join(repo, '.ctx/config.toml'), '[cards]\nexclude = ["gen/**"]\n');
     const r = cardsReport(openRepo({ repo }));
-    // package.json (a default exclusion) and gen/ (the project's) are both out.
+    // package.json, fixture data and a tool's config (default exclusions) and gen/ (the project's) are all out.
     expect(r.missing).toEqual(['src/a.ts']);
   });
 

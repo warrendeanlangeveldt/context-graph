@@ -113,6 +113,8 @@ export function defaultConfig(): Config {
       '**/*.md', '**/*.{png,jpg,jpeg,gif,svg,ico,webp,pdf,woff,woff2,ttf}',
       // Configuration and manifests: settings, not code whose why gets lost.
       '**/.*', '**/*.json', '**/*.{yml,yaml,toml,ini,cfg}', '**/*.snap', '**/LICENSE*', '**/*.txt',
+      // Data and tool configuration: fixtures, CSVs, and a tool's config file (eslint.config.mjs, vite.config.ts).
+      '**/*.{jsonl,ndjson,csv,tsv}', '**/*.config.{js,cjs,mjs,ts,cts,mts}',
     ],
   };
 }

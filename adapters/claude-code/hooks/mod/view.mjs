@@ -309,6 +309,20 @@ export function contextPane(model, els, handlers) {
       : tab === 'coverage'
         ? [
             ...(model.cardWriterLine ? [els.Text({ key: 'card-writer', dimColor: true, children: [model.cardWriterLine] })] : []),
+            // The lead declined a batch: those files wait until the person offers them again.
+            ...(model.declined
+              ? [
+                  els.Box({
+                    key: 'card-writer-declined',
+                    flexDirection: 'row',
+                    columnGap: 2,
+                    children: [
+                      els.Text({ color: 'yellow', children: [`The lead didn't start the card writer on ${model.declined} file${model.declined === 1 ? '' : 's'}; they aren't offered again this session.`] }),
+                      ...(handlers.onOfferAgain ? [els.Button({ key: 'offer-again', label: 'Offer them again', plain: true, onPress: handlers.onOfferAgain })] : []),
+                    ],
+                  }),
+                ]
+              : []),
             ...coverageSection(model.agents, model.types ?? {}, els, ui.selected, model.assists ?? []),
           ]
         : fileSection(model.followed, model.file, els, handlers, model.neighbours ?? null);
