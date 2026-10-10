@@ -30495,7 +30495,9 @@ function agentCoverage(ctx, session) {
   });
   for (const a of byAgent.values()) {
     const s = new SessionState(ctx.root, session, a.agent === "main" ? void 0 : a.agent);
-    a.cardsOwed = Object.keys(s.data.cardsOwed ?? {});
+    a.cardsOwed = Object.keys(s.data.cardsOwed ?? {}).filter(
+      (path) => readRepoText(ctx.root, path) !== void 0 && !cardState(g, ctx.root, path).fresh
+    );
   }
   return [...byAgent.values()];
 }
@@ -30622,6 +30624,7 @@ var init_present = __esm({
     init_store();
     init_tool_adapters();
     init_git();
+    init_paths();
     init_walk();
     init_main();
     eventsOf = (ctx, session) => session ? new ObservationStore(ctx.root, session).readAll() : [];

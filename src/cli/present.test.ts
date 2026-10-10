@@ -92,6 +92,17 @@ describe('what the Context Graph pane shows, and the person\'s acts', () => {
     expect(api.edited[0]).toMatchObject({ path: 'src/c.ts', understood: false });
   });
 
+  it("a card owed is settled once a card matches the file, whoever wrote it, though the agent hasn't acted since", async () => {
+    await read('src/a.ts', lane);
+    writeFileSync(join(repo, 'src/a.ts'), 'export const a = 2;\n');
+    await edit('src/a.ts', lane);
+    const owed = () => agentCoverage(openRepo({ repo }), 's1').find((a) => a.agent === 'agent-web')!.cardsOwed;
+    expect(owed()).toEqual(['src/a.ts']);
+    // Another agent (the card writer, or the lead) writes the card; the web agent makes no further call.
+    writeCard(Graph.load(join(repo, '.ctx')), repo, { path: 'src/a.ts', text: 'Holds a, now 2.', who: 'warren/claude', date: '2026-10-10' });
+    expect(owed()).toEqual([]);
+  });
+
   it('RAT-1 lists proposals with the evidence a person decides on', () => {
     writeFileSync(join(repo, '.ctx/decisions.ctx'), readFileSync(join(repo, '.ctx/decisions.ctx'), 'utf8') + 'D d-0002 2026-10-02 warren/claude - main src/a.ts ->K src.small small\nD d-0003 2026-10-03 warren/claude - main src/b.ts ->K src.pure !K src.small too small to split\n');
     const list = proposals(openRepo({ repo }));

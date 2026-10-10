@@ -12,6 +12,7 @@ import type { Envelope, Touch } from '../observe/event.js';
 import { ObservationStore, SessionState } from '../observe/store.js';
 import { factsFor, toolProtectedBranches } from '../tool-adapters/index.js';
 import { git, gitPerson } from '../util/git.js';
+import { readRepoText } from '../util/paths.js';
 import { walk } from '../walker/walk.js';
 import { latestSession, needGraph, openFromArgs, str, type Args } from './main.js';
 
@@ -94,7 +95,12 @@ export function agentCoverage(ctx: RepoContext, session: string): AgentCoverage[
   });
   for (const a of byAgent.values()) {
     const s = new SessionState(ctx.root, session, a.agent === 'main' ? undefined : a.agent);
-    a.cardsOwed = Object.keys(s.data.cardsOwed ?? {});
+    // Owed only until a card matches the file, whoever wrote it, or the file is gone: the session's
+    // record keeps an edit's card as owed until its agent next acts, so it's settled here as the
+    // recorder settles it.
+    a.cardsOwed = Object.keys(s.data.cardsOwed ?? {}).filter(
+      (path) => readRepoText(ctx.root, path) !== undefined && !cardState(g, ctx.root, path).fresh,
+    );
   }
   return [...byAgent.values()];
 }
