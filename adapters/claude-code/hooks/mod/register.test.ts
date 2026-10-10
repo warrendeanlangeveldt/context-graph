@@ -40,7 +40,7 @@ function project() {
     ratifyExit: 0,
     ratifyOut: 'ratified src.small\ncommitted abc1234 with Ctx-Ratified-By: warren',
     dropExit: 0,
-    answer: 'Ratify',
+    answer: 'Accept',
     acts: [] as string[][],
     fileAsks: [] as string[][],
     open: new Set<string>(),
@@ -316,7 +316,7 @@ test('RAT-3 Ratify confirms, then ratifies and commits as the person', async ($,
   await press($, 'tab-proposals', PANE);
   await press($, 'ratify-src.small', PANE);
   expect(w.acts).toEqual([['ratify', 'src.small', '--commit']]);
-  expect(await ui.find({ type: 'Text', text: /Ratified src.small: committed abc1234 with Ctx-Ratified-By: warren/ })).toBeDefined();
+  expect(await ui.find({ type: 'Text', text: /Accepted src.small: committed abc1234 with Ctx-Ratified-By: warren/ })).toBeDefined();
   await ui.unmount();
 });
 
@@ -328,7 +328,7 @@ test('RAT-3 on a protected branch nothing changes, and the pane says to switch',
   const ui = await mountPane($, PANE);
   await press($, 'tab-proposals', PANE);
   await press($, 'ratify-src.small', PANE);
-  expect(await ui.find({ type: 'Text', text: /Nothing ratified: main is protected. Switch to a branch/ })).toBeDefined();
+  expect(await ui.find({ type: 'Text', text: /Nothing accepted: main is protected. Switch to a branch/ })).toBeDefined();
   await ui.unmount();
 });
 
@@ -360,7 +360,7 @@ test('RAT-4 Drop asks why, needs a reason, and drops it with that reason', async
   expect(w.acts).toEqual([['drop', 'src.small', '--reason', 'not how we work', '--commit']]);
   expect(w.open.has(DROP)).toBe(false);
   await dialog.unmount();
-  expect(await ui.find({ type: 'Text', text: 'Dropped src.small: not how we work' })).toBeDefined();
+  expect(await ui.find({ type: 'Text', text: 'Rejected src.small: not how we work' })).toBeDefined();
   await ui.unmount();
 });
 
@@ -533,7 +533,7 @@ test('VIEW-2 the File tab draws the card as Markdown and the neighbourhood, and 
 
 // --- the proposals queue ----------------------------------------------------------------------------
 
-test('VIEW-3 each proposal has its sparklines; r ratifies, d drops and f defers the selected one', async ($, on) => {
+test('VIEW-3 a proposal with evidence has its sparklines; a accepts, r rejects and l puts off the selected one', async ($, on) => {
   const w = project();
   w.proposals[0] = { ...w.proposals[0], servedOn: ['2026-10-01', '2026-10-02', '2026-10-03'], overriddenOn: ['2026-10-03'] };
   await start($, on, w);
@@ -542,13 +542,17 @@ test('VIEW-3 each proposal has its sparklines; r ratifies, d drops and f defers 
   await press($, 'tab-proposals', PANE);
   expect((await ui.find({ key: 'spark-src.small' }))?.text).toMatch(/served\s+▁+.*overridden\s*▁+/);
   await press($, 'move-next', PANE);
-  expect((await ui.find({ key: 'key-defer' }))?.props.hotkey).toBe('f');
+  expect((await ui.find({ key: 'key-defer' }))?.props.hotkey).toBe('l');
+  expect((await ui.find({ key: 'key-ratify' }))?.props.hotkey).toBe('a');
+  expect((await ui.find({ key: 'key-drop' }))?.props.hotkey).toBe('r');
   await press($, 'key-defer', PANE);
   // Deferred, src.small goes to the back: C:events is first now.
   const order = (await ui.findAll({ type: 'Text' })).map((x) => x.text).filter((x) => x === 'src.small' || x === 'C:events');
   expect(order).toEqual(['C:events', 'src.small']);
-  expect(await ui.find({ type: 'Text', text: 'deferred' })).toBeDefined();
-  expect((await ui.find({ key: 'key-ratify' }))?.props.label).toBe('Ratify C:events');
+  expect(await ui.find({ type: 'Text', text: 'later' })).toBeDefined();
+  // No evidence yet, no sparkline: C:events has none.
+  expect(await ui.find({ key: 'spark-C:events' })).toBeUndefined();
+  expect((await ui.find({ key: 'key-ratify' }))?.props.label).toBe('Accept C:events');
   await press($, 'key-ratify', PANE);
   expect(w.acts).toEqual([['ratify', 'C:events', '--commit']]);
   await ui.unmount();
@@ -915,5 +919,27 @@ test("with no session bound (claude -p before it mounts), the agent list's failu
   await ctx($);
   const ui = await mountPane($, PANE);
   expect((await ui.find({ type: 'Markdown' }))?.props.text).toBe('Holds a.');
+  await ui.unmount();
+});
+
+test('VIEW-3 the queue groups proposals by module, and Accept all accepts a module\'s in one commit', async ($, on) => {
+  const w = project();
+  w.answer = 'Accept all';
+  w.proposals = [
+    { id: 'ai.a', kind: 'enforced', module: 'L:ai', text: 'a', served: 0, overridden: 0, violations: null, servedOn: [], overriddenOn: [] },
+    { id: 'evals.b', kind: 'enforced', module: 'L:evals', text: 'b', served: 0, overridden: 0, violations: null, servedOn: [], overriddenOn: [] },
+    { id: 'ai.c', kind: 'enforced', module: 'L:ai', text: 'c', served: 0, overridden: 0, violations: null, servedOn: [], overriddenOn: [] },
+  ];
+  await start($, on, w);
+  await ctx($);
+  const ui = await mountPane($, PANE);
+  await press($, 'tab-proposals', PANE);
+  expect(await ui.find({ type: 'Text', text: /Accept one and agents are held to it from now on; reject it to remove it\./ })).toBeDefined();
+  const ids = (await ui.findAll({ type: 'Text' })).map((x) => x.text).filter((x) => /^(ai|evals)\./.test(x));
+  expect(ids).toEqual(['ai.a', 'ai.c', 'evals.b']);
+  expect((await ui.find({ key: 'accept-all-L:ai' }))?.props.label).toBe('Accept all 2 on L:ai');
+  expect(await ui.find({ key: 'accept-all-L:evals' })).toBeUndefined();
+  await press($, 'accept-all-L:ai', PANE);
+  expect(w.acts).toEqual([['ratify', 'ai.a', 'ai.c', '--commit']]);
   await ui.unmount();
 });

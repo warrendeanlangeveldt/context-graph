@@ -329,17 +329,17 @@ export function dropPane(dropping, { Box, Text, Input, Button }, { onInput, onSu
     children: [
       Text({
         bold: true,
-        children: [`Drop ${dropping.proposal.id}: ${dropping.proposal.text}`],
+        children: [`Reject ${dropping.proposal.id}: ${dropping.proposal.text}`],
       }),
       Text({
-        children: ["Why is it turned down? The graph keeps the reason, so it isn't proposed again blindly."],
+        children: ["Why isn't it a rule? It's removed, and the graph keeps your reason so it isn't proposed again blindly."],
       }),
       Input({
         key: 'drop-reason',
         label: 'Reason',
         value: dropping.reason,
         placeholder: 'not how we work',
-        submitLabel: 'Drop',
+        submitLabel: 'Reject',
         autoFocus: true,
         onInput,
         onSubmit,
@@ -351,7 +351,7 @@ export function dropPane(dropping, { Box, Text, Input, Button }, { onInput, onSu
         children: [
           Button({
             key: 'drop-confirm',
-            label: 'Drop',
+            label: 'Reject',
             onPress: () => onSubmit(dropping.reason),
           }),
           Button({ key: 'drop-cancel', label: 'Cancel', onPress: onCancel }),

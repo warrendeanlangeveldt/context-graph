@@ -1,6 +1,7 @@
-// The Proposals queue (docs/specs/09-panes.md, VIEW-3): one card per proposal, with its evidence in
-// words and a sparkline of the decisions that served and overrode it over the last weeks. The
-// selected one is ratified on r, dropped on d and deferred on f; deferred ones wait at the back.
+// The Proposals queue (docs/specs/09-panes.md, VIEW-3): one card per proposal, grouped by module, with
+// its evidence in words and, once decisions cite it, a sparkline of those that served and overrode it.
+// The pane says Accept, Reject and Later for ctx's ratify and drop; the selected one is accepted on a,
+// rejected on r and put off on l; later ones wait at the back.
 
 const BARS = '▁▂▃▄▅▆▇█';
 const DAY = 24 * 3600000;
@@ -31,84 +32,118 @@ export function evidence(p) {
   return parts.length ? parts.join(', ') : 'no decision has cited it yet';
 }
 
-/** The queue's order: waiting ones as they come, deferred ones after them. */
-export const queueOrder = (proposals, deferred) => [
-  ...proposals.filter((p) => !deferred.has(p.id)),
-  ...proposals.filter((p) => deferred.has(p.id)),
-];
+/**
+ * The queue's order: waiting ones grouped by module, in the order their modules first come, then the
+ * ones put off till later. Concepts, which have no module, group together.
+ */
+export function queueOrder(proposals, deferred) {
+  const waiting = proposals.filter((p) => !deferred.has(p.id));
+  const modules = [...new Set(waiting.map((p) => p.module ?? ''))];
+  return [...modules.flatMap((m) => waiting.filter((p) => (p.module ?? '') === m)), ...proposals.filter((p) => deferred.has(p.id))];
+}
+
+const what = (p) => (p.kind === 'concepts' ? 'concept' : `rule (${p.kind})`);
+const hasEvidence = (p) => Boolean(p.servedOn?.length || p.overriddenOn?.length);
 
 /**
- * The queue: `selected` is the index in queue order (or -1), `deferred` the ids put back this session,
- * `now` the clock. Handlers: onRatify(p), onDrop(p), onDefer(p).
+ * The queue (VIEW-3), in plain words: Accept (`ctx ratify`) holds agents to a rule; Reject (`ctx drop`)
+ * removes it, keeping the reason; Later puts it to the back for the session. Grouped by module, each
+ * group with Accept all. `selected` is the index in queue order, or -1.
+ * Handlers: onRatify(p), onDrop(p), onDefer(p), onRatifyAll(module, proposals).
  */
-export function proposalsQueue(proposals, els, { onRatify, onDrop, onDefer }, { selected = -1, deferred = new Set(), now = Date.now() } = {}) {
+export function proposalsQueue(proposals, els, { onRatify, onDrop, onDefer, onRatifyAll }, { selected = -1, deferred = new Set(), now = Date.now() } = {}) {
   const { Box, Text, Button } = els;
   const text = (value, style = {}) => Text({ ...style, children: [value] });
   if (!proposals.length) return [text('PROPOSALS', { bold: true, color: 'cyan' }), text('None waiting.', { dimColor: true })];
   const queue = queueOrder(proposals, deferred);
-  return [
-    Box({
-      flexDirection: 'row',
-      columnGap: 2,
+  const card = (p, i) => {
+    const later = deferred.has(p.id);
+    return Box({
+      key: `proposal-${p.id}`,
+      flexDirection: 'column',
+      borderStyle: i === selected ? 'bold' : 'round',
+      ...(i === selected ? { borderColor: 'cyan' } : {}),
+      paddingX: 1,
       children: [
-        text('PROPOSALS', { bold: true, color: 'cyan' }),
-        text(`${plural(queue.length - deferred.size, 'waits', 'wait')} for you to ratify or drop${deferred.size ? `, ${deferred.size} deferred` : ''}`, { dimColor: true }),
+        Box({
+          flexDirection: 'row',
+          columnGap: 2,
+          children: [text(p.id, { bold: true, dimColor: later }), text(`${what(p)}${p.module ? ` on ${p.module}` : ''}`, { dimColor: true }), ...(later ? [text('later', { color: 'yellow' })] : [])],
+        }),
+        text(p.text, { dimColor: later }),
+        text(`Evidence: ${evidence(p)}`, { dimColor: true }),
+        // A sparkline only says something once decisions have cited it.
+        ...(hasEvidence(p)
+          ? [
+              Box({
+                key: `spark-${p.id}`,
+                flexDirection: 'row',
+                columnGap: 1,
+                children: [
+                  text('served    ', { dimColor: true }),
+                  text(spark(p.servedOn, now), { color: 'green' }),
+                  text('  overridden', { dimColor: true }),
+                  text(spark(p.overriddenOn, now), { color: 'red' }),
+                  text('  8 weeks', { dimColor: true }),
+                ],
+              }),
+            ]
+          : []),
+        Box({
+          flexDirection: 'row',
+          columnGap: 2,
+          children: [
+            Button({ key: `ratify-${p.id}`, label: 'Accept', onPress: () => onRatify(p) }),
+            Button({ key: `drop-${p.id}`, label: 'Reject…', onPress: () => onDrop(p) }),
+            Button({ key: `defer-${p.id}`, label: later ? 'Bring back' : 'Later', onPress: () => onDefer(p) }),
+          ],
+        }),
       ],
-    }),
-    ...queue.map((p, i) => {
-      const later = deferred.has(p.id);
-      return Box({
-        key: `proposal-${p.id}`,
-        flexDirection: 'column',
-        borderStyle: i === selected ? 'bold' : 'round',
-        ...(i === selected ? { borderColor: 'cyan' } : {}),
-        paddingX: 1,
-        children: [
-          Box({
-            flexDirection: 'row',
-            columnGap: 2,
-            children: [
-              text(p.id, { bold: true, dimColor: later }),
-              text(`${p.kind === 'concepts' ? 'concept' : `rule (${p.kind})`}${p.module ? ` on ${p.module}` : ''}`, { dimColor: true }),
-              ...(later ? [text('deferred', { color: 'yellow' })] : []),
-            ],
-          }),
-          text(p.text, { dimColor: later }),
-          text(`Evidence: ${evidence(p)}`, { dimColor: true }),
-          Box({
-            key: `spark-${p.id}`,
-            flexDirection: 'row',
-            columnGap: 1,
-            children: [
-              text('served    ', { dimColor: true }),
-              text(spark(p.servedOn, now), { color: 'green' }),
-              text('  overridden', { dimColor: true }),
-              text(spark(p.overriddenOn, now), { color: 'red' }),
-              text('  8 weeks', { dimColor: true }),
-            ],
-          }),
-          Box({
-            flexDirection: 'row',
-            columnGap: 2,
-            children: [
-              Button({ key: `ratify-${p.id}`, label: 'Ratify', onPress: () => onRatify(p) }),
-              Button({ key: `drop-${p.id}`, label: 'Drop…', onPress: () => onDrop(p) }),
-              Button({ key: `defer-${p.id}`, label: later ? 'Bring back' : 'Defer', onPress: () => onDefer(p) }),
-            ],
-          }),
-        ],
-      });
-    }),
+    });
+  };
+  // Each module's group, headed with its count and Accept all; then those put off till later.
+  const nodes = [];
+  let group = null;
+  queue.forEach((p, i) => {
+    const key = deferred.has(p.id) ? 'later' : (p.module ?? '');
+    if (key !== group) {
+      group = key;
+      const members = key === 'later' ? [] : queue.filter((q) => !deferred.has(q.id) && (q.module ?? '') === key);
+      nodes.push(
+        Box({
+          key: `group-${key || 'concepts'}`,
+          flexDirection: 'row',
+          columnGap: 2,
+          children: [
+            text(key === 'later' ? 'Later' : key || 'Concepts', { bold: true }),
+            ...(members.length ? [text(`${members.length} waiting`, { dimColor: true })] : []),
+            ...(members.length > 1 && key && onRatifyAll
+              ? [Button({ key: `accept-all-${key}`, label: `Accept all ${members.length} on ${key}`, plain: true, onPress: () => onRatifyAll(key, members) })]
+              : []),
+          ],
+        }),
+      );
+    }
+    nodes.push(card(p, i));
+  });
+  const waiting = queue.length - deferred.size;
+  return [
+    text('PROPOSALS', { bold: true, color: 'cyan' }),
+    text(
+      `${waiting} ${waiting === 1 ? 'rule waits' : 'rules wait'} for you${deferred.size ? `, ${deferred.size} put off till later` : ''}. Context Graph found them in your code and decisions. Accept one and agents are held to it from now on; reject it to remove it.`,
+      { dimColor: true },
+    ),
+    ...nodes,
   ];
 }
 
-/** VIEW-3's keys for the selected proposal: r ratifies, d drops, f defers. */
+/** VIEW-3's keys for the selected proposal: a accepts, r rejects, l puts it off till later. */
 export function queueKeys(proposals, { Button }, { onRatify, onDrop, onDefer }, { selected = -1, deferred = new Set() } = {}) {
   const p = queueOrder(proposals, deferred)[selected];
   if (!p) return [];
   return [
-    Button({ key: 'key-ratify', label: `Ratify ${p.id}`, hotkey: 'r', plain: true, onPress: () => onRatify(p) }),
-    Button({ key: 'key-drop', label: 'Drop', hotkey: 'd', plain: true, onPress: () => onDrop(p) }),
-    Button({ key: 'key-defer', label: deferred.has(p.id) ? 'Bring back' : 'Defer', hotkey: 'f', plain: true, onPress: () => onDefer(p) }),
+    Button({ key: 'key-ratify', label: `Accept ${p.id}`, hotkey: 'a', plain: true, onPress: () => onRatify(p) }),
+    Button({ key: 'key-drop', label: 'Reject', hotkey: 'r', plain: true, onPress: () => onDrop(p) }),
+    Button({ key: 'key-defer', label: deferred.has(p.id) ? 'Bring back' : 'Later', hotkey: 'l', plain: true, onPress: () => onDefer(p) }),
   ];
 }

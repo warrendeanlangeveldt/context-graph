@@ -322,18 +322,31 @@ export function register(on) {
       ratify: async (proposal) => {
         const answer = await $.ui
           .ask(
-            `Ratify ${proposal.id}? It becomes an agreed ${proposal.kind === 'concepts' ? 'concept' : 'rule'}, committed on this branch with your Ctx-Ratified-By trailer.`,
-            ['Ratify', 'Cancel'],
+            `Accept ${proposal.id} as ${proposal.kind === 'concepts' ? 'a concept' : 'a rule'}? Agents are held to it from now on. It's committed on this branch with your name (a Ctx-Ratified-By trailer).`,
+            ['Accept', 'Cancel'],
           )
           .catch(() => 'Cancel');
-        if (answer !== 'Ratify') return;
+        if (answer !== 'Accept') return;
         const ran = await $.process.run(['node', cli, 'ratify', proposal.id, '--commit'], { cwd });
         model = {
           ...model,
           notice: {
             ok: ran.exitCode === 0,
-            text: ran.exitCode === 0 ? `Ratified ${proposal.id}: ${firstLine(ran)}` : `Nothing ratified: ${firstLine(ran)}`,
+            text: ran.exitCode === 0 ? `Accepted ${proposal.id}: ${firstLine(ran)}` : `Nothing accepted: ${firstLine(ran)}`,
           },
+        };
+        await act.reload();
+      },
+      // RAT-3 for a module: every waiting proposal on it accepted in one commit, after one confirmation.
+      ratifyAll: async (module, list) => {
+        const answer = await $.ui
+          .ask(`Accept all ${list.length} proposed rules on ${module}? Agents are held to them from now on. They're committed on this branch together, with your name.`, ['Accept all', 'Cancel'])
+          .catch(() => 'Cancel');
+        if (answer !== 'Accept all') return;
+        const ran = await $.process.run(['node', cli, 'ratify', ...list.map((p) => p.id), '--commit'], { cwd });
+        model = {
+          ...model,
+          notice: { ok: ran.exitCode === 0, text: ran.exitCode === 0 ? `Accepted ${list.length} rules on ${module}: ${firstLine(ran)}` : `Nothing accepted: ${firstLine(ran)}` },
         };
         await act.reload();
       },
@@ -342,7 +355,7 @@ export function register(on) {
         dropping = { proposal, reason: '', error: null };
         await $.ui.open({
           id: DROP_ID,
-          title: 'Drop',
+          title: 'Reject',
           focus: true,
           closeOnEscape: true,
         });
@@ -363,7 +376,7 @@ export function register(on) {
         if (ran.exitCode !== 0) {
           dropping = {
             ...dropping,
-            error: `Nothing dropped: ${firstLine(ran)}`,
+            error: `Nothing rejected: ${firstLine(ran)}`,
           };
           $.ui.invalidate('ui.render');
           return;
@@ -373,7 +386,7 @@ export function register(on) {
           ...model,
           notice: {
             ok: true,
-            text: `Dropped ${proposal.id}: ${reason.trim()}`,
+            text: `Rejected ${proposal.id}: ${reason.trim()}`,
           },
         };
         await $.ui.close({ id: DROP_ID });
@@ -645,6 +658,7 @@ export function register(on) {
       },
       onRatify: (p) => act.ratify(p),
       onDrop: (p) => act.drop(p),
+      onRatifyAll: (module, list) => act.ratifyAll(module, list),
       onLanes: () => act.lanes(),
       onWriteCard: (path) => act.askForCards(path, `card for ${path}`),
       onModuleCards: (module) => act.askForCards(module, `cards for the files in ${module} without a current one`),
