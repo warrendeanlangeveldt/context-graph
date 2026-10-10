@@ -80,7 +80,7 @@ Built after code-kit's harness (its milestone 4), whose spikes it relies on.
 **Lane:** lead
 **Requirements:** VIEW-6
 **Depends on:** none
-**Status:** todo
+**Status:** done
 
 The `[harness]` section in `.ctx/config.toml`, validated; `ctx settings`; the Settings view.
 
@@ -89,7 +89,7 @@ The `[harness]` section in `.ctx/config.toml`, validated; `ctx settings`; the Se
 **Lane:** lead
 **Requirements:** VIEW-1, VIEW-5
 **Depends on:** ST-7
-**Status:** todo
+**Status:** done
 
 The new frame, the band line with the graph's health, the keyboard model.
 
@@ -98,7 +98,7 @@ The new frame, the band line with the graph's health, the keyboard model.
 **Lane:** lead
 **Requirements:** VIEW-2
 **Depends on:** ST-8
-**Status:** todo
+**Status:** done
 
 The card rendered, rules as chips, and the neighbourhood graph from `ctx neighbours`.
 
@@ -107,7 +107,7 @@ The card rendered, rules as chips, and the neighbourhood graph from `ctx neighbo
 **Lane:** lead
 **Requirements:** VIEW-3
 **Depends on:** ST-8
-**Status:** todo
+**Status:** done
 
 Proposals with evidence and sparklines; ratify, drop and defer on keys.
 
@@ -116,7 +116,7 @@ Proposals with evidence and sparklines; ratify, drop and defer on keys.
 **Lane:** lead
 **Requirements:** ASSIST-1, ASSIST-2, ASSIST-3, VIEW-4
 **Depends on:** ST-8
-**Status:** todo
+**Status:** done
 
 The refusal's reading list delivered to the agent, its progress, and tags on tool rows.
 
@@ -125,7 +125,7 @@ The refusal's reading list delivered to the agent, its progress, and tags on too
 **Lane:** lead
 **Requirements:** CARDW-1, CARDW-2, CARDW-3, CARDW-4, CARDW-5
 **Depends on:** ST-7
-**Status:** todo
+**Status:** done
 
 The background agent writing owed and missing cards from full reads.
 
@@ -134,7 +134,7 @@ The background agent writing owed and missing cards from full reads.
 **Lane:** lead
 **Requirements:** CUR-1, CUR-2, CUR-3, CUR-4
 **Depends on:** ST-7
-**Status:** todo
+**Status:** done
 
 The background agent proposing rules from evidence and flagging overridden ones.
 
@@ -143,7 +143,7 @@ The background agent proposing rules from evidence and flagging overridden ones.
 **Lane:** lead
 **Requirements:** ASKQ-1, ASKQ-2, ASKQ-3
 **Depends on:** ST-8
-**Status:** todo
+**Status:** done
 
 `/why`, answered beside the conversation from the graph, with its cost.
 
@@ -152,6 +152,6 @@ The background agent proposing rules from evidence and flagging overridden ones.
 **Lane:** lead
 **Requirements:** MAP-1, MAP-2, MAP-3
 **Depends on:** ST-8
-**Status:** todo
+**Status:** done
 
 Modules with rules, activity and coverage; the coverage heat map; `ctx map`.

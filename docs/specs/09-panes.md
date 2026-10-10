@@ -26,7 +26,7 @@ The File tab shows the card rendered, the rules as chips by kind, and a neighbou
 
 ### VIEW-3 Proposals queue
 
-One card per proposal with its evidence and a sparkline of served and overridden decisions over time; r ratify, d drop, f defer.
+One card per proposal, grouped by module, with its evidence and, once decisions cite it, a sparkline of served and overridden decisions over time. The pane says Accept (ratify), Reject (drop) and Later (defer), on a, r and l, and each module has Accept all, one confirmation and one commit.
 
 ### VIEW-4 Transcript tags
 

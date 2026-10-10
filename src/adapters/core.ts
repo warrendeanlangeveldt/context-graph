@@ -245,10 +245,10 @@ async function handleHook(input: HookInput, profile: HarnessProfile): Promise<Ho
   }
 
   if (event === 'PreToolUse') {
-    // Ratifying with a commit and dropping a proposal are the person's acts (the Context Graph pane); no
-    // agent runs them, whatever else it may do.
+    // Ratifying with a commit, dropping a proposal and changing the harness settings are the person's acts
+    // (the Context Graph pane); no agent runs them, whatever else it may do.
     if (isShell(input.tool_name ?? '') && isPersonsGraphAct(String((input.tool_input as { command?: unknown } | undefined)?.command ?? ''))) {
-      return { stdout: profile.formatPreToolUseDeny("Context Graph: ratifying with a commit, and dropping a proposal, are the person's own acts, from the Context Graph pane or their terminal. Tell the person what you'd ratify or drop, and why, and stop."), exitCode: 0 };
+      return { stdout: profile.formatPreToolUseDeny("Context Graph: ratifying with a commit, dropping a proposal and changing the harness settings are the person's own acts, from the Context Graph pane or their terminal. Tell the person what you'd ratify, drop or change, and why, and stop."), exitCode: 0 };
     }
     // Reads are recorded as the call starts. The completion hook runs asynchronously, and an agent that
     // reads a file and edits it next must find its read already on record, or the edit would be refused.

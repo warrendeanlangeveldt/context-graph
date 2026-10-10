@@ -23,6 +23,13 @@ export interface ToolAdapter {
   sessionNote?(root: string): string | undefined;
   /** Branches the tool protects, where a person's graph commit must not land. */
   protectedBranches?(root: string): string[];
+  /**
+   * Records a change the person made to a graph file the tool guards (a harness setting in
+   * config.toml), so its log keeps it as theirs. Returns what it recorded, in a sentence, if anything.
+   */
+  recordPersonsChange?(root: string, change: { file: string; reason: string; via: 'pane' | 'terminal' }): string[];
+  /** The plan use at which the tool pauses background agents, when it sets one: it wins over Context Graph's own. */
+  pauseAtPercent?(root: string): number | undefined;
 }
 
 export const TOOL_ADAPTERS: ToolAdapter[] = [codeKitAdapter];

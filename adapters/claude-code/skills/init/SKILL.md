@@ -49,13 +49,14 @@ node "${CLAUDE_PLUGIN_ROOT}/ctx.mjs" init --write      # proposals into .ctx/
 ```
 
 Then:
-1. **Ratifiers.** Set `[repo] ratifiers` in `.ctx/config.toml` to the git identities allowed to ratify. Without them, nothing proposed can ever be ratified.
+1. **Ratifiers.** Set `[repo] ratifiers` in `.ctx/config.toml` to the git identities allowed to ratify. Without them, nothing proposed can ever be ratified. Propose this repository's own identity as the default: run `git config user.name` and `git config user.email` in it, and offer `Name <email>` from those. Take it from nowhere else (not a global or account email): a ratification is checked against the identity that commits here, so any other address can't ratify.
 2. **The loop.** Explain `[enforce]`:
    - `read_before_edit`, `dependencies` and `cards` default to `block`: an edit without understanding is refused, and a card is owed after every edit;
    - a repository adopting ctx gradually can start at `nudge`;
    - generated or vendored folders go under `[cards] exclude`, which adds to the defaults.
 3. **Ratification.** Run `node "${CLAUDE_PLUGIN_ROOT}/ctx.mjs" ratify <id>...` for what the person accepted. Ratifying a checkable rule records its current violations as legacy decisions, so the next agent sees a known exception, not a contradiction.
 4. **Merges.** Add `.ctx/decisions.ctx merge=union` and `.ctx/cards.ctx merge=union` to `.gitattributes`, so decisions and cards recorded on parallel branches all survive a merge.
+5. **Cards for the existing code.** In a repository that already has code, offer a backfill: the card writer, in the background, writes a card for each existing file. Show what it would take first with `node "${CLAUDE_PLUGIN_ROOT}/ctx.mjs" cards --backfill --scope active` (and `--scope all`), and say plainly what it costs: each file read in full once, by an agent, while the lead is idle; leaves first, so by the time a file is read its imports already have cards and the reading is mostly the file itself. Offer three answers: `active` (the modules changed in the last 90 days, where work is likely), `all`, or not now. Write the answer into `.ctx/config.toml` as `[harness] backfill = "active"` (or `"all"`), and suggest `card_writer_model = "haiku"` to keep it cheap. It runs only with Claude Code 2.1.287 or later, pauses near the plan's limit, and the person can pause it from the band. Leave it out if they'd rather card as they go: the hooks ask for a card after every edit anyway.
 
 ## 4. Tell agents about it
 

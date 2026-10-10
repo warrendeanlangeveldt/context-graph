@@ -40,13 +40,61 @@ function project() {
     ratifyExit: 0,
     ratifyOut: 'ratified src.small\ncommitted abc1234 with Ctx-Ratified-By: warren',
     dropExit: 0,
-    answer: 'Ratify',
+    answer: 'Accept',
     acts: [] as string[][],
     fileAsks: [] as string[][],
     open: new Set<string>(),
     opened: [] as string[],
     commands: [] as string[],
     prompts: [] as string[],
+    settings: [
+      { key: 'card_writer', value: false, default: false, about: 'A background agent that writes the cards owed' },
+      { key: 'card_writer_model', value: '', default: '', about: "The card writer's model" },
+      { key: 'pause_at_percent', value: 80, default: 80, about: 'The pause point' },
+    ] as any[],
+    setExit: 0,
+    cards: { fresh: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'], stale: ['j'], missing: [] } as any,
+    editRefusal: '',
+    changed: { fresh: [], stale: [], missing: [] } as any,
+    moduleCards: { fresh: [], stale: [], missing: [] } as any,
+    registered: [] as any[],
+    limits: [] as any[],
+    hygiene: [] as any[],
+    agentsThrow: false,
+    backfill: { scope: 'active', files: [] as string[], inScope: 0 } as any,
+    map: [
+      { id: 'L:src', name: 'Source', depth: 0, parents: [], rules: { agreed: 2, proposed: 0 }, decisions: [], files: [{ path: 'src/a.ts', card: 'current' }] },
+      {
+        id: 'L:billing',
+        name: 'Billing',
+        depth: 1,
+        parents: ['L:src'],
+        rules: { agreed: 1, proposed: 1 },
+        decisions: ['2026-10-08', '2026-10-09'],
+        files: [
+          ...['a', 'b', 'c', 'd', 'e', 'f'].map((x) => ({ path: `src/billing/${x}.ts`, card: 'current' })),
+          { path: 'src/billing/g.ts', card: 'stale' },
+          { path: 'src/billing/h.ts', card: 'stale' },
+          { path: 'src/billing/i.ts', card: 'missing' },
+          { path: 'src/billing/j.ts', card: 'missing' },
+        ],
+      },
+    ] as any[],
+    whys: {
+      'src/a.ts': {
+        node: 'src/a.ts',
+        card: { text: 'Holds a.' },
+        constraints: [{ id: 'src.pure', mode: 'G', text: 'no side effects' }],
+        decisions: [{ id: 'd-0003', date: '2026-10-03', who: 'warren/claude', text: 'keep a constant' }],
+      },
+    } as Record<string, any>,
+    asked: [] as any[],
+    reply: { isAnswered: true, text: 'Because of [src.pure]: a stays pure.', usage: { input_tokens: 100, output_tokens: 20, cache_read_input_tokens: 900, cache_creation_input_tokens: 0 } } as any,
+    sent: [] as { to: any; text: string }[],
+    neighbours: {
+      'src/a.ts': { path: 'src/a.ts', card: 'current', breaks: [], imports: [{ path: 'src/b.ts', card: 'missing', breaks: [] }], importers: [] },
+      'src/b.ts': { path: 'src/b.ts', card: 'missing', breaks: [], imports: [], importers: [{ path: 'src/a.ts', card: 'current', breaks: [] }] },
+    } as Record<string, any>,
   };
 }
 type World = ReturnType<typeof project>;
@@ -57,7 +105,15 @@ function stub(on: any, w: World) {
     const ran = (exitCode: number, stdout: string, stderr = '') => ({ value: { exitCode, stdout, stderr } });
     const sub = argv[2];
     if (sub === 'info') return ran(0, JSON.stringify(w.info));
+    if (sub === 'hygiene') return ran(0, JSON.stringify(w.hygiene));
+    if (sub === 'map') return ran(0, JSON.stringify(w.map));
+    if (sub === 'why') return w.whys[argv[3]] ? ran(0, JSON.stringify(w.whys[argv[3]])) : ran(1, '', `ctx why <node>`);
     if (sub === 'proposals') return ran(0, JSON.stringify(w.proposals));
+    if (sub === 'cards' && argv.includes('--backfill')) return ran(0, JSON.stringify(w.backfill));
+    if (sub === 'cards' && argv.includes('--changed')) return ran(0, JSON.stringify(w.changed));
+    if (sub === 'cards' && argv.includes('--module')) return ran(0, JSON.stringify(w.moduleCards));
+    if (sub === 'cards') return ran(0, JSON.stringify(w.cards));
+    if (sub === 'neighbours') return ran(0, JSON.stringify(w.neighbours[argv[3]] ?? null));
     if (sub === 'agents') return ran(0, JSON.stringify(w.agents));
     if (sub === 'file') {
       w.fileAsks.push([...argv.slice(3)]);
@@ -75,12 +131,40 @@ function stub(on: any, w: World) {
       w.acts.push([...argv.slice(2)]);
       return ran(w.dropExit, w.dropExit ? '' : `dropped ${argv[3]}`, w.dropExit ? 'main is protected.' : '');
     }
+    if (sub === 'settings' && argv[3] === 'set') {
+      w.acts.push([...argv.slice(2)]);
+      if (w.setExit) return ran(1, '', 'pause_at_percent must be a percentage from 1 to 100. Nothing was changed.');
+      const row = w.settings.find((s) => s.key === argv[4]);
+      row.value = argv[5] === 'true' ? true : argv[5] === 'false' ? false : /^\d+$/.test(argv[5]) ? Number(argv[5]) : argv[5];
+      return ran(0, `Set [harness] ${argv[4]}.`);
+    }
+    if (sub === 'settings') return ran(0, JSON.stringify(w.settings));
     return ran(1, '', `unexpected ${argv.join(' ')}`);
   });
   on('session.start', () => ({ cwd: '/work' }));
   on('ui.render', () => ({ type: 'Box', props: {}, children: [] }));
   on('tool.call', { tool: 'Read' }, () => ({ result: { type: 'text', file: {} } }));
-  on('tool.call', { tool: 'Edit' }, () => ({ result: {} }));
+  on('tool.call', { tool: 'Edit' }, () => (w.editRefusal ? { deny: w.editRefusal } : { result: {} }));
+  on('model.fork', ($: any, e: any) => {
+    w.asked.push({ fork: true, prompt: e.prompt });
+    return { value: w.reply };
+  });
+  on('model.complete', ($: any, e: any) => {
+    w.asked.push({ model: e.model, prompt: e.prompt });
+    return { value: w.reply };
+  });
+  on('agent.register', ($: any, e: any) => {
+    w.registered.push(e);
+    return { value: { agent: `context-graph:${e.name}` } };
+  });
+  on('session.usage', () => ({ value: { startedAt: 0, context: {}, rateLimits: w.limits } }));
+  on('session.measure', ($: any, e: any) => ({ changed: e.changed }));
+  on('turn.start', ($: any, e: any) => e);
+  on('turn.complete', () => ({ text: '' }));
+  on('session.send', ($: any, e: any) => {
+    w.sent.push({ to: e.to, text: e.text });
+    return { isDelivered: true };
+  });
   on('tool.call', { tool: 'AskUserQuestion' }, ($: any, e: any) => ({
     result: { questions: e.questions, answers: { [e.questions[0].question]: w.answer } },
   }));
@@ -92,7 +176,10 @@ function stub(on: any, w: World) {
     w.prompts.push(e.text);
     return { text: e.text };
   });
-  on('agent.list', () => ({ value: w.running }));
+  on('agent.list', () => {
+    if (w.agentsThrow) throw new Error('no session is bound in this process');
+    return { value: w.running };
+  });
   on('fs.stat', () => ({ value: { kind: 'file', size: 1, mtimeMs: 1, isLink: false } }));
   on('session.cwd', () => ({ value: '/work' }));
   on('session.id', () => ({ value: 's1' }));
@@ -213,11 +300,12 @@ test('RAT-1 and RAT-2 the proposals show their evidence, and the band counts the
   const w = project();
   await start($, on, w);
   const band = await bandUi($);
-  expect(await band.find({ type: 'Text', text: '2 proposals to ratify' })).toBeDefined();
+  expect(await band.find({ type: 'Text', text: '☀ 90% carded · 0 owed · 2 proposals' })).toBeDefined();
   await press($, 'band-context');
   expect(w.opened).toContain(PANE);
   await band.unmount();
   const ui = await mountPane($, PANE);
+  await press($, 'tab-proposals', PANE);
   expect(await ui.find({ type: 'Text', text: 'Evidence: served by 3 decisions, overridden by 1 decision' })).toBeDefined();
   await ui.unmount();
 });
@@ -227,9 +315,10 @@ test('RAT-3 Ratify confirms, then ratifies and commits as the person', async ($,
   await start($, on, w);
   await ctx($);
   const ui = await mountPane($, PANE);
+  await press($, 'tab-proposals', PANE);
   await press($, 'ratify-src.small', PANE);
   expect(w.acts).toEqual([['ratify', 'src.small', '--commit']]);
-  expect(await ui.find({ type: 'Text', text: /Ratified src.small: committed abc1234 with Ctx-Ratified-By: warren/ })).toBeDefined();
+  expect(await ui.find({ type: 'Text', text: /Accepted src.small: committed abc1234 with Ctx-Ratified-By: warren/ })).toBeDefined();
   await ui.unmount();
 });
 
@@ -239,8 +328,9 @@ test('RAT-3 on a protected branch nothing changes, and the pane says to switch',
   await start($, on, w);
   await ctx($);
   const ui = await mountPane($, PANE);
+  await press($, 'tab-proposals', PANE);
   await press($, 'ratify-src.small', PANE);
-  expect(await ui.find({ type: 'Text', text: /Nothing ratified: main is protected. Switch to a branch/ })).toBeDefined();
+  expect(await ui.find({ type: 'Text', text: /Nothing accepted: main is protected. Switch to a branch/ })).toBeDefined();
   await ui.unmount();
 });
 
@@ -250,6 +340,7 @@ test('RAT-3 cancelling the confirmation ratifies nothing', async ($, on) => {
   await start($, on, w);
   await ctx($);
   const ui = await mountPane($, PANE);
+  await press($, 'tab-proposals', PANE);
   await press($, 'ratify-src.small', PANE);
   expect(w.acts).toEqual([]);
   await ui.unmount();
@@ -260,6 +351,7 @@ test('RAT-4 Drop asks why, needs a reason, and drops it with that reason', async
   await start($, on, w);
   await ctx($);
   const ui = await mountPane($, PANE);
+  await press($, 'tab-proposals', PANE);
   await press($, 'drop-src.small', PANE);
   expect(w.opened).toContain(DROP);
   const dialog = await mountPane($, DROP);
@@ -270,7 +362,7 @@ test('RAT-4 Drop asks why, needs a reason, and drops it with that reason', async
   expect(w.acts).toEqual([['drop', 'src.small', '--reason', 'not how we work', '--commit']]);
   expect(w.open.has(DROP)).toBe(false);
   await dialog.unmount();
-  expect(await ui.find({ type: 'Text', text: 'Dropped src.small: not how we work' })).toBeDefined();
+  expect(await ui.find({ type: 'Text', text: 'Rejected src.small: not how we work' })).toBeDefined();
   await ui.unmount();
 });
 
@@ -280,6 +372,7 @@ test('COV-1 and COV-2 coverage per agent rises within 2 seconds of a read', asyn
   w.agents = [{ agent: 'agent-web', agentType: 'web-engineer', read: ['src/a.ts'], searched: [], edited: [], cardsOwed: [] }];
   await ctx($);
   const before = await mountPane($, PANE);
+  await press($, 'tab-coverage', PANE);
   expect(shownIn(await before.find({ key: 'agent-agent-web' }))).toEqual(['web-engineer', '1', '0', '0', '0']);
   await before.unmount();
   w.agents = [{ ...w.agents[0], read: ['src/a.ts', 'src/b.ts'] }];
@@ -305,6 +398,7 @@ test('COV-3 an edit made without understanding is marked, with what was unread',
   await start($, on, w);
   await ctx($);
   const ui = await mountPane($, PANE);
+  await press($, 'tab-coverage', PANE);
   expect(await ui.find({ type: 'Text', text: '✗ web-engineer edited src/a.ts without understanding it: src/b.ts unread' })).toBeDefined();
   await ui.unmount();
 });
@@ -324,4 +418,635 @@ test('Cards: Write card and Cards for this module ask the lead, who may write th
   expect(w.prompts.at(-1)).toContain('/context-graph:cards L:src');
   expect(await ui.find({ type: 'Text', text: /Asked the lead for the cards for the files in L:src/ })).toBeDefined();
   await ui.unmount();
+});
+
+// --- the harness settings ---------------------------------------------------------------------------
+
+const SETTINGS = 'context-graph-settings';
+
+test('VIEW-6 /graph-settings shows each setting with a control, and a change asks for a reason first', async ($, on) => {
+  const w = project();
+  await start($, on, w);
+  await $.command.run({ command: 'graph-settings', args: '' });
+  expect(w.opened).toContain(SETTINGS);
+  const ui = await mountPane($, SETTINGS);
+  expect((await ui.find({ key: 'set-card_writer' }))?.props.value).toBe('false');
+  await $.ui.select({ plugin: 'context-graph', key: 'set-card_writer', value: 'true', requestId: SETTINGS });
+  expect(w.acts).toEqual([]);
+  expect(await ui.find({ type: 'Text', text: 'Set card_writer to on?' })).toBeDefined();
+  await $.ui.input({ plugin: 'context-graph', key: 'settings-reason', text: ' ' });
+  expect(await ui.find({ type: 'Text', text: /Give a reason/ })).toBeDefined();
+  await $.ui.input({ plugin: 'context-graph', key: 'settings-reason', text: 'cards keep falling behind' });
+  expect(w.acts).toEqual([['settings', 'set', 'card_writer', 'true', '--reason', 'cards keep falling behind', '--via', 'pane']]);
+  expect((await ui.find({ key: 'set-card_writer' }))?.props.value).toBe('true');
+  expect(await ui.find({ key: 'settings-confirm' })).toBeUndefined();
+  await ui.unmount();
+});
+
+test('VIEW-6 a value the CLI refuses shows why, and Cancel leaves it', async ($, on) => {
+  const w = project();
+  w.setExit = 1;
+  await start($, on, w);
+  await $.command.run({ command: 'graph-settings', args: '' });
+  const ui = await mountPane($, SETTINGS);
+  await $.ui.input({ plugin: 'context-graph', key: 'set-pause_at_percent', text: '150' });
+  await $.ui.input({ plugin: 'context-graph', key: 'settings-reason', text: 'later' });
+  expect(await ui.find({ type: 'Text', text: /must be a percentage/ })).toBeDefined();
+  await $.ui.press({ plugin: 'context-graph', key: 'settings-cancel', requestId: SETTINGS });
+  expect(await ui.find({ key: 'settings-confirm' })).toBeUndefined();
+  await ui.unmount();
+});
+
+// --- panes v2: the health header, tabs and keys -----------------------------------------------------
+
+test("VIEW-1 the header and the band sum up the graph's health: carded share, cards owed and proposals", async ($, on) => {
+  const w = project();
+  w.proposals = [];
+  w.agents = [{ agent: 'agent-web', agentType: 'web-engineer', read: [], searched: [], edited: [], cardsOwed: ['src/a.ts'] }];
+  await start($, on, w);
+  await ctx($);
+  const ui = await mountPane($, PANE);
+  const header = await ui.find({ type: 'Text', text: '⛅ 90% carded · 1 owed · 0 proposals' });
+  expect(header?.props.color).toBe('yellow');
+  await ui.unmount();
+  const band = await bandUi($);
+  expect((await band.find({ type: 'Text', text: '⛅ 90% carded · 1 owed · 0 proposals' }))?.props.color).toBe('yellow');
+  await band.unmount();
+});
+
+test('VIEW-1 with nothing waiting and the graph healthy there is no band line', async ($, on) => {
+  const w = project();
+  w.proposals = [];
+  w.cards = { fresh: ['a', 'b'], stale: [], missing: [] };
+  await start($, on, w);
+  const band = await bandUi($);
+  expect(await band.find({ type: 'Text', text: /carded/ })).toBeUndefined();
+  await band.unmount();
+});
+
+test('VIEW-5 tabs on 1 to 3; j/k select an agent and Enter opens the file it edited without understanding', async ($, on) => {
+  const w = project();
+  w.agents = [
+    { agent: 'main', agentType: null, read: [], searched: [], edited: [], cardsOwed: [] },
+    { agent: 'agent-web', agentType: 'web-engineer', read: [], searched: [], edited: [{ path: 'src/a.ts', understood: false, missing: ['src/b.ts'] }], cardsOwed: [] },
+  ];
+  await start($, on, w);
+  await ctx($);
+  const ui = await mountPane($, PANE);
+  expect((await ui.find({ key: 'tab-coverage' }))?.props.hotkey).toBe('3');
+  await press($, 'tab-coverage', PANE);
+  await press($, 'move-prev', PANE);
+  expect((await ui.find({ key: 'agent-agent-web' }))?.text).toMatch(/^› web-engineer/);
+  expect((await ui.find({ key: 'open-selected' }))?.props.hotkey).toBe('o');
+  await press($, 'open-selected', PANE);
+  expect(w.fileAsks.at(-1)).toEqual(['src/a.ts', '--session', 's1', '--agent', 'agent-web', '--json']);
+  expect((await ui.find({ key: 'tab-file' }))?.props.variant).toBe('primary');
+  expect(await ui.find({ type: 'Text', text: 'Esc: back' })).toBeDefined();
+  await ui.unmount();
+});
+
+test("/graph <path> opens the pane on that file, and keeps it there while agents read others", async ($, on) => {
+  const w = project();
+  const clock = await start($, on, w);
+  await $.command.run({ command: 'graph', args: 'src/b.ts' });
+  expect(w.opened).toContain(PANE);
+  expect(w.fileAsks.at(-1)?.[0]).toBe('src/b.ts');
+  await $.tool.call({ tool: 'Read', tool_use_id: 'r9', file_path: '/work/src/a.ts', agentId: 'agent-web' } as any);
+  await clock.advance(2000);
+  expect(w.fileAsks.at(-1)?.[0]).toBe('src/b.ts');
+});
+
+// --- the file view ----------------------------------------------------------------------------------
+
+test('VIEW-2 the File tab draws the card as Markdown and the neighbourhood, and a neighbour opens in its place', async ($, on) => {
+  const w = project();
+  await start($, on, w);
+  await $.tool.call({ tool: 'Read', tool_use_id: 'r1', file_path: '/work/src/a.ts', agentId: 'agent-web' } as any);
+  await ctx($);
+  const ui = await mountPane($, PANE);
+  expect((await ui.find({ type: 'Markdown' }))?.props.text).toBe('Holds a.');
+  expect((await ui.find({ key: 'imports-src/b.ts' }))?.props.label).toBe('○ src/b.ts');
+  await press($, 'imports-src/b.ts', PANE);
+  expect(w.fileAsks.at(-1)?.[0]).toBe('src/b.ts');
+  expect((await ui.find({ key: 'importers-src/a.ts' }))?.props.label).toBe('● src/a.ts');
+  expect(await ui.find({ type: 'Text', text: 'Esc: back' })).toBeDefined();
+  await ui.unmount();
+});
+
+// --- the proposals queue ----------------------------------------------------------------------------
+
+test('VIEW-3 a proposal with evidence has its sparklines; a accepts, r rejects and l puts off the selected one', async ($, on) => {
+  const w = project();
+  w.proposals[0] = { ...w.proposals[0], servedOn: ['2026-10-01', '2026-10-02', '2026-10-03'], overriddenOn: ['2026-10-03'] };
+  await start($, on, w);
+  await ctx($);
+  const ui = await mountPane($, PANE);
+  await press($, 'tab-proposals', PANE);
+  expect((await ui.find({ key: 'spark-src.small' }))?.text).toMatch(/served\s+▁+.*overridden\s*▁+/);
+  await press($, 'move-next', PANE);
+  expect((await ui.find({ key: 'key-defer' }))?.props.hotkey).toBe('l');
+  expect((await ui.find({ key: 'key-ratify' }))?.props.hotkey).toBe('a');
+  expect((await ui.find({ key: 'key-drop' }))?.props.hotkey).toBe('r');
+  await press($, 'key-defer', PANE);
+  // Deferred, src.small goes to the back: C:events is first now.
+  const order = (await ui.findAll({ type: 'Text' })).map((x) => x.text).filter((x) => x === 'src.small' || x === 'C:events');
+  expect(order).toEqual(['C:events', 'src.small']);
+  expect(await ui.find({ type: 'Text', text: 'later' })).toBeDefined();
+  // No evidence yet, no sparkline: C:events has none.
+  expect(await ui.find({ key: 'spark-C:events' })).toBeUndefined();
+  expect((await ui.find({ key: 'key-ratify' }))?.props.label).toBe('Accept C:events');
+  await press($, 'key-ratify', PANE);
+  expect(w.acts).toEqual([['ratify', 'C:events', '--commit']]);
+  await ui.unmount();
+});
+
+// --- read-assist and transcript tags ----------------------------------------------------------------
+
+const unread =
+  'Context Graph: read before you edit.\nBefore editing src/a.ts, its context has to be in this agent\'s context:\n  - src/b.ts: it has no card yet, so read it in full\n  - src/c.ts: it has no card yet, so read it in full\nRead those, then make the edit again.';
+const row = ($: any, component: 'ToolUse' | 'ToolResult', id: string, tool = 'Edit') =>
+  $.ui.mount({
+    plugin: 'context-graph',
+    component,
+    requestId: id,
+    surface: 'terminal',
+    viewport: { columns: 120, rows: 40 },
+    props:
+      component === 'ToolUse'
+        ? { tool_use_id: id, tool, input: {}, isRunning: false, isErrored: true, isInterrupted: false, output: null }
+        : { tool_use_id: id, tool, output: null, isErrored: true },
+  });
+
+test('ASSIST-1 an edit refused for unread files is drawn as its reading list, and the agent is told what to read', async ($, on) => {
+  const w = project();
+  w.editRefusal = unread;
+  await start($, on, w);
+  await $.tool.call({ tool: 'Edit', tool_use_id: 'e1', file_path: '/work/src/a.ts', agentId: 'agent-web' } as any);
+  expect(w.sent).toEqual([{ to: 'agent-web', text: 'Read src/b.ts and src/c.ts in full, then edit src/a.ts again.' }]);
+  const card = await row($, 'ToolResult', 'e1');
+  expect((await card.find({ key: 'assist-e1' }))?.text).toMatch(/Read before editing src\/a\.ts\s*0 of 2 read○ src\/b\.ts○ src\/c\.ts/);
+  await card.unmount();
+  const use = await row($, 'ToolUse', 'e1');
+  expect(await use.find({ type: 'Text', text: '  not understood' })).toBeDefined();
+  await use.unmount();
+});
+
+test("ASSIST-2 and ASSIST-3 progress follows the agent's own reads, as ctx judges them, to understood", async ($, on) => {
+  const w = project();
+  w.editRefusal = unread;
+  const clock = await start($, on, w);
+  await $.tool.call({ tool: 'Edit', tool_use_id: 'e1', file_path: '/work/src/a.ts', agentId: 'agent-web' } as any);
+  w.files['src/a.ts'] = { ...w.files['src/a.ts'], understood: { ok: false, missing: [{ path: 'src/c.ts', why: 'imported' }] } };
+  await $.tool.call({ tool: 'Read', tool_use_id: 'r1', file_path: '/work/src/b.ts', agentId: 'agent-web' } as any);
+  await clock.advance(2000);
+  let card = await row($, 'ToolResult', 'e1');
+  expect((await card.find({ key: 'assist-e1' }))?.text).toMatch(/1 of 2 read✓ src\/b\.ts○ src\/c\.ts/);
+  await card.unmount();
+  await ctx($);
+  const pane = await mountPane($, PANE);
+  await press($, 'tab-coverage', PANE);
+  expect(await pane.find({ type: 'Text', text: /reading to edit src\/a\.ts: 1 of 2 read/ })).toBeDefined();
+  await pane.unmount();
+  w.files['src/a.ts'] = { ...w.files['src/a.ts'], understood: { ok: true, missing: [] } };
+  await $.tool.call({ tool: 'Read', tool_use_id: 'r2', file_path: '/work/src/c.ts', agentId: 'agent-web' } as any);
+  await clock.advance(2000);
+  card = await row($, 'ToolResult', 'e1');
+  expect((await card.find({ key: 'assist-e1' }))?.text).toMatch(/understood/);
+  await card.unmount();
+  expect(w.acts).toEqual([]);
+});
+
+test('VIEW-4 an edit that owes a card carries the tag on its row while it does', async ($, on) => {
+  const w = project();
+  w.agents = [{ agent: 'agent-web', agentType: 'web-engineer', read: [], searched: [], edited: [], cardsOwed: ['src/a.ts'] }];
+  const clock = await start($, on, w);
+  await $.tool.call({ tool: 'Edit', tool_use_id: 'e2', file_path: '/work/src/a.ts', agentId: 'agent-web' } as any);
+  await clock.advance(2000);
+  let use = await row($, 'ToolUse', 'e2');
+  expect(await use.find({ type: 'Text', text: '  card owed' })).toBeDefined();
+  await use.unmount();
+  w.agents = [{ ...w.agents[0], cardsOwed: [] }];
+  await $.tool.call({ tool: 'Read', tool_use_id: 'r3', file_path: '/work/src/b.ts', agentId: 'agent-web' } as any);
+  await clock.advance(2000);
+  use = await row($, 'ToolUse', 'e2');
+  expect(await use.find({ type: 'Text', text: '  card owed' })).toBeUndefined();
+  await use.unmount();
+});
+
+// --- the card writer --------------------------------------------------------------------------------
+
+/** A project with the card writer on, src/a.ts owed a card and src/b.ts changed on the branch without one. */
+function writing() {
+  const w = project();
+  w.settings = [
+    { key: 'card_writer', value: true, default: false, about: '' },
+    { key: 'card_writer_model', value: 'haiku', default: '', about: '' },
+    { key: 'pause_at_percent', value: 80, default: 80, about: '', inForce: 70, from: 'code-kit' },
+  ];
+  w.agents = [{ agent: 'agent-web', agentType: 'web-engineer', read: [], searched: [], edited: [], cardsOwed: ['src/a.ts'] }];
+  w.changed = { fresh: [], stale: ['src/b.ts'], missing: [] };
+  return w;
+}
+const leadTurn = async ($: any, clock: any, id = 't-1') => {
+  await $.turn.start({ turnId: id, text: '' } as any);
+  await $.turn.complete({ turnId: id, answer: '', durationMs: 1, isAborted: false } as any);
+  for (let i = 0; i < 3; i++) await clock.advance(1);
+};
+
+test('CARDW-1 and CARDW-2 with the lead idle, the lead starts the card writer on the cards owed and missing', async ($, on) => {
+  const w = writing();
+  const clock = await start($, on, w);
+  expect(w.registered[0]).toMatchObject({ name: 'card-writer', model: 'haiku', disallowedTools: ['Edit', 'MultiEdit', 'Write', 'NotebookEdit'] });
+  expect(w.registered[0].prompt).toMatch(/Read it in full, with what it imports/);
+  await leadTurn($, clock);
+  expect(w.prompts).toEqual([
+    'Start Context Graph\'s card writer in the background: use the Agent tool with subagent_type "context-graph:card-writer", run_in_background true, description "Write 2 cards (Context Graph)", and the prompt "Write the cards for: src/a.ts, src/b.ts." Then carry on; it only writes cards. If the person has asked you not to card these now, say so and don\'t start it: Context Graph won\'t offer these files again this session.',
+  ]);
+  // The lead starts it, as asked; one batch at a time, so the next turn starts no second one.
+  w.running = [{ id: 'cw1', type: 'context-graph:card-writer', description: 'Write 2 cards (Context Graph)', status: 'running' }];
+  await leadTurn($, clock, 't-2');
+  expect(w.prompts).toHaveLength(1);
+  await ctx($);
+  const ui = await mountPane($, PANE);
+  await press($, 'tab-coverage', PANE);
+  expect(await ui.find({ type: 'Text', text: 'Card writer: writing 2 (src/a.ts, src/b.ts)' })).toBeDefined();
+  await ui.unmount();
+});
+
+test('CARDW-1 a file an agent edited in the last 2 minutes waits', async ($, on) => {
+  const w = writing();
+  const clock = await start($, on, w);
+  await $.tool.call({ tool: 'Edit', tool_use_id: 'e1', file_path: '/work/src/a.ts', agentId: 'agent-web' } as any);
+  await leadTurn($, clock);
+  expect(w.prompts[0]).toMatch(/"Write the cards for: src\/b\.ts\."/);
+});
+
+test("CARDW-3 a batch's cards are done once current, and the writer's own end frees it for the next", async ($, on) => {
+  const w = writing();
+  const clock = await start($, on, w);
+  await leadTurn($, clock);
+  w.cards = { fresh: ['src/a.ts', 'src/b.ts'], stale: [], missing: [] };
+  w.agents = [{ ...w.agents[0], cardsOwed: [] }];
+  w.changed = { fresh: ['src/b.ts'], stale: [], missing: [] };
+  w.running = [{ id: 'cw1', type: 'context-graph:card-writer', description: 'Write 2 cards (Context Graph)', status: 'completed' }];
+  await $.turn.complete({ turnId: 't-cw', agentId: 'cw1', answer: 'written', durationMs: 1, isAborted: false } as any);
+  await $.tool.call({ tool: 'Read', tool_use_id: 'r1', file_path: '/work/src/a.ts' } as any);
+  await clock.advance(2000);
+  await ctx($);
+  const ui = await mountPane($, PANE);
+  await press($, 'tab-coverage', PANE);
+  expect(await ui.find({ type: 'Text', text: 'Card writer: nothing owed' })).toBeDefined();
+  await ui.unmount();
+});
+
+test('CARDW-4 with the card writer on, Cards for this module queue its files for it, not for the lead', async ($, on) => {
+  const w = writing();
+  w.agents = [];
+  w.changed = { fresh: [], stale: [], missing: [] };
+  w.moduleCards = { fresh: ['src/a.ts'], stale: ['src/b.ts'], missing: ['src/c.ts'] };
+  const clock = await start($, on, w);
+  await $.tool.call({ tool: 'Read', tool_use_id: 'r1', file_path: '/work/src/a.ts' } as any);
+  await clock.advance(2000);
+  await ctx($);
+  const ui = await mountPane($, PANE);
+  await press($, 'module-cards', PANE);
+  expect(w.prompts).toEqual([expect.stringMatching(/"Write the cards for: src\/b\.ts, src\/c\.ts\."/)]);
+  expect(await ui.find({ type: 'Text', text: /Queued the cards for the files in L:src/ })).toBeDefined();
+  await ui.unmount();
+});
+
+test("CARDW-5 past the pause point (code-kit's, when it sets one) no batch starts", async ($, on) => {
+  const w = writing();
+  w.limits = [{ kind: 'five_hour', percentUsed: 75 }];
+  const clock = await start($, on, w);
+  await leadTurn($, clock);
+  expect(w.prompts).toEqual([]);
+  await ctx($);
+  const ui = await mountPane($, PANE);
+  await press($, 'tab-coverage', PANE);
+  expect(await ui.find({ type: 'Text', text: 'Card writer: paused, the plan at 75%' })).toBeDefined();
+  await ui.unmount();
+});
+
+// --- the curator ------------------------------------------------------------------------------------
+
+function curating(decisions = 5) {
+  const w = project();
+  w.settings = [
+    { key: 'curator', value: true, default: false, about: '' },
+    { key: 'curator_model', value: '', default: '', about: '' },
+    { key: 'pause_at_percent', value: 80, default: 80, about: '' },
+  ];
+  w.info = { ...w.info, counts: { decisions, rules: 4 } };
+  return w;
+}
+const moreDecisions = async ($: any, w: any, clock: any, n: number) => {
+  w.info = { ...w.info, counts: { ...w.info.counts, decisions: n } };
+  await $.tool.call({ tool: 'Read', tool_use_id: `r${n}`, file_path: '/work/src/a.ts' } as any);
+  await clock.advance(2000);
+};
+
+test('CUR-1 and CUR-3 after 10 new decisions, the lead starts the curator, which only proposes', async ($, on) => {
+  const w = curating(5);
+  const clock = await start($, on, w);
+  expect(w.registered.find((s) => s.name === 'curator')).toMatchObject({ disallowedTools: ['Edit', 'MultiEdit', 'Write', 'NotebookEdit'] });
+  expect(w.registered.find((s) => s.name === 'curator').prompt).toMatch(/never edit files, ratify, drop, retire or change settings/);
+  await moreDecisions($, w, clock, 14);
+  await leadTurn($, clock);
+  expect(w.prompts).toEqual([]);
+  await moreDecisions($, w, clock, 15);
+  await leadTurn($, clock, 't-2');
+  expect(w.prompts).toEqual([
+    'Start Context Graph\'s curator in the background: use the Agent tool with subagent_type "context-graph:curator", run_in_background true, description "Curate the graph (Context Graph)", and the prompt "Review the 10 decisions recorded since you last ran and the graph\'s evidence; propose the rules they show." Then carry on; it only proposes. If the person has asked you not to run it now, say so and don\'t start it: Context Graph won\'t ask again until ten more decisions are recorded.',
+  ]);
+  // Its report ends its run; the next counts from there.
+  w.running = [{ id: 'cu1', type: 'context-graph:curator', description: 'Curate the graph (Context Graph)', status: 'completed' }];
+  await $.turn.complete({ turnId: 't-cu', agentId: 'cu1', answer: 'proposed one', durationMs: 1, isAborted: false } as any);
+  await leadTurn($, clock, 't-3');
+  expect(w.prompts).toHaveLength(1);
+});
+
+test('CUR-1 the card writer goes first when both are due; the curator the turn after', async ($, on) => {
+  const w = curating(5);
+  w.settings.push({ key: 'card_writer', value: true, default: false, about: '' });
+  w.agents = [{ agent: 'agent-web', agentType: 'web-engineer', read: [], searched: [], edited: [], cardsOwed: ['src/a.ts'] }];
+  const clock = await start($, on, w);
+  await moreDecisions($, w, clock, 20);
+  await leadTurn($, clock);
+  expect(w.prompts).toHaveLength(1);
+  expect(w.prompts[0]).toMatch(/card writer/);
+  await leadTurn($, clock, 't-2');
+  expect(w.prompts[1]).toMatch(/curator/);
+});
+
+test('CUR-2 a rule overridden again and again is flagged in the pane and the health line, never retired', async ($, on) => {
+  const w = curating(5);
+  w.hygiene = [
+    { signal: 'overridden-since-ratified', target: 'src.small', evidence: ['d-1 2026-10-01 w: split it', 'd-2 2026-10-02 w: split it again', 'd-3 2026-10-03 w: and again'], proposal: 'reword src.small to match how the team works, or retire it (ctx retire src.small --reason ...)', level: 'propose' },
+    { signal: 'expired-proposal', target: 'x', evidence: [], proposal: '', level: 'propose' },
+  ];
+  await start($, on, w);
+  await ctx($);
+  const ui = await mountPane($, PANE);
+  expect(await ui.find({ type: 'Text', text: /1 rule overridden/ })).toBeDefined();
+  await press($, 'tab-proposals', PANE);
+  expect((await ui.find({ key: 'flagged-src.small' }))?.text).toMatch(/d-3 2026-10-03.*reword src.small/);
+  expect(await ui.find({ key: 'flagged-x' })).toBeUndefined();
+  await ui.unmount();
+  expect(w.acts).toEqual([]);
+});
+
+test('CUR-1 Curate now runs it at the next idle turn; CUR-4 not past the pause point', async ($, on) => {
+  const w = curating(5);
+  const clock = await start($, on, w);
+  await ctx($);
+  const ui = await mountPane($, PANE);
+  await press($, 'tab-proposals', PANE);
+  expect(await ui.find({ type: 'Text', text: 'Curator: runs after 10 more decisions' })).toBeDefined();
+  await press($, 'curate-now', PANE);
+  await ui.unmount();
+  w.limits = [{ kind: 'five_hour', percentUsed: 90 }];
+  await $.session.measure({ context: {} as any, rateLimits: w.limits, changed: ['rateLimits'] });
+  await leadTurn($, clock);
+  expect(w.prompts).toEqual([]);
+  await $.session.measure({ context: {} as any, rateLimits: [{ kind: 'five_hour', percentUsed: 40 }], changed: ['rateLimits'] });
+  await leadTurn($, clock, 't-2');
+  expect(w.prompts[0]).toMatch(/curator.*Review the latest decisions/);
+});
+
+// --- side questions ---------------------------------------------------------------------------------
+
+const WHY = 'context-graph-why';
+
+test("ASKQ-1 and ASKQ-2 /why answers beside the conversation from the graph's records, with its cost", async ($, on) => {
+  const w = project();
+  await start($, on, w);
+  await $.command.run({ command: 'why', args: 'src/a.ts' });
+  expect(w.opened).toContain(WHY);
+  expect(w.asked).toHaveLength(1);
+  expect(w.asked[0].fork).toBe(true);
+  expect(w.asked[0].prompt).toMatch(/- \[src\.pure\] \(rule\) no side effects/);
+  expect(w.asked[0].prompt).toMatch(/- \[d-0003\] \(decision\) 2026-10-03 warren\/claude: keep a constant/);
+  expect(w.asked[0].prompt).toMatch(/don't guess/);
+  const ui = await mountPane($, WHY);
+  expect((await ui.find({ type: 'Markdown' }))?.props.text).toBe('Because of [src.pure]: a stays pure.');
+  expect((await ui.find({ type: 'Text', text: /tokens in/ }))?.text).toMatch(/s · 1,000 tokens in, 20 out \(900 from the cache\)$/);
+  expect(await ui.find({ key: 'source-src.pure' })).toBeDefined();
+  // A source that is a file opens in the Context pane.
+  await press($, 'source-src/a.ts', WHY);
+  expect(w.opened).toContain(PANE);
+  await ui.unmount();
+  // The lead's conversation gains nothing.
+  expect(w.prompts).toEqual([]);
+});
+
+test('ASKQ-3 when the graph holds nothing on it, it says so, and no call is made', async ($, on) => {
+  const w = project();
+  await start($, on, w);
+  await $.command.run({ command: 'why', args: 'why is billing/cents.ts like this?' });
+  expect(w.asked).toEqual([]);
+  const ui = await mountPane($, WHY);
+  expect(await ui.find({ type: 'Text', text: 'The graph holds nothing on billing/cents.ts: no card, rule or decision names it.' })).toBeDefined();
+  await ui.unmount();
+});
+
+test('ASKQ with a model set the side call is that model; with side questions off, /why says so', async ($, on) => {
+  const w = project();
+  w.settings = [
+    { key: 'side_questions', value: true, default: true, about: '' },
+    { key: 'side_questions_model', value: 'haiku', default: '', about: '' },
+  ];
+  const clock = await start($, on, w);
+  await $.command.run({ command: 'why', args: 'src/a.ts' });
+  expect(w.asked[0]).toMatchObject({ model: 'haiku' });
+  w.settings[0].value = false;
+  await $.tool.call({ tool: 'Read', tool_use_id: 'r1', file_path: '/work/src/b.ts' } as any);
+  await clock.advance(2000);
+  const said = await $.command.run({ command: 'why', args: 'src/a.ts' });
+  expect(String((said as any)?.text)).toMatch(/Side questions are off/);
+});
+
+test('ASKQ the file in view has Why? on w', async ($, on) => {
+  const w = project();
+  await start($, on, w);
+  await $.tool.call({ tool: 'Read', tool_use_id: 'r1', file_path: '/work/src/a.ts', agentId: 'agent-web' } as any);
+  await ctx($);
+  const ui = await mountPane($, PANE);
+  expect((await ui.find({ key: 'why-file' }))?.props.hotkey).toBe('w');
+  await press($, 'why-file', PANE);
+  expect(w.asked).toHaveLength(1);
+  await ui.unmount();
+});
+
+// --- the graph explorer -----------------------------------------------------------------------------
+
+test('MAP-1 the Map tab draws the module tree with rules, proposals, decision activity and coverage', async ($, on) => {
+  const w = project();
+  await start($, on, w);
+  await ctx($);
+  const ui = await mountPane($, PANE);
+  expect((await ui.find({ key: 'tab-map' }))?.props.hotkey).toBe('4');
+  await press($, 'tab-map', PANE);
+  const billing = (await ui.find({ key: 'module-L:billing' }))?.text ?? '';
+  expect(billing).toMatch(/^\s+Billing\s*L:billing\s*1 rule\s*◆ 1 proposed/);
+  expect(billing).toMatch(/██████░░░░\s*6\/10 carded$/);
+  await ui.unmount();
+});
+
+test('MAP-2 and MAP-3 Enter opens a module as a heat map of its files, and a file in the File tab', async ($, on) => {
+  const w = project();
+  w.agents = [{ agent: 'agent-web', agentType: 'web-engineer', read: [], searched: [], edited: [], cardsOwed: ['src/billing/a.ts'] }];
+  await start($, on, w);
+  await ctx($);
+  const ui = await mountPane($, PANE);
+  await press($, 'tab-map', PANE);
+  await press($, 'move-next', PANE);
+  await press($, 'move-next', PANE);
+  await press($, 'open-selected', PANE);
+  // One owed this session shows as owed, over its current card.
+  expect((await ui.find({ key: 'heat-legend' }))?.text).toBe('● 5 current◐ 2 stale○ 2 missing✱ 1 owed this session');
+  expect((await ui.find({ key: 'cell-src/billing/i.ts' }))?.text).toBe('○');
+  await $.ui.select({ plugin: 'context-graph', key: 'heat-select', value: 'src/billing/i.ts', requestId: PANE });
+  expect(JSON.stringify((await ui.find({ key: 'cell-src/billing/i.ts' }))?.children)).toMatch(/"inverse":true/);
+  await press($, 'open-selected', PANE);
+  expect(w.fileAsks.at(-1)?.[0]).toBe('src/billing/i.ts');
+  expect((await ui.find({ key: 'tab-file' }))?.props.variant).toBe('primary');
+  await ui.unmount();
+});
+
+test("with no session bound (claude -p before it mounts), the agent list's failure leaves the pane working", async ($, on) => {
+  const w = project();
+  w.agentsThrow = true;
+  await start($, on, w);
+  await $.tool.call({ tool: 'Read', tool_use_id: 'r1', file_path: '/work/src/a.ts', agentId: 'agent-web' } as any);
+  await ctx($);
+  const ui = await mountPane($, PANE);
+  expect((await ui.find({ type: 'Markdown' }))?.props.text).toBe('Holds a.');
+  await ui.unmount();
+});
+
+test('VIEW-3 the queue groups proposals by module, and Accept all accepts a module\'s in one commit', async ($, on) => {
+  const w = project();
+  w.answer = 'Accept all';
+  w.proposals = [
+    { id: 'ai.a', kind: 'enforced', module: 'L:ai', text: 'a', served: 0, overridden: 0, violations: null, servedOn: [], overriddenOn: [] },
+    { id: 'evals.b', kind: 'enforced', module: 'L:evals', text: 'b', served: 0, overridden: 0, violations: null, servedOn: [], overriddenOn: [] },
+    { id: 'ai.c', kind: 'enforced', module: 'L:ai', text: 'c', served: 0, overridden: 0, violations: null, servedOn: [], overriddenOn: [] },
+  ];
+  await start($, on, w);
+  await ctx($);
+  const ui = await mountPane($, PANE);
+  await press($, 'tab-proposals', PANE);
+  expect(await ui.find({ type: 'Text', text: /Accept one and agents are held to it from now on; reject it to remove it\./ })).toBeDefined();
+  const ids = (await ui.findAll({ type: 'Text' })).map((x) => x.text).filter((x) => /^(ai|evals)\./.test(x));
+  expect(ids).toEqual(['ai.a', 'ai.c', 'evals.b']);
+  expect((await ui.find({ key: 'accept-all-L:ai' }))?.props.label).toBe('Accept all 2 on L:ai');
+  expect(await ui.find({ key: 'accept-all-L:evals' })).toBeUndefined();
+  await press($, 'accept-all-L:ai', PANE);
+  expect(w.acts).toEqual([['ratify', 'ai.a', 'ai.c', '--commit']]);
+  await ui.unmount();
+});
+
+// --- the backfill: a brownfield project's cards ----------------------------------------------------
+
+function backfilling() {
+  const w = project();
+  w.proposals = [];
+  w.settings = [
+    { key: 'card_writer', value: false, default: false, about: '' },
+    { key: 'backfill', value: 'active', default: 'off', about: '' },
+    { key: 'pause_at_percent', value: 80, default: 80, about: '' },
+  ];
+  const files = Array.from({ length: 12 }, (_, i) => `src/f${String(i).padStart(2, '0')}.ts`);
+  w.backfill = { scope: 'active', files: files.slice(2), inScope: 12 };
+  return w;
+}
+
+test('backfill: the card writer takes the existing code, leaves first, ten at a time, even with the card writer itself off', async ($, on) => {
+  const w = backfilling();
+  const clock = await start($, on, w);
+  await leadTurn($, clock);
+  expect(w.prompts).toHaveLength(1);
+  expect(w.prompts[0]).toMatch(/"Write the cards for: src\/f02\.ts, src\/f03\.ts, .*src\/f11\.ts\."/);
+  expect(w.prompts[0]).toMatch(/Write 10 cards/);
+});
+
+test('backfill: the band shows its progress with Pause; paused, no batch starts until Resume', async ($, on) => {
+  const w = backfilling();
+  const clock = await start($, on, w);
+  let band = await bandUi($);
+  expect(await band.find({ type: 'Text', text: 'Card backfill: 2 of 12 carded (modules changed in the last 90 days)' })).toBeDefined();
+  await press($, 'band-backfill-pause');
+  await band.unmount();
+  await leadTurn($, clock);
+  expect(w.prompts).toEqual([]);
+  band = await bandUi($);
+  expect(await band.find({ type: 'Text', text: /^Card backfill paused: 2 of 12/ })).toBeDefined();
+  expect((await band.find({ key: 'band-backfill-pause' }))?.props.label).toBe('Resume');
+  await press($, 'band-backfill-pause');
+  await band.unmount();
+  await leadTurn($, clock, 't-2');
+  expect(w.prompts).toHaveLength(1);
+});
+
+test("MAP-1 the Map shows the backfill's progress, an empty coverage bar in grey, and no sparkline without decisions", async ($, on) => {
+  const w = backfilling();
+  w.map = [{ id: 'L:src', name: 'Source', depth: 0, parents: [], rules: { agreed: 1, proposed: 0 }, decisions: [], files: [{ path: 'src/f00.ts', card: 'missing' }] }];
+  await start($, on, w);
+  await ctx($);
+  const ui = await mountPane($, PANE);
+  await press($, 'tab-map', PANE);
+  expect(await ui.find({ type: 'Text', text: /^Card backfill: 2 of 12 carded/ })).toBeDefined();
+  expect((await ui.find({ key: 'module-L:src' }))?.text).toMatch(/1 rule\s*░{10}\s*0\/1 carded$/);
+  const filled = (await ui.findAll({ type: 'Text' })).filter((x) => /^█+$/.test(x.text));
+  expect(filled).toEqual([]);
+  expect(await ui.find({ type: 'Text', text: /^▁+$/ })).toBeUndefined();
+  await ui.unmount();
+});
+
+test('MAP-2 the heat map has Write cards for this module on c', async ($, on) => {
+  const w = project();
+  await start($, on, w);
+  await ctx($);
+  const ui = await mountPane($, PANE);
+  await press($, 'tab-map', PANE);
+  await press($, 'move-next', PANE);
+  await press($, 'move-next', PANE);
+  await press($, 'open-selected', PANE);
+  expect((await ui.find({ key: 'module-write-cards' }))?.props.hotkey).toBe('c');
+  await press($, 'module-write-cards', PANE);
+  expect(w.prompts).toEqual(['Write the Context Graph cards for the files in L:billing without a current one: run /context-graph:cards L:billing, or ask the agent working on L:billing to.']);
+  await ui.unmount();
+});
+
+test("a batch the lead declines isn't offered again this session, until the person offers it again", async ($, on) => {
+  const w = writing();
+  const clock = await start($, on, w);
+  await leadTurn($, clock);
+  expect(w.prompts).toHaveLength(1);
+  // The prompt's turn ends with no card writer started: declined.
+  await leadTurn($, clock, 't-2');
+  await leadTurn($, clock, 't-3');
+  expect(w.prompts).toHaveLength(1);
+  await ctx($);
+  const ui = await mountPane($, PANE);
+  await press($, 'tab-coverage', PANE);
+  expect(await ui.find({ type: 'Text', text: "The lead didn't start the card writer on 2 files; they aren't offered again this session." })).toBeDefined();
+  await press($, 'offer-again', PANE);
+  expect(w.prompts).toHaveLength(2);
+  await ui.unmount();
+});
+
+test("the lead's own card writers finishing don't end the batch the mod asked for", async ($, on) => {
+  const w = writing();
+  const clock = await start($, on, w);
+  await leadTurn($, clock);
+  w.running = [
+    { id: 'cw1', type: 'context-graph:card-writer', description: 'Write 2 cards (Context Graph)', status: 'running' },
+    { id: 'own', type: 'context-graph:card-writer', description: 'Card field domain files', status: 'completed' },
+  ];
+  await leadTurn($, clock, 't-2');
+  await $.turn.complete({ turnId: 't-own', agentId: 'own', answer: 'done', durationMs: 1, isAborted: false } as any);
+  await leadTurn($, clock, 't-3');
+  expect(w.prompts).toHaveLength(1);
 });

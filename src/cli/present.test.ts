@@ -95,7 +95,7 @@ describe('what the Context Graph pane shows, and the person\'s acts', () => {
   it('RAT-1 lists proposals with the evidence a person decides on', () => {
     writeFileSync(join(repo, '.ctx/decisions.ctx'), readFileSync(join(repo, '.ctx/decisions.ctx'), 'utf8') + 'D d-0002 2026-10-02 warren/claude - main src/a.ts ->K src.small small\nD d-0003 2026-10-03 warren/claude - main src/b.ts ->K src.pure !K src.small too small to split\n');
     const list = proposals(openRepo({ repo }));
-    expect(list.find((p) => p.id === 'src.small')).toMatchObject({ kind: 'guidance', served: 1, overridden: 1 });
+    expect(list.find((p) => p.id === 'src.small')).toMatchObject({ kind: 'guidance', served: 1, overridden: 1, servedOn: ['2026-10-02'], overriddenOn: ['2026-10-03'] });
     expect(list.find((p) => p.id === 'C:events')).toMatchObject({ kind: 'concepts' });
   });
 
@@ -140,9 +140,19 @@ describe('what the Context Graph pane shows, and the person\'s acts', () => {
     // Mentioning the command is not running it: documentation written through a heredoc, or an echo.
     expect(isPersonsGraphAct("cat > README.md <<'EOF'\n- **`ctx drop <id> --reason`** turns a proposal down\nEOF")).toBe(false);
     expect(isPersonsGraphAct("echo 'ctx ratify C:events --commit'")).toBe(false);
+    // Nor is a line of a heredoc or of a quoted message that starts with one.
+    expect(isPersonsGraphAct("git commit -F - <<'EOF'\nctx settings set changes one as the person's act\nEOF")).toBe(false);
+    expect(isPersonsGraphAct('git commit -m "The change\nctx drop src.small is the person\'s"')).toBe(false);
+    expect(isPersonsGraphAct("cat <<'EOF' > notes.md\nctx ratify C:events --commit\nEOF\nctx drop src.small --reason no")).toBe(true);
+    expect(isPersonsGraphAct('(ctx settings set curator true --reason x)')).toBe(true);
     const out = await runClaudeHook({ ...base(lane), hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: 'ctx ratify C:events --commit' } });
     const decision = JSON.parse(out.stdout ?? '{}') as { hookSpecificOutput?: { permissionDecision?: string; permissionDecisionReason?: string } };
     expect(decision.hookSpecificOutput?.permissionDecision).toBe('deny');
     expect(decision.hookSpecificOutput?.permissionDecisionReason).toContain("the person's own acts");
+    // VIEW-6: changing the harness settings is the person's too.
+    const settings = await runClaudeHook({ ...base(lane), hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: 'ctx settings set curator true --reason x' } });
+    const refused = JSON.parse(settings.stdout ?? '{}') as { hookSpecificOutput?: { permissionDecision?: string; permissionDecisionReason?: string } };
+    expect(refused.hookSpecificOutput?.permissionDecision).toBe('deny');
+    expect(refused.hookSpecificOutput?.permissionDecisionReason).toContain('changing the harness settings');
   });
 });

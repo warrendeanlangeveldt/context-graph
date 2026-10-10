@@ -1113,6 +1113,15 @@ max_importers = 5
 [cards]
 exclude = [".ctx/**", ".claude/**", "**/*.md", "**/*.lock", "**/generated/**"]
 
+[harness]                       # the mod's background agents and side questions (specs 04-09); repository config only
+card_writer = false             # writes the cards owed, from full reads
+card_writer_model = ""          # "" is the session's model
+curator = false                 # proposes rules from decisions, flags overridden ones
+curator_model = ""
+side_questions = true           # /why, answered beside the conversation
+side_questions_model = ""
+pause_at_percent = 80           # the plan's 5-hour use at which background agents pause; code-kit's wins
+
 [repo]
 ratifiers = ["warren.langeveldt@example.com"]
 default_branch = "main"

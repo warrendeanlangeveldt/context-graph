@@ -73,6 +73,28 @@ export const codeKitAdapter: ToolAdapter = {
     lines.push(`code-kit  ${owner}${layer}`);
     return { lines, requirements: t.requirements.map((r) => r.id) };
   },
+  // code-kit protects .ctx/config.toml under its approval "ctx": the person's change is approved in its
+  // log, marked as made in Context Graph's pane when it was.
+  recordPersonsChange(root, change) {
+    const bin = codeKitCli();
+    if (!bin || change.file !== '.ctx/config.toml') return [];
+    const r = spawnSync(
+      process.execPath,
+      [bin, 'approve', 'ctx', '--reason', change.reason, ...(change.via === 'pane' ? ['--via', 'context-graph'] : [])],
+      { cwd: root, encoding: 'utf8', timeout: 10000 },
+    );
+    return r.status === 0 ? ["code-kit's approval log keeps it as your change when it's committed."] : [];
+  },
+  // code-kit's harness pauses background agents at harness.background.pauseAtPercent (80 unless set).
+  pauseAtPercent(root) {
+    try {
+      const c = JSON.parse(readFileSync(join(root, '.claude', 'code-kit.json'), 'utf8')) as { harness?: { background?: { pauseAtPercent?: unknown } } };
+      const v = c.harness?.background?.pauseAtPercent;
+      return typeof v === 'number' && v > 0 && v <= 100 ? v : 80;
+    } catch {
+      return undefined;
+    }
+  },
   protectedBranches(root) {
     try {
       const c = JSON.parse(readFileSync(join(root, '.claude', 'code-kit.json'), 'utf8')) as { branches?: { protected?: string[] } };

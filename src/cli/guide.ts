@@ -1,3 +1,4 @@
+import { backfillOrder, type BackfillScope } from '../cards/backfill.js';
 import { cardState, exemptFromCards } from '../cards/cards.js';
 import type { RepoContext } from '../core/context.js';
 import { hygieneReport } from '../hygiene/hygiene.js';
@@ -5,10 +6,11 @@ import { INSTRUCTION_HEADING } from '../init/instructions.js';
 import { ObservationStore, SessionState } from '../observe/store.js';
 import { Recorder } from '../record/recorder.js';
 import { git } from '../util/git.js';
+import { walk } from '../walker/walk.js';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { runDoctor } from './doctor.js';
-import { openFromArgs, type Args } from './main.js';
+import { openFromArgs, str, type Args } from './main.js';
 
 /**
  * Helping a person find their way: `ctx cards` (which files have a card that matches them) and `ctx next`
@@ -35,13 +37,15 @@ export function changedFiles(ctx: RepoContext): string[] {
   return [...out].filter((f) => existsSync(join(root, f)));
 }
 
-export function cardsReport(ctx: RepoContext, opts: { changed?: boolean } = {}): CardsReport {
+/** Every file's card state, or the branch's changed files' (`changed`), or a module's files (`module`: its chain names it). */
+export function cardsReport(ctx: RepoContext, opts: { changed?: boolean; module?: string } = {}): CardsReport {
   const g = ctx.graph;
   const report: CardsReport = { fresh: [], stale: [], missing: [], scope: opts.changed ? 'changed' : 'all' };
   if (!g) return report;
   const files = opts.changed ? changedFiles(ctx) : (git(ctx.root, ['ls-files', '--cached', '--others', '--exclude-standard']) ?? '').split('\n').filter(Boolean);
   for (const f of files.sort()) {
     if (exemptFromCards(f, ctx.config.cardsExclude)) continue;
+    if (opts.module && !walk(g, f, { maxDecisions: 0 }).chain.includes(opts.module)) continue;
     const s = cardState(g, ctx.root, f);
     if (s.hash === undefined) continue;
     (s.fresh ? report.fresh : s.card ? report.stale : report.missing).push(f);
@@ -120,7 +124,18 @@ export function nextStep(ctx: RepoContext, opts: { doctor?: boolean } = {}): Nex
 export async function run(args: Args, env: { json: boolean }): Promise<number> {
   const ctx = openFromArgs(args);
   if (args.cmd === 'cards') {
-    const r = cardsReport(ctx, { changed: args.flags.changed === true });
+    // The card writer's backfill: the files in scope without a current card, leaves first.
+    if (args.flags.backfill === true) {
+      const scope: BackfillScope = str(args.flags.scope) === 'all' ? 'all' : 'active';
+      const b = backfillOrder(ctx, scope);
+      if (env.json) { console.log(JSON.stringify(b, null, 2)); return 0; }
+      console.log(`backfill (${scope === 'all' ? 'every module' : 'modules changed in the last 90 days'}): ${b.files.length} of ${b.inScope} files to card, leaves first`);
+      for (const f of b.files.slice(0, 20)) console.log(`  ${f}`);
+      if (b.files.length > 20) console.log(`  and ${b.files.length - 20} more`);
+      return 0;
+    }
+    const module = str(args.flags.module);
+    const r = cardsReport(ctx, { changed: args.flags.changed === true, ...(module ? { module } : {}) });
     if (!ctx.graph) { console.error('no graph for this repository: ctx init'); return 1; }
     const pick = args.flags.missing === true ? { missing: r.missing } : args.flags.stale === true ? { stale: r.stale } : r;
     if (env.json) { console.log(JSON.stringify(pick, null, 2)); return 0; }

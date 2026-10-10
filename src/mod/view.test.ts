@@ -1,6 +1,21 @@
 import { describe, expect, it } from 'vitest';
 // @ts-expect-error: the mod is plain JavaScript beside the bundled CLI, outside the TypeScript build
-import { NO_GRAPH, bandLine, contextPane, followedPath } from '../../adapters/claude-code/hooks/mod/view.mjs';
+import { NO_GRAPH, contextPane, followedPath } from '../../adapters/claude-code/hooks/mod/view.mjs';
+// @ts-expect-error: the mod is plain JavaScript beside the bundled CLI, outside the TypeScript build
+import { DEFAULT_UI, bandHealth, closeGoesBack, healthOf, moved } from '../../adapters/claude-code/hooks/mod/views/frame.mjs';
+// @ts-expect-error: the mod is plain JavaScript beside the bundled CLI, outside the TypeScript build
+import { queueOrder, spark } from '../../adapters/claude-code/hooks/mod/views/proposals.mjs';
+// @ts-expect-error: the mod is plain JavaScript beside the bundled CLI, outside the TypeScript build
+import { progressText, readingList, readingMessage } from '../../adapters/claude-code/hooks/mod/views/assist.mjs';
+import { describeMissing } from '../enforce/read-before-edit.js';
+// @ts-expect-error: the mod is plain JavaScript beside the bundled CLI, outside the TypeScript build
+import { cardJobs, cardWriterLine, pausedAt } from '../../adapters/claude-code/hooks/mod/card-writer.mjs';
+// @ts-expect-error: the mod is plain JavaScript beside the bundled CLI, outside the TypeScript build
+import { curatorDue, curatorLine, flaggedRules } from '../../adapters/claude-code/hooks/mod/curator.mjs';
+// @ts-expect-error: the mod is plain JavaScript beside the bundled CLI, outside the TypeScript build
+import { costText, sourcesOf, targetsOf } from '../../adapters/claude-code/hooks/mod/why.mjs';
+// @ts-expect-error: the mod is plain JavaScript beside the bundled CLI, outside the TypeScript build
+import { HEAT, coverageBar, heatOf } from '../../adapters/claude-code/hooks/mod/views/map.mjs';
 
 /** Stand-ins for the elements `$.ui.resolve` gives the mod. */
 type Node = { type: string; props: Record<string, unknown>; children: Node[] | string[] };
@@ -35,7 +50,7 @@ describe('the Context Graph mod: what it draws', () => {
     const shown = texts(contextPane({ kind: 'graph', followed: { path: 'src/a.ts', agentType: 'web-engineer' }, file, proposals: [], agents: [] }, els, none));
     expect(shown).toEqual(expect.arrayContaining(['FILE', 'last touched by web-engineer', 'Path', 'src/a.ts']));
     expect(shown).toContain('Holds a.');
-    expect(shown).toEqual(expect.arrayContaining(['src.pure', 'no side effects', '(guidance)', 'src.typed', '(enforced)']));
+    expect(shown).toEqual(expect.arrayContaining([' guidance ', 'src.pure', 'no side effects', ' enforced ', 'src.typed']));
     expect(shown).toContain('L:src › L:repo');
     expect(shown).toContain('2026-10-03  keep a constant  (warren/claude)');
     expect(shown).toContain('✗ not yet: still to read src/b.ts');
@@ -67,13 +82,13 @@ describe('the Context Graph mod: what it draws', () => {
       { id: 'src.small', kind: 'guidance', module: 'L:src', text: 'keep modules small', served: 3, overridden: 1, violations: null },
       { id: 'C:events', kind: 'concepts', module: null, text: 'Change goes through events', served: 0, overridden: 0, violations: null },
     ];
-    const pane = contextPane({ kind: 'graph', followed: null, file: null, proposals, agents: [] }, els, none);
+    const pane = contextPane({ kind: 'graph', followed: null, file: null, proposals, agents: [], ui: { ...DEFAULT_UI, tab: 'proposals' } }, els, none);
     expect(texts(pane)).toContain('Evidence: served by 3 decisions, overridden by 1 decision');
     expect(texts(pane)).toContain('Evidence: no decision has cited it yet');
     expect(texts(pane)).toContain('rule (guidance) on L:src');
     expect(keys(pane)).toEqual(expect.arrayContaining(['ratify-src.small', 'drop-src.small', 'ratify-C:events']));
-    expect(bandLine(proposals)).toEqual({ text: '2 proposals to ratify' });
-    expect(bandLine([])).toBeNull();
+    expect(bandHealth(healthOf({ proposals: proposals.length }))).toEqual({ text: '☀ 0 owed · 2 proposals', color: 'green' });
+    expect(bandHealth(healthOf({ proposals: 0 }))).toBeNull();
   });
 
   it('COV-1 and COV-3 give each agent its counts, and mark an edit made without understanding', () => {
@@ -91,12 +106,135 @@ describe('the Context Graph mod: what it draws', () => {
         cardsOwed: ['src/a.ts'],
       },
     ];
-    const shown = texts(contextPane({ kind: 'graph', followed: null, file: null, proposals: [], agents }, els, none));
+    const shown = texts(contextPane({ kind: 'graph', followed: null, file: null, proposals: [], agents, ui: { ...DEFAULT_UI, tab: 'coverage' } }, els, none));
     expect(shown).toEqual(expect.arrayContaining(['agent', 'read', 'searched', 'edited', 'cards owed']));
     const row = (who: string) => shown.slice(shown.indexOf(who), shown.indexOf(who) + 5);
     expect(row('web-engineer')).toEqual(['web-engineer', '4', '3', '2', '1']);
     expect(row('main session')).toEqual(['main session', '2', '0', '0', '0']);
     expect(shown).toContain('✓ web-engineer edited src/a.ts, understood first');
     expect(shown).toContain('✗ web-engineer edited src/c.ts without understanding it: src/d.ts, src/e.ts unread');
+  });
+
+  it("VIEW-1 the graph's health: the carded share, owed cards, proposals and overridden rules, as a glyph and a colour", () => {
+    const cards = { fresh: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'], stale: ['j'], missing: [] };
+    expect(healthOf({ cards, owed: 0, proposals: 0 })).toMatchObject({ carded: 90, level: 'good', text: '☀ 90% carded · 0 owed · 0 proposals' });
+    expect(healthOf({ cards, owed: 1, proposals: 1 })).toMatchObject({ level: 'amber', glyph: '⛅' });
+    // A low carded share is shown, not judged: a brownfield project starts at 0%.
+    expect(healthOf({ cards: { fresh: [], stale: [], missing: ['a', 'b'] }, owed: 0 })).toMatchObject({ carded: 0, level: 'good', text: '☀ 0% carded · 0 owed · 0 proposals' });
+    expect(healthOf({ cards, owed: 5 })).toMatchObject({ level: 'red', glyph: '⛈' });
+    expect(healthOf({ cards, flagged: 3 }).text).toBe('⛈ 90% carded · 0 owed · 0 proposals · 3 rules overridden');
+    expect(bandHealth(healthOf({ cards, owed: 0, proposals: 0 }))).toBeNull();
+    expect(bandHealth(healthOf({ cards, owed: 2 }))).toEqual({ text: '⛅ 90% carded · 2 owed · 0 proposals', color: 'yellow' });
+  });
+
+  it('VIEW-5 j/k move from nothing selected, and Escape goes back while there is somewhere to go', () => {
+    expect(moved(-1, 1, 3)).toBe(0);
+    expect(moved(-1, -1, 3)).toBe(2);
+    expect(moved(2, 1, 3)).toBe(0);
+    expect(moved(0, 1, 0)).toBe(-1);
+    const person = { id: 'context-graph', origin: { kind: 'person' } };
+    expect(closeGoesBack(person, 'context-graph', { back: [{ tab: 'coverage', selected: 1 }] })).toBe(true);
+    expect(closeGoesBack(person, 'context-graph', { back: [] })).toBe(false);
+    expect(closeGoesBack({ ...person, origin: { kind: 'plugin' } }, 'context-graph', { back: [{}] })).toBe(false);
+  });
+
+  it('VIEW-2 the card as Markdown, the rules as coloured chips, and the neighbourhood with uncarded and rule-breaking files marked', () => {
+    const md = { ...els, Markdown: make('Markdown') };
+    const near = {
+      path: 'src/a.ts',
+      card: 'current',
+      breaks: [],
+      imports: [
+        { path: 'src/b.ts', card: 'stale', breaks: [] },
+        { path: 'lib/c.ts', card: 'missing', breaks: ['src.no-lib'] },
+      ],
+      importers: [{ path: 'src/d.ts', card: 'current', breaks: [] }],
+    };
+    const pane = contextPane({ kind: 'graph', followed: { path: 'src/a.ts', agentType: null }, file, proposals: [], agents: [], neighbours: near }, md, none);
+    const find = (n: Node | string, pred: (x: Node) => boolean): Node | undefined =>
+      typeof n === 'string' ? undefined : pred(n) ? n : (n.children as Node[]).map((c) => find(c, pred)).find(Boolean);
+    expect(find(pane, (n) => n.type === 'Markdown')?.props.text).toBe('Holds a.');
+    expect(find(pane, (n) => n.type === 'Text' && (n.children as string[])[0] === ' enforced ')?.props.backgroundColor).toBe('red');
+    const labels = (find(pane, (n) => n.props.key === 'neighbours') as Node);
+    const buttons: string[] = [];
+    const walk = (n: Node | string) => { if (typeof n === 'string') return; if (n.type === 'Button') buttons.push(String(n.props.label)); (n.children as Node[]).forEach(walk); };
+    walk(labels);
+    expect(buttons).toEqual(['◐ src/b.ts', '○ lib/c.ts ✗ src.no-lib', '● src/d.ts']);
+  });
+
+  it('VIEW-3 a sparkline of decisions a week a bar, and deferred proposals at the back of the queue', () => {
+    const now = Date.parse('2026-10-10T12:00:00Z');
+    expect(spark([], now)).toBe('▁▁▁▁▁▁▁▁');
+    expect(spark(['2026-10-09', '2026-10-08', '2026-10-01', '2026-06-01'], now)).toBe('▁▁▁▁▁▁▅█');
+    expect(spark(['2026-09-01'], now, 8)).toBe('▁▁█▁▁▁▁▁');
+    const ps = [{ id: 'a' }, { id: 'b' }, { id: 'c' }];
+    expect(queueOrder(ps, new Set(['a'])).map((p: { id: string }) => p.id)).toEqual(['b', 'c', 'a']);
+  });
+
+  it("ASSIST-1 and ASSIST-2 the reading list read from the hooks' own refusal, the message, and the progress", () => {
+    const refusal = describeMissing(
+      [{ path: 'src/a.ts', missing: [{ path: 'src/b.ts', rule: 'read-before-edit', why: 'it has no card yet, so read it in full' }, { path: 'src/c.ts', rule: 'dependencies', why: 'imported; it has no fresh card, so read it in full' }], uncheckedImporters: 0 }] as never,
+      ['read-before-edit', 'dependencies'],
+    );
+    const list = readingList(`PreToolUse:Edit hook error: ${refusal}`);
+    expect(list).toEqual({ edit: 'src/a.ts', files: ['src/b.ts', 'src/c.ts'] });
+    expect(readingMessage(list)).toBe('Read src/b.ts and src/c.ts in full, then edit src/a.ts again.');
+    expect(readingMessage({ edit: 'x.ts', files: ['y.ts'] })).toBe('Read y.ts in full, then edit x.ts again.');
+    expect(progressText(list, null)).toBe('0 of 2 read');
+    expect(progressText(list, ['src/c.ts'])).toBe('1 of 2 read');
+    expect(progressText(list, [])).toBe('understood');
+    expect(readingList('Context Graph: something else')).toBeNull();
+  });
+
+  it('CARDW-1, CARDW-4 and CARDW-5 the card jobs in order, a moving file waiting, and the pause point', () => {
+    const now = 10 * 60000;
+    const jobs = cardJobs({ asked: ['src/x.ts'], owed: ['src/a.ts', 'src/x.ts'], changed: ['src/b.ts', 'src/a.ts', 'src/c.ts'], editedAt: { 'src/c.ts': now - 60000, 'src/b.ts': now - 3 * 60000 }, now });
+    expect(jobs).toEqual([
+      { path: 'src/x.ts', reason: 'asked' },
+      { path: 'src/a.ts', reason: 'owed' },
+      { path: 'src/b.ts', reason: 'changed' },
+    ]);
+    expect(pausedAt([{ kind: 'five_hour', percentUsed: 81 }], 80)).toEqual({ percent: 81, paused: true });
+    expect(pausedAt([{ kind: 'five_hour', percentUsed: 80 }], 80).paused).toBe(false);
+    expect(pausedAt([], 80)).toEqual({ percent: null, paused: false });
+    expect(cardWriterLine({ on: false })).toMatch(/^Card writer: off/);
+    expect(cardWriterLine({ on: true, paused: true, percent: 82 })).toBe('Card writer: paused, the plan at 82%');
+    expect(cardWriterLine({ on: true, writing: ['a', 'b', 'c', 'd'], waiting: ['e'] })).toBe('Card writer: writing 4 (a, b, c, …), 1 waiting');
+    expect(cardWriterLine({ on: true, waiting: ['e'] })).toBe('Card writer: 1 waiting for the lead to be idle');
+  });
+
+  it('CUR-1 and CUR-2 when the curator is due, its line, and the rules hygiene flags', () => {
+    expect(curatorDue({ on: true, running: false, decisions: 19, baseline: 10, asked: false })).toBe(false);
+    expect(curatorDue({ on: true, running: false, decisions: 20, baseline: 10, asked: false })).toBe(true);
+    expect(curatorDue({ on: true, running: true, decisions: 40, baseline: 10, asked: true })).toBe(false);
+    expect(curatorDue({ on: false, running: false, decisions: 40, baseline: 0, asked: true })).toBe(false);
+    expect(curatorDue({ on: true, running: false, decisions: 0, baseline: 0, asked: true })).toBe(true);
+    expect(curatorLine({ on: true, decisions: 13, baseline: 10 })).toBe('Curator: runs after 7 more decisions');
+    expect(curatorLine({ on: true, decisions: 20, baseline: 10 })).toBe('Curator: due when the lead is idle');
+    expect(curatorLine({ on: true, running: true })).toBe('Curator: reviewing the decisions');
+    expect(flaggedRules([{ signal: 'overridden-in-practice', target: 'a', evidence: ['d'], proposal: 'p' }, { signal: 'dormant', target: 'b', evidence: [], proposal: '' }])).toEqual([{ rule: 'a', evidence: ['d'], proposal: 'p' }]);
+  });
+
+  it('ASKQ the nodes a question names, the records an answer rests on, and its cost', () => {
+    expect(targetsOf('src/billing/invoice.ts')).toEqual(['src/billing/invoice.ts']);
+    expect(targetsOf('why does L:billing keep billing.cents, and src/a.ts?')).toEqual(['L:billing', 'billing.cents', 'src/a.ts']);
+    expect(targetsOf('why is this so slow')).toEqual([]);
+    const sources = sourcesOf([
+      { node: 'src/a.ts', card: { text: 'Holds a.' }, constraints: [{ id: 'src.pure', mode: 'G', text: 'pure' }, { id: 'src.small', mode: 'G?', text: 'small' }], decisions: [{ id: 'd-1', date: '2026-10-01', who: 'w', text: 'kept' }] },
+      { node: 'L:src', card: null, constraints: [{ id: 'src.pure', mode: 'G', text: 'pure' }], decisions: [] },
+    ]);
+    expect(sources.map((s: { kind: string; id: string }) => `${s.kind}:${s.id}`)).toEqual(['card:src/a.ts', 'rule:src.pure', 'proposed rule:src.small', 'decision:d-1']);
+    expect(costText(4200, { input_tokens: 100, output_tokens: 20, cache_read_input_tokens: 900, cache_creation_input_tokens: 0 })).toBe('4.2 s · 1,000 tokens in, 20 out (900 from the cache)');
+    expect(costText(1500, undefined)).toBe('1.5 s');
+  });
+
+  it("MAP-1 and MAP-2 a module's coverage bar, and each file's cell, owed this session winning", () => {
+    const files = [{ path: 'a', card: 'current' }, { path: 'b', card: 'current' }, { path: 'c', card: 'stale' }, { path: 'd', card: 'missing' }];
+    expect(coverageBar(files)).toEqual({ filled: '█████', empty: '░░░░░', words: '2/4 carded' });
+    expect(coverageBar([])).toEqual({ filled: '', empty: '', words: 'no files' });
+    expect(files.map((f) => heatOf(f, new Set(['b'])))).toEqual(['current', 'owed', 'stale', 'missing']);
+    const glyphs = Object.values(HEAT).map((h: { glyph: string }) => h.glyph);
+    expect(new Set(glyphs).size).toBe(glyphs.length);
+    expect(spark(['2026-10-09', '2026-10-01'], Date.parse('2026-10-10T12:00:00Z'), 10, 3)).toBe('▁▁▁▁▁▁█▁▁█');
   });
 });

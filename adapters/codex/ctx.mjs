@@ -754,15 +754,53 @@ var init_shell = __esm({
 });
 
 // src/cli/person-acts.ts
+function withoutHeredocs(command) {
+  const out = [];
+  let until = null;
+  for (const line of command.split("\n")) {
+    if (until) {
+      if (line.trim() === until) until = null;
+      continue;
+    }
+    out.push(line);
+    const m = /(?<!<)<<-?\s*(['"]?)([\w.-]+)\1(?!<)/.exec(line);
+    if (m && !line.includes("<<<")) until = m[2];
+  }
+  return out.join("\n");
+}
+function segments(command) {
+  const text = withoutHeredocs(command);
+  const out = [];
+  let start = 0;
+  let quote = null;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === "\\") {
+      i += 1;
+      continue;
+    }
+    if (quote) {
+      if (c === quote) quote = null;
+      continue;
+    }
+    if (c === '"' || c === "'") quote = c;
+    else if (/[;&|\n()`]/.test(c)) {
+      out.push(text.slice(start, i));
+      start = i + 1;
+    }
+  }
+  out.push(text.slice(start));
+  return out;
+}
 function isPersonsGraphAct(command) {
-  return ACT.test(command.trimStart());
+  return segments(command).some((s) => ACT.test(s));
 }
 var CTX, ACT;
 var init_person_acts = __esm({
   "src/cli/person-acts.ts"() {
     "use strict";
     CTX = String.raw`(?:ctx|node\s+["']?[^\s"']*ctx\.mjs["']?|npx\s+(?:--yes\s+)?@warren-dean/context-graph(?:@\S+)?)`;
-    ACT = new RegExp(String.raw`(?:^|[;&|\n]\s*)${CTX}\s+(?:ratify\b[^;&|\n]*\s--commit\b|drop\b)`);
+    ACT = new RegExp(String.raw`^\s*${CTX}\s+(?:ratify\b[^;&|\n]*\s--commit\b|drop\b|settings\s+set\b)`);
   }
 });
 
@@ -1608,9 +1646,9 @@ var require_parse = __commonJS({
           safeChars.push(...chars);
           continue;
         }
-        const literal2 = normalizeSimpleBranch(branch);
-        if (literal2 && literal2.length === 1) {
-          safeChars.push(literal2);
+        const literal3 = normalizeSimpleBranch(branch);
+        if (literal3 && literal3.length === 1) {
+          safeChars.push(literal3);
           continue;
         }
         combinable = false;
@@ -1762,15 +1800,15 @@ var require_parse = __commonJS({
         extglobs.push(token);
       };
       const extglobClose = (token) => {
-        const literal2 = input.slice(token.startIndex, state.index + 1);
+        const literal3 = input.slice(token.startIndex, state.index + 1);
         const body = input.slice(token.startIndex + 2, state.index);
         const analysis = analyzeRepeatedExtglob(body, opts);
         if ((token.type === "plus" || token.type === "star") && analysis.risky) {
           const safeOutput = analysis.safeOutput ? (token.output ? "" : ONE_CHAR) + (opts.capture ? `(${analysis.safeOutput})` : analysis.safeOutput) : void 0;
           const open = tokens[token.tokensIndex];
           open.type = "text";
-          open.value = literal2;
-          open.output = safeOutput || utils.escapeRegex(literal2);
+          open.value = literal3;
+          open.output = safeOutput || utils.escapeRegex(literal3);
           for (let i = token.tokensIndex + 1; i < tokens.length; i++) {
             tokens[i].value = "";
             tokens[i].output = "";
@@ -3162,6 +3200,88 @@ var init_toml = __esm({
   }
 });
 
+// src/core/harness.ts
+function defaultHarness() {
+  return Object.fromEntries(HARNESS_KEYS.map((k) => [k, HARNESS[k].default]));
+}
+function harnessFrom(section) {
+  const out = defaultHarness();
+  for (const k of HARNESS_KEYS) {
+    const v = section?.[k];
+    if (v !== void 0 && !HARNESS[k].problem(v)) out[k] = v;
+  }
+  return out;
+}
+function harnessProblems(section) {
+  const out = [];
+  for (const [k, v] of Object.entries(section ?? {})) {
+    if (!(k in HARNESS)) {
+      out.push(`[harness] ${k} isn't a harness setting (they are ${HARNESS_KEYS.join(", ")})`);
+      continue;
+    }
+    const why = HARNESS[k].problem(v);
+    if (why) out.push(`[harness] ${k} ${why}`);
+  }
+  return out;
+}
+function parseHarnessValue(key, text) {
+  const d = HARNESS[key].default;
+  if (typeof d === "boolean") return text === "true" ? true : text === "false" ? false : text;
+  if (typeof d === "number") return /^-?\d+(\.\d+)?$/.test(text) ? Number(text) : text;
+  return text;
+}
+function withHarnessSetting(text, key, value) {
+  const lines = text.split("\n");
+  const start = lines.findIndex((l) => /^\s*\[harness\]\s*(#.*)?$/.test(l));
+  const line = `${key} = ${literal(value)}`;
+  if (start < 0) {
+    const body = text.replace(/\n*$/, "");
+    return `${body}${body ? "\n\n" : ""}[harness]
+${line}
+`;
+  }
+  let end = lines.findIndex((l, i) => i > start && /^\s*\[[^\]]+\]/.test(l));
+  if (end < 0) end = lines.length;
+  const at = lines.findIndex((l, i) => i > start && i < end && new RegExp(`^\\s*${key}\\s*=`).test(l));
+  if (at >= 0) {
+    const comment = lines[at].match(/\s+#.*$/)?.[0] ?? "";
+    lines[at] = `${line}${comment}`;
+  } else {
+    let last = end - 1;
+    while (last > start && !lines[last].trim()) last -= 1;
+    lines.splice(last + 1, 0, line);
+  }
+  return lines.join("\n");
+}
+var onOff, model, HARNESS, HARNESS_KEYS, literal;
+var init_harness = __esm({
+  "src/core/harness.ts"() {
+    "use strict";
+    onOff = (v) => typeof v === "boolean" ? null : "must be true or false";
+    model = (v) => typeof v === "string" ? null : `must be a model (haiku, sonnet, opus, or an id), or "" for the session's`;
+    HARNESS = {
+      card_writer: { default: false, problem: onOff, about: "A background agent that writes the cards owed, from full reads" },
+      card_writer_model: { default: "", problem: model, about: "The card writer's model; empty means the session's" },
+      backfill: {
+        default: "off",
+        problem: (v) => v === "off" || v === "active" || v === "all" ? null : "must be off, active (the modules changed in the last 90 days) or all",
+        about: "The card writer also cards the existing code, leaves first: off, active (modules changed in the last 90 days) or all"
+      },
+      curator: { default: false, problem: onOff, about: "A background agent that proposes rules from the decisions and flags overridden ones" },
+      curator_model: { default: "", problem: model, about: "The curator's model; empty means the session's" },
+      side_questions: { default: true, problem: onOff, about: "/why answers questions from the graph, beside the conversation" },
+      side_questions_model: { default: "", problem: model, about: "The side questions' model; empty means the session's" },
+      pause_at_percent: {
+        default: 80,
+        problem: (v) => typeof v === "number" && v > 0 && v <= 100 ? null : "must be a percentage from 1 to 100",
+        about: "The plan's 5-hour use at which the background agents pause (code-kit's setting wins when it's installed)"
+      }
+    };
+    HARNESS_KEYS = Object.keys(HARNESS);
+    literal = (v) => typeof v === "string" ? JSON.stringify(v) : String(v);
+  }
+});
+
 // src/core/context.ts
 import { existsSync as existsSync4, readFileSync as readFileSync3 } from "node:fs";
 import { join as join3, resolve as resolve3 } from "node:path";
@@ -3180,6 +3300,7 @@ function defaultConfig() {
     defaultBranch: "main",
     ratifiers: [],
     delegate: null,
+    harness: defaultHarness(),
     gate: { staleBasis: "warn", contextMoved: "warn", testCommand: "", cards: "warn" },
     hygiene: { archiveAfterDays: 90, dormantAfterDays: 180, overrideStreak: 3, proposalTtlDays: 30 },
     serve: { port: 7399, bufferEvents: 5e4 },
@@ -3211,7 +3332,10 @@ function defaultConfig() {
       "**/*.{yml,yaml,toml,ini,cfg}",
       "**/*.snap",
       "**/LICENSE*",
-      "**/*.txt"
+      "**/*.txt",
+      // Data and tool configuration: fixtures, CSVs, and a tool's config file (eslint.config.mjs, vite.config.ts).
+      "**/*.{jsonl,ndjson,csv,tsv}",
+      "**/*.config.{js,cjs,mjs,ts,cts,mts}"
     ]
   };
 }
@@ -3301,6 +3425,8 @@ function loadConfig(graphDir) {
   if (graphDir) {
     apply(join3(graphDir, "config.toml"));
     cfg.delegate = delegateFrom(join3(graphDir, "config.toml"));
+    const file = join3(graphDir, "config.toml");
+    if (existsSync4(file)) cfg.harness = harnessFrom(parseToml(readFileSync3(file, "utf8")).harness);
   }
   apply(join3(ctxHome(), "config.toml"));
   return cfg;
@@ -3320,6 +3446,7 @@ var init_context = __esm({
     init_graph();
     init_paths();
     init_toml();
+    init_harness();
     DELEGATE_KINDS = ["guidance", "enforced", "concepts", "retirements", "modules"];
   }
 });
@@ -4767,7 +4894,7 @@ function makeProvider(cfg) {
   if (hash > 0) return openaiCompatible(spec.slice(0, hash), spec.slice(hash + 1), process.env[cfg.apiKeyEnv], spec);
   throw new Error(`unrecognised embedding provider "${spec}": use minilm, onnx:<model>, local:<model>, openai:<model>, or <base-url>#<model>`);
 }
-function onnx(model, id) {
+function onnx(model2, id) {
   let extractor;
   const load = async () => {
     if (!extractor) {
@@ -4780,7 +4907,7 @@ function onnx(model, id) {
         }
         mod.env.cacheDir = join9(ctxHome(), "models");
         mod.env.allowLocalModels = true;
-        const pipe2 = await mod.pipeline("feature-extraction", model, { dtype: "q8" });
+        const pipe2 = await mod.pipeline("feature-extraction", model2, { dtype: "q8" });
         return pipe2;
       })();
     }
@@ -4799,23 +4926,23 @@ function onnx(model, id) {
     }
   };
 }
-function ollama(baseUrl, model, id) {
+function ollama(baseUrl, model2, id) {
   return {
     id,
     async embed(texts) {
       const res = await fetch(`${baseUrl.replace(/\/$/, "")}/api/embed`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ model, input: texts })
+        body: JSON.stringify({ model: model2, input: texts })
       });
       if (!res.ok) throw new Error(`embedding request failed: ${res.status} ${await res.text()}`);
       const j = await res.json();
-      if (!j.embeddings) throw new Error(`the model "${model}" returned no embeddings${j.error ? `: ${j.error}` : ""}; it may be a chat model. Pull an embedding model such as nomic-embed-text, or use provider = "minilm"`);
+      if (!j.embeddings) throw new Error(`the model "${model2}" returned no embeddings${j.error ? `: ${j.error}` : ""}; it may be a chat model. Pull an embedding model such as nomic-embed-text, or use provider = "minilm"`);
       return j.embeddings.map((e) => Float32Array.from(e));
     }
   };
 }
-function openaiCompatible(baseUrl, model, apiKey, id) {
+function openaiCompatible(baseUrl, model2, apiKey, id) {
   return {
     id,
     async embed(texts) {
@@ -4824,7 +4951,7 @@ function openaiCompatible(baseUrl, model, apiKey, id) {
       const res = await fetch(`${baseUrl.replace(/\/$/, "")}/embeddings`, {
         method: "POST",
         headers,
-        body: JSON.stringify({ model, input: texts })
+        body: JSON.stringify({ model: model2, input: texts })
       });
       if (!res.ok) throw new Error(`embedding request failed: ${res.status} ${await res.text()}`);
       const j = await res.json();
@@ -5200,6 +5327,28 @@ var init_code_kit = __esm({
         const layer = t.layer ? `; layer ${t.layer.name}, may import ${t.layer.mayImport.length ? t.layer.mayImport.join(", ") : "only itself"}${t.layer.denyPackages.length ? `, never ${t.layer.denyPackages.join(", ")}` : ""}` : "";
         lines.push(`code-kit  ${owner}${layer}`);
         return { lines, requirements: t.requirements.map((r) => r.id) };
+      },
+      // code-kit protects .ctx/config.toml under its approval "ctx": the person's change is approved in its
+      // log, marked as made in Context Graph's pane when it was.
+      recordPersonsChange(root, change) {
+        const bin = codeKitCli();
+        if (!bin || change.file !== ".ctx/config.toml") return [];
+        const r = spawnSync(
+          process.execPath,
+          [bin, "approve", "ctx", "--reason", change.reason, ...change.via === "pane" ? ["--via", "context-graph"] : []],
+          { cwd: root, encoding: "utf8", timeout: 1e4 }
+        );
+        return r.status === 0 ? ["code-kit's approval log keeps it as your change when it's committed."] : [];
+      },
+      // code-kit's harness pauses background agents at harness.background.pauseAtPercent (80 unless set).
+      pauseAtPercent(root) {
+        try {
+          const c = JSON.parse(readFileSync11(join11(root, ".claude", "code-kit.json"), "utf8"));
+          const v = c.harness?.background?.pauseAtPercent;
+          return typeof v === "number" && v > 0 && v <= 100 ? v : 80;
+        } catch {
+          return void 0;
+        }
       },
       protectedBranches(root) {
         try {
@@ -5757,7 +5906,7 @@ async function handleHook(input, profile) {
   }
   if (event === "PreToolUse") {
     if (isShell(input.tool_name ?? "") && isPersonsGraphAct(String(input.tool_input?.command ?? ""))) {
-      return { stdout: profile.formatPreToolUseDeny("Context Graph: ratifying with a commit, and dropping a proposal, are the person's own acts, from the Context Graph pane or their terminal. Tell the person what you'd ratify or drop, and why, and stop."), exitCode: 0 };
+      return { stdout: profile.formatPreToolUseDeny("Context Graph: ratifying with a commit, dropping a proposal and changing the harness settings are the person's own acts, from the Context Graph pane or their terminal. Tell the person what you'd ratify, drop or change, and why, and stop."), exitCode: 0 };
     }
     {
       const tool2 = input.tool_name ?? "";
@@ -15047,7 +15196,7 @@ function _enum(values, params) {
     ...util_exports.normalizeParams(params)
   });
 }
-function literal(value, params) {
+function literal2(value, params) {
   return new ZodLiteral2({
     type: "literal",
     values: Array.isArray(value) ? value : [value],
@@ -15719,18 +15868,18 @@ var init_types2 = __esm({
     });
     RequestIdSchema = union([string2(), number2().int()]);
     JSONRPCRequestSchema = object2({
-      jsonrpc: literal(JSONRPC_VERSION),
+      jsonrpc: literal2(JSONRPC_VERSION),
       id: RequestIdSchema,
       ...RequestSchema.shape
     }).strict();
     isJSONRPCRequest = (value) => JSONRPCRequestSchema.safeParse(value).success;
     JSONRPCNotificationSchema = object2({
-      jsonrpc: literal(JSONRPC_VERSION),
+      jsonrpc: literal2(JSONRPC_VERSION),
       ...NotificationSchema.shape
     }).strict();
     isJSONRPCNotification = (value) => JSONRPCNotificationSchema.safeParse(value).success;
     JSONRPCResultResponseSchema = object2({
-      jsonrpc: literal(JSONRPC_VERSION),
+      jsonrpc: literal2(JSONRPC_VERSION),
       id: RequestIdSchema,
       result: ResultSchema
     }).strict();
@@ -15746,7 +15895,7 @@ var init_types2 = __esm({
       ErrorCode2[ErrorCode2["UrlElicitationRequired"] = -32042] = "UrlElicitationRequired";
     })(ErrorCode || (ErrorCode = {}));
     JSONRPCErrorResponseSchema = object2({
-      jsonrpc: literal(JSONRPC_VERSION),
+      jsonrpc: literal2(JSONRPC_VERSION),
       id: RequestIdSchema.optional(),
       error: object2({
         /**
@@ -15785,7 +15934,7 @@ var init_types2 = __esm({
       reason: string2().optional()
     });
     CancelledNotificationSchema = NotificationSchema.extend({
-      method: literal("notifications/cancelled"),
+      method: literal2("notifications/cancelled"),
       params: CancelledNotificationParamsSchema
     });
     IconSchema = object2({
@@ -15969,7 +16118,7 @@ var init_types2 = __esm({
       clientInfo: ImplementationSchema
     });
     InitializeRequestSchema = RequestSchema.extend({
-      method: literal("initialize"),
+      method: literal2("initialize"),
       params: InitializeRequestParamsSchema
     });
     ServerCapabilitiesSchema = object2({
@@ -16040,11 +16189,11 @@ var init_types2 = __esm({
       instructions: string2().optional()
     });
     InitializedNotificationSchema = NotificationSchema.extend({
-      method: literal("notifications/initialized"),
+      method: literal2("notifications/initialized"),
       params: NotificationsParamsSchema.optional()
     });
     PingRequestSchema = RequestSchema.extend({
-      method: literal("ping"),
+      method: literal2("ping"),
       params: BaseRequestParamsSchema.optional()
     });
     ProgressSchema = object2({
@@ -16070,7 +16219,7 @@ var init_types2 = __esm({
       progressToken: ProgressTokenSchema
     });
     ProgressNotificationSchema = NotificationSchema.extend({
-      method: literal("notifications/progress"),
+      method: literal2("notifications/progress"),
       params: ProgressNotificationParamsSchema
     });
     PaginatedRequestParamsSchema = BaseRequestParamsSchema.extend({
@@ -16118,31 +16267,31 @@ var init_types2 = __esm({
     });
     TaskStatusNotificationParamsSchema = NotificationsParamsSchema.merge(TaskSchema);
     TaskStatusNotificationSchema = NotificationSchema.extend({
-      method: literal("notifications/tasks/status"),
+      method: literal2("notifications/tasks/status"),
       params: TaskStatusNotificationParamsSchema
     });
     GetTaskRequestSchema = RequestSchema.extend({
-      method: literal("tasks/get"),
+      method: literal2("tasks/get"),
       params: BaseRequestParamsSchema.extend({
         taskId: string2()
       })
     });
     GetTaskResultSchema = ResultSchema.merge(TaskSchema);
     GetTaskPayloadRequestSchema = RequestSchema.extend({
-      method: literal("tasks/result"),
+      method: literal2("tasks/result"),
       params: BaseRequestParamsSchema.extend({
         taskId: string2()
       })
     });
     GetTaskPayloadResultSchema = ResultSchema.loose();
     ListTasksRequestSchema = PaginatedRequestSchema.extend({
-      method: literal("tasks/list")
+      method: literal2("tasks/list")
     });
     ListTasksResultSchema = PaginatedResultSchema.extend({
       tasks: array(TaskSchema)
     });
     CancelTaskRequestSchema = RequestSchema.extend({
-      method: literal("tasks/cancel"),
+      method: literal2("tasks/cancel"),
       params: BaseRequestParamsSchema.extend({
         taskId: string2()
       })
@@ -16259,13 +16408,13 @@ var init_types2 = __esm({
       _meta: optional(looseObject({}))
     });
     ListResourcesRequestSchema = PaginatedRequestSchema.extend({
-      method: literal("resources/list")
+      method: literal2("resources/list")
     });
     ListResourcesResultSchema = PaginatedResultSchema.extend({
       resources: array(ResourceSchema)
     });
     ListResourceTemplatesRequestSchema = PaginatedRequestSchema.extend({
-      method: literal("resources/templates/list")
+      method: literal2("resources/templates/list")
     });
     ListResourceTemplatesResultSchema = PaginatedResultSchema.extend({
       resourceTemplates: array(ResourceTemplateSchema)
@@ -16280,24 +16429,24 @@ var init_types2 = __esm({
     });
     ReadResourceRequestParamsSchema = ResourceRequestParamsSchema;
     ReadResourceRequestSchema = RequestSchema.extend({
-      method: literal("resources/read"),
+      method: literal2("resources/read"),
       params: ReadResourceRequestParamsSchema
     });
     ReadResourceResultSchema = ResultSchema.extend({
       contents: array(union([TextResourceContentsSchema, BlobResourceContentsSchema]))
     });
     ResourceListChangedNotificationSchema = NotificationSchema.extend({
-      method: literal("notifications/resources/list_changed"),
+      method: literal2("notifications/resources/list_changed"),
       params: NotificationsParamsSchema.optional()
     });
     SubscribeRequestParamsSchema = ResourceRequestParamsSchema;
     SubscribeRequestSchema = RequestSchema.extend({
-      method: literal("resources/subscribe"),
+      method: literal2("resources/subscribe"),
       params: SubscribeRequestParamsSchema
     });
     UnsubscribeRequestParamsSchema = ResourceRequestParamsSchema;
     UnsubscribeRequestSchema = RequestSchema.extend({
-      method: literal("resources/unsubscribe"),
+      method: literal2("resources/unsubscribe"),
       params: UnsubscribeRequestParamsSchema
     });
     ResourceUpdatedNotificationParamsSchema = NotificationsParamsSchema.extend({
@@ -16307,7 +16456,7 @@ var init_types2 = __esm({
       uri: string2()
     });
     ResourceUpdatedNotificationSchema = NotificationSchema.extend({
-      method: literal("notifications/resources/updated"),
+      method: literal2("notifications/resources/updated"),
       params: ResourceUpdatedNotificationParamsSchema
     });
     PromptArgumentSchema = object2({
@@ -16342,7 +16491,7 @@ var init_types2 = __esm({
       _meta: optional(looseObject({}))
     });
     ListPromptsRequestSchema = PaginatedRequestSchema.extend({
-      method: literal("prompts/list")
+      method: literal2("prompts/list")
     });
     ListPromptsResultSchema = PaginatedResultSchema.extend({
       prompts: array(PromptSchema)
@@ -16358,11 +16507,11 @@ var init_types2 = __esm({
       arguments: record(string2(), string2()).optional()
     });
     GetPromptRequestSchema = RequestSchema.extend({
-      method: literal("prompts/get"),
+      method: literal2("prompts/get"),
       params: GetPromptRequestParamsSchema
     });
     TextContentSchema = object2({
-      type: literal("text"),
+      type: literal2("text"),
       /**
        * The text content of the message.
        */
@@ -16378,7 +16527,7 @@ var init_types2 = __esm({
       _meta: record(string2(), unknown()).optional()
     });
     ImageContentSchema = object2({
-      type: literal("image"),
+      type: literal2("image"),
       /**
        * The base64-encoded image data.
        */
@@ -16398,7 +16547,7 @@ var init_types2 = __esm({
       _meta: record(string2(), unknown()).optional()
     });
     AudioContentSchema = object2({
-      type: literal("audio"),
+      type: literal2("audio"),
       /**
        * The base64-encoded audio data.
        */
@@ -16418,7 +16567,7 @@ var init_types2 = __esm({
       _meta: record(string2(), unknown()).optional()
     });
     ToolUseContentSchema = object2({
-      type: literal("tool_use"),
+      type: literal2("tool_use"),
       /**
        * The name of the tool to invoke.
        * Must match a tool name from the request's tools array.
@@ -16441,7 +16590,7 @@ var init_types2 = __esm({
       _meta: record(string2(), unknown()).optional()
     });
     EmbeddedResourceSchema = object2({
-      type: literal("resource"),
+      type: literal2("resource"),
       resource: union([TextResourceContentsSchema, BlobResourceContentsSchema]),
       /**
        * Optional annotations for the client.
@@ -16454,7 +16603,7 @@ var init_types2 = __esm({
       _meta: record(string2(), unknown()).optional()
     });
     ResourceLinkSchema = ResourceSchema.extend({
-      type: literal("resource_link")
+      type: literal2("resource_link")
     });
     ContentBlockSchema = union([
       TextContentSchema,
@@ -16475,7 +16624,7 @@ var init_types2 = __esm({
       messages: array(PromptMessageSchema)
     });
     PromptListChangedNotificationSchema = NotificationSchema.extend({
-      method: literal("notifications/prompts/list_changed"),
+      method: literal2("notifications/prompts/list_changed"),
       params: NotificationsParamsSchema.optional()
     });
     ToolAnnotationsSchema = object2({
@@ -16540,7 +16689,7 @@ var init_types2 = __esm({
        * Must have type: 'object' at the root level per MCP spec.
        */
       inputSchema: object2({
-        type: literal("object"),
+        type: literal2("object"),
         properties: record(string2(), AssertObjectSchema).optional(),
         required: array(string2()).optional()
       }).catchall(unknown()),
@@ -16550,7 +16699,7 @@ var init_types2 = __esm({
        * Must have type: 'object' at the root level per MCP spec.
        */
       outputSchema: object2({
-        type: literal("object"),
+        type: literal2("object"),
         properties: record(string2(), AssertObjectSchema).optional(),
         required: array(string2()).optional()
       }).catchall(unknown()).optional(),
@@ -16569,7 +16718,7 @@ var init_types2 = __esm({
       _meta: record(string2(), unknown()).optional()
     });
     ListToolsRequestSchema = PaginatedRequestSchema.extend({
-      method: literal("tools/list")
+      method: literal2("tools/list")
     });
     ListToolsResultSchema = PaginatedResultSchema.extend({
       tools: array(ToolSchema)
@@ -16618,11 +16767,11 @@ var init_types2 = __esm({
       arguments: record(string2(), unknown()).optional()
     });
     CallToolRequestSchema = RequestSchema.extend({
-      method: literal("tools/call"),
+      method: literal2("tools/call"),
       params: CallToolRequestParamsSchema
     });
     ToolListChangedNotificationSchema = NotificationSchema.extend({
-      method: literal("notifications/tools/list_changed"),
+      method: literal2("notifications/tools/list_changed"),
       params: NotificationsParamsSchema.optional()
     });
     ListChangedOptionsBaseSchema = object2({
@@ -16653,7 +16802,7 @@ var init_types2 = __esm({
       level: LoggingLevelSchema
     });
     SetLevelRequestSchema = RequestSchema.extend({
-      method: literal("logging/setLevel"),
+      method: literal2("logging/setLevel"),
       params: SetLevelRequestParamsSchema
     });
     LoggingMessageNotificationParamsSchema = NotificationsParamsSchema.extend({
@@ -16671,7 +16820,7 @@ var init_types2 = __esm({
       data: unknown()
     });
     LoggingMessageNotificationSchema = NotificationSchema.extend({
-      method: literal("notifications/message"),
+      method: literal2("notifications/message"),
       params: LoggingMessageNotificationParamsSchema
     });
     ModelHintSchema = object2({
@@ -16708,7 +16857,7 @@ var init_types2 = __esm({
       mode: _enum(["auto", "required", "none"]).optional()
     });
     ToolResultContentSchema = object2({
-      type: literal("tool_result"),
+      type: literal2("tool_result"),
       toolUseId: string2().describe("The unique identifier for the corresponding tool call."),
       content: array(ContentBlockSchema).default([]),
       structuredContent: object2({}).loose().optional(),
@@ -16779,7 +16928,7 @@ var init_types2 = __esm({
       toolChoice: ToolChoiceSchema.optional()
     });
     CreateMessageRequestSchema = RequestSchema.extend({
-      method: literal("sampling/createMessage"),
+      method: literal2("sampling/createMessage"),
       params: CreateMessageRequestParamsSchema
     });
     CreateMessageResultSchema = ResultSchema.extend({
@@ -16828,13 +16977,13 @@ var init_types2 = __esm({
       content: union([SamplingMessageContentBlockSchema, array(SamplingMessageContentBlockSchema)])
     });
     BooleanSchemaSchema = object2({
-      type: literal("boolean"),
+      type: literal2("boolean"),
       title: string2().optional(),
       description: string2().optional(),
       default: boolean2().optional()
     });
     StringSchemaSchema = object2({
-      type: literal("string"),
+      type: literal2("string"),
       title: string2().optional(),
       description: string2().optional(),
       minLength: number2().optional(),
@@ -16851,14 +17000,14 @@ var init_types2 = __esm({
       default: number2().optional()
     });
     UntitledSingleSelectEnumSchemaSchema = object2({
-      type: literal("string"),
+      type: literal2("string"),
       title: string2().optional(),
       description: string2().optional(),
       enum: array(string2()),
       default: string2().optional()
     });
     TitledSingleSelectEnumSchemaSchema = object2({
-      type: literal("string"),
+      type: literal2("string"),
       title: string2().optional(),
       description: string2().optional(),
       oneOf: array(object2({
@@ -16868,7 +17017,7 @@ var init_types2 = __esm({
       default: string2().optional()
     });
     LegacyTitledEnumSchemaSchema = object2({
-      type: literal("string"),
+      type: literal2("string"),
       title: string2().optional(),
       description: string2().optional(),
       enum: array(string2()),
@@ -16877,19 +17026,19 @@ var init_types2 = __esm({
     });
     SingleSelectEnumSchemaSchema = union([UntitledSingleSelectEnumSchemaSchema, TitledSingleSelectEnumSchemaSchema]);
     UntitledMultiSelectEnumSchemaSchema = object2({
-      type: literal("array"),
+      type: literal2("array"),
       title: string2().optional(),
       description: string2().optional(),
       minItems: number2().optional(),
       maxItems: number2().optional(),
       items: object2({
-        type: literal("string"),
+        type: literal2("string"),
         enum: array(string2())
       }),
       default: array(string2()).optional()
     });
     TitledMultiSelectEnumSchemaSchema = object2({
-      type: literal("array"),
+      type: literal2("array"),
       title: string2().optional(),
       description: string2().optional(),
       minItems: number2().optional(),
@@ -16911,7 +17060,7 @@ var init_types2 = __esm({
        *
        * Optional for backward compatibility. Clients MUST treat missing mode as "form".
        */
-      mode: literal("form").optional(),
+      mode: literal2("form").optional(),
       /**
        * The message to present to the user describing what information is being requested.
        */
@@ -16921,7 +17070,7 @@ var init_types2 = __esm({
        * Only top-level properties are allowed, without nesting.
        */
       requestedSchema: object2({
-        type: literal("object"),
+        type: literal2("object"),
         properties: record(string2(), PrimitiveSchemaDefinitionSchema),
         required: array(string2()).optional()
       })
@@ -16930,7 +17079,7 @@ var init_types2 = __esm({
       /**
        * The elicitation mode.
        */
-      mode: literal("url"),
+      mode: literal2("url"),
       /**
        * The message to present to the user explaining why the interaction is needed.
        */
@@ -16947,7 +17096,7 @@ var init_types2 = __esm({
     });
     ElicitRequestParamsSchema = union([ElicitRequestFormParamsSchema, ElicitRequestURLParamsSchema]);
     ElicitRequestSchema = RequestSchema.extend({
-      method: literal("elicitation/create"),
+      method: literal2("elicitation/create"),
       params: ElicitRequestParamsSchema
     });
     ElicitationCompleteNotificationParamsSchema = NotificationsParamsSchema.extend({
@@ -16957,7 +17106,7 @@ var init_types2 = __esm({
       elicitationId: string2()
     });
     ElicitationCompleteNotificationSchema = NotificationSchema.extend({
-      method: literal("notifications/elicitation/complete"),
+      method: literal2("notifications/elicitation/complete"),
       params: ElicitationCompleteNotificationParamsSchema
     });
     ElicitResultSchema = ResultSchema.extend({
@@ -16977,14 +17126,14 @@ var init_types2 = __esm({
       content: preprocess((val) => val === null ? void 0 : val, record(string2(), union([string2(), number2(), boolean2(), array(string2())])).optional())
     });
     ResourceTemplateReferenceSchema = object2({
-      type: literal("ref/resource"),
+      type: literal2("ref/resource"),
       /**
        * The URI or URI template of the resource.
        */
       uri: string2()
     });
     PromptReferenceSchema = object2({
-      type: literal("ref/prompt"),
+      type: literal2("ref/prompt"),
       /**
        * The name of the prompt or prompt template
        */
@@ -17013,7 +17162,7 @@ var init_types2 = __esm({
       }).optional()
     });
     CompleteRequestSchema = RequestSchema.extend({
-      method: literal("completion/complete"),
+      method: literal2("completion/complete"),
       params: CompleteRequestParamsSchema
     });
     CompleteResultSchema = ResultSchema.extend({
@@ -17048,14 +17197,14 @@ var init_types2 = __esm({
       _meta: record(string2(), unknown()).optional()
     });
     ListRootsRequestSchema = RequestSchema.extend({
-      method: literal("roots/list"),
+      method: literal2("roots/list"),
       params: BaseRequestParamsSchema.optional()
     });
     ListRootsResultSchema = ResultSchema.extend({
       roots: array(RootSchema)
     });
     RootsListChangedNotificationSchema = NotificationSchema.extend({
-      method: literal("notifications/roots/list_changed"),
+      method: literal2("notifications/roots/list_changed"),
       params: NotificationsParamsSchema.optional()
     });
     ClientRequestSchema = union([
@@ -17712,8 +17861,8 @@ function parseStringDef(def, refs) {
   }
   return res;
 }
-function escapeLiteralCheckValue(literal2, refs) {
-  return refs.patternStrategy === "escape" ? escapeNonAlphaNumeric(literal2) : literal2;
+function escapeLiteralCheckValue(literal3, refs) {
+  return refs.patternStrategy === "escape" ? escapeNonAlphaNumeric(literal3) : literal3;
 }
 function escapeNonAlphaNumeric(source) {
   let result = "";
@@ -22535,8 +22684,8 @@ var require_validate = __commonJS({
           return data;
       }
       let expr = data;
-      const segments = jsonPointer.split("/");
-      for (const segment of segments) {
+      const segments2 = jsonPointer.split("/");
+      for (const segment of segments2) {
         if (segment) {
           data = (0, codegen_1._)`${data}${(0, codegen_1.getProperty)((0, util_1.unescapeJsonPointer)(segment))}`;
           expr = (0, codegen_1._)`${expr} && ${data}`;
@@ -24354,9 +24503,9 @@ var require_core = __commonJS({
         const rules = this.RULES.all;
         metaSchema = JSON.parse(JSON.stringify(metaSchema));
         for (const jsonPointer of keywordsJsonPointers) {
-          const segments = jsonPointer.split("/").slice(1);
+          const segments2 = jsonPointer.split("/").slice(1);
           let keywords = metaSchema;
-          for (const seg of segments)
+          for (const seg of segments2)
             keywords = keywords[seg];
           for (const key in rules) {
             const rule = rules[key];
@@ -26681,7 +26830,7 @@ var require_formats = __commonJS({
       return year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
     }
     var DATE = /^(\d\d\d\d)-(\d\d)-(\d\d)$/;
-    var DAYS = [0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    var DAYS2 = [0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
     function date3(str2) {
       const matches2 = DATE.exec(str2);
       if (!matches2)
@@ -26689,7 +26838,7 @@ var require_formats = __commonJS({
       const year = +matches2[1];
       const month = +matches2[2];
       const day = +matches2[3];
-      return month >= 1 && month <= 12 && day >= 1 && day <= (month === 2 && isLeapYear(year) ? 29 : DAYS[month]);
+      return month >= 1 && month <= 12 && day >= 1 && day <= (month === 2 && isLeapYear(year) ? 29 : DAYS2[month]);
     }
     function compareDate(d1, d2) {
       if (!(d1 && d2))
@@ -28721,7 +28870,7 @@ var init_propose = __esm({
 import { readFileSync as readFileSync16 } from "node:fs";
 import { join as join18 } from "node:path";
 function ctxVersion2() {
-  if (true) return "0.3.2";
+  if (true) return "0.4.0";
   try {
     return JSON.parse(readFileSync16(join18(packageRoot(), "package.json"), "utf8")).version ?? "unknown";
   } catch {
@@ -29952,8 +30101,8 @@ var init_ratify = __esm({
 import { readFileSync as readFileSync21, writeFileSync as writeFileSync7 } from "node:fs";
 import { join as join23 } from "node:path";
 function probePath(glob) {
-  const literal2 = glob.split("/").filter((p) => p && !/[*?[\]{}!()]/.test(p));
-  return [...literal2, "__ctx_probe__.ts"].join("/");
+  const literal3 = glob.split("/").filter((p) => p && !/[*?[\]{}!()]/.test(p));
+  return [...literal3, "__ctx_probe__.ts"].join("/");
 }
 function currentModule(g, globs) {
   return g.mapPath(probePath(globs[0]))?.logical;
@@ -30028,6 +30177,15 @@ function hygieneReport(ctx) {
     const recent = [...g.decisions.values()].filter((d) => g.isActiveDecision(d) && (d.serves === k.id || d.overrides === k.id) && !/^legacy:/.test(d.text)).sort((a, b) => b.date.localeCompare(a.date)).slice(0, cfg.overrideStreak);
     if (recent.length >= cfg.overrideStreak && recent.every((d) => d.overrides === k.id)) {
       out.push({ signal: "overridden-in-practice", target: k.id, evidence: recent.map((d) => `${d.id} ${d.date} ${d.who}: ${d.text}`), proposal: `retire ${k.id} (ctx retire ${k.id} --reason ...), or enforce it with a test and fix the code; the choice is a design decision`, level: "propose" });
+    }
+  }
+  for (const k of g.constraints.values()) {
+    if (k.mode === "G?" || g.isRetired(k.id)) continue;
+    if (out.some((f) => f.target === k.id && f.signal === "overridden-in-practice")) continue;
+    const since = k.since ?? "";
+    const overriding = [...g.decisions.values()].filter((d) => g.isActiveDecision(d) && d.overrides === k.id && d.date >= since && !/^legacy:/.test(d.text)).sort((a, b) => a.date.localeCompare(b.date));
+    if (overriding.length >= cfg.overrideStreak) {
+      out.push({ signal: "overridden-since-ratified", target: k.id, evidence: overriding.map((d) => `${d.id} ${d.date} ${d.who}: ${d.text}`), proposal: `reword ${k.id} to match how the team works, or retire it (ctx retire ${k.id} --reason ...)`, level: "propose" });
     }
   }
   for (const k of g.constraints.values()) {
@@ -30333,10 +30491,16 @@ function proposals(ctx) {
   const g = needGraph(ctx);
   const index = loadOrBuildImportIndex(ctx.root);
   const decisions = [...g.decisions.values()];
-  const evidence = (id) => ({
-    served: decisions.filter((d) => d.serves === id).length,
-    overridden: decisions.filter((d) => d.overrides === id).length
-  });
+  const evidence = (id) => {
+    const serving = decisions.filter((d) => d.serves === id);
+    const overriding = decisions.filter((d) => d.overrides === id);
+    return {
+      served: serving.length,
+      overridden: overriding.length,
+      servedOn: serving.map((d) => d.date).sort(),
+      overriddenOn: overriding.map((d) => d.date).sort()
+    };
+  };
   const rules = [...g.constraints.values()].filter((k) => k.mode === "G?" && !g.isRetired(k.id)).map((k) => ({
     id: k.id,
     kind: k.test ? "enforced" : "guidance",
@@ -35510,17 +35674,17 @@ async function runBench(ctx, tasks, opts) {
   mkdirSync8(wtRoot, { recursive: true });
   for (const task of selected) {
     for (const arm of opts.arms) {
-      for (let run10 = 1; run10 <= opts.runs; run10++) {
-        const label = `${task.id} ${arm} #${run10}`;
-        const wt = join29(wtRoot, `${task.id}-${arm}-${run10}`);
+      for (let run13 = 1; run13 <= opts.runs; run13++) {
+        const label = `${task.id} ${arm} #${run13}`;
+        const wt = join29(wtRoot, `${task.id}-${arm}-${run13}`);
         rmWorktree(root, wt);
         log(`${label}: worktree at ${task.base}`);
         execFileSync4("git", ["worktree", "add", "--detach", "-f", wt, task.base], { cwd: root, stdio: "ignore" });
         const started = Date.now();
-        const rec = { task: task.id, stratum: task.stratum, arm, harness: opts.harness, run: run10, startedAt: new Date(started).toISOString(), durationMs: 0, passed: null, checkExit: null, tokensIn: null, tokensOut: null, turns: null, toolCalls: 0, reads: 0, edits: 0, rework: 0, testFailures: 0, slicesInjected: 0, callersLoaded: 0, callersTotal: 0, darkTotal: 0, reach: 0, decisions: [], session: null, harnessError: null };
+        const rec = { task: task.id, stratum: task.stratum, arm, harness: opts.harness, run: run13, startedAt: new Date(started).toISOString(), durationMs: 0, passed: null, checkExit: null, tokensIn: null, tokensOut: null, turns: null, toolCalls: 0, reads: 0, edits: 0, rework: 0, testFailures: 0, slicesInjected: 0, callersLoaded: 0, callersTotal: 0, darkTotal: 0, reach: 0, decisions: [], session: null, harnessError: null };
         try {
           const env = prepareArm(ctx, task, arm, wt, opts.harness);
-          const session = `bench-${task.id}-${arm}-${run10}-${stamp}`;
+          const session = `bench-${task.id}-${arm}-${run13}-${stamp}`;
           env.CTX_SESSION = session;
           const h = runHarness(opts, task, wt, env, session, log);
           rec.session = h.session;
@@ -35531,7 +35695,7 @@ async function runBench(ctx, tasks, opts) {
           const check2 = spawnSync2("sh", ["-c", task.check], { cwd: wt, encoding: "utf8", timeout: opts.timeoutMs ?? 10 * 6e4, env: { ...process.env, CI: "1" } });
           rec.checkExit = check2.status;
           rec.passed = check2.status === 0;
-          writeFileSync11(join29(dir, `${task.id}-${arm}-${run10}.check.log`), `${check2.stdout ?? ""}
+          writeFileSync11(join29(dir, `${task.id}-${arm}-${run13}.check.log`), `${check2.stdout ?? ""}
 ${check2.stderr ?? ""}`);
           if (h.session) collectMetrics(rec, new ObservationStore(wt, h.session).readAll().length ? new ObservationStore(wt, h.session) : new ObservationStore(root, h.session));
         } catch (e) {
@@ -35803,6 +35967,49 @@ ctx bench report [--dir <results dir>]`;
   }
 });
 
+// src/cards/backfill.ts
+function backfillOrder(ctx, scope = "active") {
+  const g = ctx.graph;
+  if (!g) return { scope, files: [], inScope: 0 };
+  const files = (git(ctx.root, ["ls-files", "--cached", "--others", "--exclude-standard"]) ?? "").split("\n").filter((f) => f && !exemptFromCards(f, ctx.config.cardsExclude) && g.mapPath(f));
+  const moduleOf = (f) => g.mapPath(f)?.logical;
+  let inScope = files;
+  if (scope === "active") {
+    const recent = (git(ctx.root, ["log", `--since=${ACTIVE_DAYS}.days`, "--name-only", "--format="]) ?? "").split("\n").filter(Boolean);
+    const active = new Set(recent.map(moduleOf).filter((m) => Boolean(m)));
+    inScope = files.filter((f) => active.has(moduleOf(f)));
+  }
+  const todo = new Set(inScope.filter((f) => {
+    const s = cardState(g, ctx.root, f);
+    return s.hash !== void 0 && !s.fresh;
+  }));
+  const index = loadOrBuildImportIndex(ctx.root);
+  const order = [];
+  const placed = /* @__PURE__ */ new Set();
+  const waitingOn = (f) => (index.imports[f] ?? []).filter((i) => todo.has(i) && !placed.has(i) && i !== f);
+  let left = [...todo].sort();
+  while (left.length) {
+    const ready = left.filter((f) => waitingOn(f).length === 0);
+    const next = ready.length ? ready : [left.slice().sort((a, b) => waitingOn(a).length - waitingOn(b).length || a.localeCompare(b))[0]];
+    for (const f of next) {
+      order.push(f);
+      placed.add(f);
+    }
+    left = left.filter((f) => !placed.has(f));
+  }
+  return { scope, files: order, inScope: inScope.length };
+}
+var ACTIVE_DAYS;
+var init_backfill = __esm({
+  "src/cards/backfill.ts"() {
+    "use strict";
+    init_imports();
+    init_git();
+    init_cards();
+    ACTIVE_DAYS = 90;
+  }
+});
+
 // src/cli/doctor.ts
 import { execFileSync as execFileSync5 } from "node:child_process";
 import { existsSync as existsSync29, readFileSync as readFileSync28, readdirSync as readdirSync8, statSync as statSync7 } from "node:fs";
@@ -35963,6 +36170,7 @@ function cardsReport(ctx, opts = {}) {
   const files = opts.changed ? changedFiles(ctx) : (git(ctx.root, ["ls-files", "--cached", "--others", "--exclude-standard"]) ?? "").split("\n").filter(Boolean);
   for (const f of files.sort()) {
     if (exemptFromCards(f, ctx.config.cardsExclude)) continue;
+    if (opts.module && !walk(g, f, { maxDecisions: 0 }).chain.includes(opts.module)) continue;
     const s = cardState(g, ctx.root, f);
     if (s.hash === void 0) continue;
     (s.fresh ? report.fresh : s.card ? report.stale : report.missing).push(f);
@@ -36015,7 +36223,20 @@ function nextStep(ctx, opts = {}) {
 async function run7(args, env) {
   const ctx = openFromArgs(args);
   if (args.cmd === "cards") {
-    const r = cardsReport(ctx, { changed: args.flags.changed === true });
+    if (args.flags.backfill === true) {
+      const scope = str(args.flags.scope) === "all" ? "all" : "active";
+      const b = backfillOrder(ctx, scope);
+      if (env.json) {
+        console.log(JSON.stringify(b, null, 2));
+        return 0;
+      }
+      console.log(`backfill (${scope === "all" ? "every module" : "modules changed in the last 90 days"}): ${b.files.length} of ${b.inScope} files to card, leaves first`);
+      for (const f of b.files.slice(0, 20)) console.log(`  ${f}`);
+      if (b.files.length > 20) console.log(`  and ${b.files.length - 20} more`);
+      return 0;
+    }
+    const module = str(args.flags.module);
+    const r = cardsReport(ctx, { changed: args.flags.changed === true, ...module ? { module } : {} });
     if (!ctx.graph) {
       console.error("no graph for this repository: ctx init");
       return 1;
@@ -36045,12 +36266,14 @@ async function run7(args, env) {
 var init_guide = __esm({
   "src/cli/guide.ts"() {
     "use strict";
+    init_backfill();
     init_cards();
     init_hygiene();
     init_instructions();
     init_store();
     init_recorder();
     init_git();
+    init_walk();
     init_doctor();
     init_main();
   }
@@ -36157,6 +36380,209 @@ var init_module = __esm({
   }
 });
 
+// src/cli/settings.ts
+var settings_exports = {};
+__export(settings_exports, {
+  run: () => run10
+});
+import { readFileSync as readFileSync30, writeFileSync as writeFileSync13 } from "node:fs";
+import { join as join33 } from "node:path";
+async function run10(args, env) {
+  const ctx = openFromArgs(args);
+  if (!ctx.graphDir) {
+    console.error(`No graph for ${ctx.root}: run ctx init first.`);
+    return 1;
+  }
+  const file = join33(ctx.graphDir, "config.toml");
+  let text = "";
+  try {
+    text = readFileSync30(file, "utf8");
+  } catch {
+  }
+  const section = parseToml(text).harness;
+  const [sub, key, value] = args.positional;
+  if (sub === "set") {
+    if (!key || value === void 0) throw new Error('ctx settings set <key> <value> --reason "<why>" [--via pane]');
+    if (!(key in HARNESS)) {
+      console.error(`${key} isn't a harness setting. They are: ${HARNESS_KEYS.join(", ")}.`);
+      return 1;
+    }
+    const reason = str(args.flags.reason)?.trim();
+    if (!reason) {
+      console.error('Give a reason with --reason "\u2026": it goes with the change.');
+      return 1;
+    }
+    const k = key;
+    const parsed = parseHarnessValue(k, value);
+    const why = HARNESS[k].problem(parsed);
+    if (why) {
+      console.error(`${key} ${why}. Nothing was changed.`);
+      return 1;
+    }
+    writeFileSync13(file, withHarnessSetting(text, k, parsed));
+    const via = str(args.flags.via) === "pane" ? "pane" : "terminal";
+    const logged = toolAdapters(ctx.root).flatMap(
+      (a) => a.recordPersonsChange?.(ctx.root, { file: ".ctx/config.toml", reason: `${key} = ${JSON.stringify(parsed)}: ${reason}`, via }) ?? []
+    );
+    console.log(
+      env.json ? JSON.stringify({ key, value: parsed, logged }, null, 2) : `Set [harness] ${key} = ${JSON.stringify(parsed)} in .ctx/config.toml.${logged.length ? ` ${logged.join(" ")}` : ""}`
+    );
+    return 0;
+  }
+  if (sub !== void 0) throw new Error('ctx settings [--json] | ctx settings set <key> <value> --reason "<why>"');
+  const inForce = ctx.config.harness;
+  const pausedBy = toolAdapters(ctx.root).map((a) => ({ name: a.name, at: a.pauseAtPercent?.(ctx.root) })).find((p) => p.at !== void 0);
+  const rows = HARNESS_KEYS.map((k) => ({
+    key: k,
+    value: inForce[k],
+    default: HARNESS[k].default,
+    about: HARNESS[k].about,
+    ...k === "pause_at_percent" && pausedBy ? { inForce: pausedBy.at, from: pausedBy.name } : {}
+  }));
+  const problems = harnessProblems(section);
+  if (env.json) {
+    console.log(JSON.stringify(rows, null, 2));
+    return 0;
+  }
+  for (const r of rows) console.log(`${r.key} = ${JSON.stringify(r.value)}${r.value !== r.default ? `  (default ${JSON.stringify(r.default)})` : ""}
+  ${r.about}`);
+  for (const p of problems) console.log(`problem: ${p}; the default holds`);
+  return 0;
+}
+var init_settings = __esm({
+  "src/cli/settings.ts"() {
+    "use strict";
+    init_harness();
+    init_tool_adapters();
+    init_toml();
+    init_main();
+  }
+});
+
+// src/cli/neighbours.ts
+var neighbours_exports = {};
+__export(neighbours_exports, {
+  neighbours: () => neighbours,
+  run: () => run11
+});
+function neighbours(ctx, path) {
+  const g = needGraph(ctx);
+  const index = loadOrBuildImportIndex(ctx.root);
+  const broken = /* @__PURE__ */ new Map();
+  for (const [id, vs] of conformanceReport(ctx)) for (const v of vs) broken.set(v.from, [...broken.get(v.from) ?? [], id]);
+  const mark = (p) => {
+    if (exemptFromCards(p, ctx.config.cardsExclude)) return "exempt";
+    const s = cardState(g, ctx.root, p);
+    return s.fresh ? "current" : s.card ? "stale" : "missing";
+  };
+  const of = (p) => ({ path: p, card: mark(p), breaks: [...new Set(broken.get(p) ?? [])] });
+  return {
+    path,
+    card: mark(path),
+    breaks: [...new Set(broken.get(path) ?? [])],
+    imports: (index.imports[path] ?? []).slice().sort().map(of),
+    importers: callersOf(index, path).map(of)
+  };
+}
+async function run11(args, env) {
+  const ctx = openFromArgs(args);
+  const path = args.positional[0];
+  if (!path) throw new Error("ctx neighbours <path>");
+  const n = neighbours(ctx, path.replace(/^\.\//, ""));
+  const line = (x) => `  ${x.path}  card ${x.card}${x.breaks.length ? `, breaks ${x.breaks.join(", ")}` : ""}`;
+  console.log(
+    env.json ? JSON.stringify(n, null, 2) : [`${n.path}  card ${n.card}`, "imports:", ...n.imports.length ? n.imports.map(line) : ["  (none)"], "imported by:", ...n.importers.length ? n.importers.map(line) : ["  (none)"]].join("\n")
+  );
+  return 0;
+}
+var init_neighbours = __esm({
+  "src/cli/neighbours.ts"() {
+    "use strict";
+    init_cards();
+    init_imports();
+    init_conformance();
+    init_main();
+  }
+});
+
+// src/cli/map.ts
+var map_exports = {};
+__export(map_exports, {
+  graphMap: () => graphMap,
+  run: () => run12
+});
+function graphMap(ctx, now = Date.now()) {
+  const g = needGraph(ctx);
+  const files = (git(ctx.root, ["ls-files", "--cached", "--others", "--exclude-standard"]) ?? "").split("\n").filter(Boolean).sort();
+  const byModule = /* @__PURE__ */ new Map();
+  for (const f of files) {
+    if (exemptFromCards(f, ctx.config.cardsExclude)) continue;
+    const m = g.mapPath(f)?.logical;
+    if (!m) continue;
+    const s = cardState(g, ctx.root, f);
+    if (s.hash === void 0) continue;
+    byModule.set(m, [...byModule.get(m) ?? [], { path: f, card: s.fresh ? "current" : s.card ? "stale" : "missing" }]);
+  }
+  const since = new Date(now - DAYS * 864e5).toISOString().slice(0, 10);
+  const moduleOf = (node) => isLogicalId(node) ? node : g.mapPath(node)?.logical;
+  const decided = /* @__PURE__ */ new Map();
+  for (const d of g.decisions.values()) {
+    if (d.date < since) continue;
+    const m = moduleOf(d.node);
+    if (m) decided.set(m, [...decided.get(m) ?? [], d.date]);
+  }
+  const children = /* @__PURE__ */ new Map();
+  const roots = [];
+  for (const id of [...g.logicals.keys()].sort()) {
+    const parents = g.parentsOf(id).filter((p) => g.logicals.has(p));
+    if (!parents.length) roots.push(id);
+    for (const p of parents) children.set(p, [...children.get(p) ?? [], id]);
+  }
+  const out = [];
+  const seen = /* @__PURE__ */ new Set();
+  const visit = (id, depth) => {
+    if (seen.has(id)) return;
+    seen.add(id);
+    const ks = g.constraintsOn(id);
+    out.push({
+      id,
+      name: g.logicals.get(id).name,
+      depth,
+      parents: g.parentsOf(id),
+      rules: { agreed: ks.filter((k) => k.mode !== "G?").length, proposed: ks.filter((k) => k.mode === "G?").length },
+      decisions: (decided.get(id) ?? []).sort(),
+      files: byModule.get(id) ?? []
+    });
+    for (const c of children.get(id) ?? []) visit(c, depth + 1);
+  };
+  for (const r of roots) visit(r, 0);
+  return out;
+}
+async function run12(args, env) {
+  const ctx = openFromArgs(args);
+  const map = graphMap(ctx);
+  if (env.json) {
+    console.log(JSON.stringify(map, null, 2));
+    return 0;
+  }
+  for (const m of map) {
+    const carded = m.files.filter((f) => f.card === "current").length;
+    console.log(`${"  ".repeat(m.depth)}${m.id} ${m.name}  rules ${m.rules.agreed}${m.rules.proposed ? ` (+${m.rules.proposed} proposed)` : ""}  decisions ${m.decisions.length}  carded ${carded}/${m.files.length}`);
+  }
+  return 0;
+}
+var DAYS;
+var init_map2 = __esm({
+  "src/cli/map.ts"() {
+    "use strict";
+    init_cards();
+    init_records();
+    init_git();
+    init_main();
+    DAYS = 30;
+  }
+});
+
 // src/cli/commands.ts
 async function extraCommands(args, env) {
   switch (args.cmd) {
@@ -36187,6 +36613,12 @@ async function extraCommands(args, env) {
       return (await Promise.resolve().then(() => (init_propose2(), propose_exports))).run(args, env);
     case "module":
       return (await Promise.resolve().then(() => (init_module(), module_exports))).run(args, env);
+    case "settings":
+      return (await Promise.resolve().then(() => (init_settings(), settings_exports))).run(args, env);
+    case "neighbours":
+      return (await Promise.resolve().then(() => (init_neighbours(), neighbours_exports))).run(args, env);
+    case "map":
+      return (await Promise.resolve().then(() => (init_map2(), map_exports))).run(args, env);
     default:
       return void 0;
   }
@@ -36198,8 +36630,8 @@ var init_commands = __esm({
 });
 
 // src/cli/main.ts
-import { copyFileSync as copyFileSync2, existsSync as existsSync31, lstatSync as lstatSync2, mkdirSync as mkdirSync10, readdirSync as readdirSync9, readFileSync as readFileSync30, symlinkSync, unlinkSync as unlinkSync2 } from "node:fs";
-import { join as join33, resolve as resolve16 } from "node:path";
+import { copyFileSync as copyFileSync2, existsSync as existsSync31, lstatSync as lstatSync2, mkdirSync as mkdirSync10, readdirSync as readdirSync9, readFileSync as readFileSync31, symlinkSync, unlinkSync as unlinkSync2 } from "node:fs";
+import { join as join34, resolve as resolve16 } from "node:path";
 function parseArgs(argv) {
   const positional = [];
   const flags = {};
@@ -36224,8 +36656,8 @@ function str(v) {
   return typeof v === "string" ? v : void 0;
 }
 function readInput(arg) {
-  if (!arg || arg === "-") return readFileSync30(0, "utf8");
-  return readFileSync30(arg, "utf8");
+  if (!arg || arg === "-") return readFileSync31(0, "utf8");
+  return readFileSync31(arg, "utf8");
 }
 function latestSession(root) {
   return ObservationStore.sessions(root)[0]?.session;
@@ -36255,7 +36687,8 @@ async function main() {
       return 0;
     case "info": {
       const ctx = openFromArgs(args);
-      const info = { root: ctx.root, repoHash: repoHash(ctx.root), graphDir: ctx.graphDir ?? null, config: ctx.config, ctxHome: ctxHome(), branch: currentBranch(ctx.root), person: gitPerson(ctx.root) };
+      const counts = ctx.graph ? { decisions: ctx.graph.decisions.size, rules: ctx.graph.constraints.size } : null;
+      const info = { root: ctx.root, repoHash: repoHash(ctx.root), graphDir: ctx.graphDir ?? null, config: ctx.config, ctxHome: ctxHome(), branch: currentBranch(ctx.root), person: gitPerson(ctx.root), counts };
       console.log(json ? JSON.stringify(info, null, 2) : Object.entries(info).map(([k, v]) => `${k.padEnd(10)} ${typeof v === "object" && v !== null ? JSON.stringify(v) : String(v)}`).join("\n"));
       return 0;
     }
@@ -36484,7 +36917,7 @@ async function main() {
       const ctx = openFromArgs(args);
       const g = needGraph(ctx);
       const from = ctx.graphDir;
-      const dest = join33(ctx.root, ".ctx");
+      const dest = join34(ctx.root, ".ctx");
       if (resolve16(from) === resolve16(dest)) {
         console.log(`the graph already lives in ${dest}`);
         return 0;
@@ -36493,11 +36926,11 @@ async function main() {
       mkdirSync10(dest, { recursive: true });
       const copied = [];
       for (const f of readdirSync9(from)) {
-        if (!lstatSync2(join33(from, f)).isFile()) continue;
-        copyFileSync2(join33(from, f), join33(dest, f));
+        if (!lstatSync2(join34(from, f)).isFile()) continue;
+        copyFileSync2(join34(from, f), join34(dest, f));
         copied.push(f);
       }
-      const link = join33(ctxHome(), "graphs", repoHash(ctx.root));
+      const link = join34(ctxHome(), "graphs", repoHash(ctx.root));
       if (isSymlink(link)) unlinkSync2(link);
       console.log(`moved the graph into ${dest} (${copied.join(", ")}): ${g.logicals.size} modules, ${g.constraints.size} rules, ${g.decisions.size} decisions`);
       console.log(`${from} is no longer read for this repository. Commit .ctx so every checkout and teammate carries it:
@@ -36509,10 +36942,10 @@ async function main() {
       if (!graph) throw new Error("ctx link --graph <dir> [--repo <dir>]");
       const ctx = openRepo({ ...str(args.flags.repo) ? { repo: str(args.flags.repo) } : {} });
       const target = resolve16(graph);
-      if (!existsSync31(join33(target, "graph.ctx"))) throw new Error(`${target} has no graph.ctx`);
-      const linkDir = join33(ctxHome(), "graphs");
+      if (!existsSync31(join34(target, "graph.ctx"))) throw new Error(`${target} has no graph.ctx`);
+      const linkDir = join34(ctxHome(), "graphs");
       mkdirSync10(linkDir, { recursive: true });
-      const link = join33(linkDir, repoHash(ctx.root));
+      const link = join34(linkDir, repoHash(ctx.root));
       if (existsSync31(link) || isSymlink(link)) unlinkSync2(link);
       symlinkSync(target, link);
       console.log(`${ctx.root}
@@ -36647,7 +37080,8 @@ var init_main = __esm({
 
 Start here
   ctx next [--json]                                the one thing to do now, and the skill that does it
-  ctx cards [--changed] [--missing|--stale]        which files have a card matching them
+  ctx cards [--changed] [--module <L:id>] [--missing|--stale]  which files have a card matching them
+  ctx cards --backfill [--scope active|all]        the files to card in a brownfield backfill, leaves first
 
 Graph
   ctx slice <path> [--symbol name]                 slice injected before an edit
@@ -36670,6 +37104,9 @@ Graph
                                                    propose a rule for a path's module; a person ratifies it
   ctx file <path> [--agent <id>]                   a file's card, rules, decisions, and whether an agent understood it
   ctx agents [--session <id>]                      each agent's coverage: read, searched, edited, cards owed
+  ctx neighbours <path>                            what a file imports and what imports it, with their cards and broken rules
+  ctx map                                          the modules as a tree: rules, recent decisions, card coverage
+  ctx settings [set <key> <value> --reason "\u2026"]     the mod's harness settings; set is the person's change
   ctx provenance                                   which of this branch's decisions are committed, and where
 
 Observation

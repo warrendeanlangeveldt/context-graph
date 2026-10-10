@@ -3,6 +3,7 @@ import { join, resolve } from 'node:path';
 import { Graph } from '../graph/graph.js';
 import { ctxHome, findRepoRoot, isLinkedWorktree, mainCheckout, resolveGraphDir } from '../util/paths.js';
 import { parseToml, tomlGet, type TomlValue } from '../util/toml.js';
+import { defaultHarness, harnessFrom, type HarnessSettings } from './harness.js';
 
 export interface EmbedConfig {
   enabled: boolean;
@@ -67,6 +68,8 @@ export interface Config {
   enforce: EnforceConfig;
   /** Globs that owe no card and need no read before an edit. A config's `[cards] exclude` adds to the defaults. */
   cardsExclude: string[];
+  /** The mod's harness: background agents and side questions (src/core/harness.ts). The repository's own config.toml only. */
+  harness: HarnessSettings;
 }
 
 /** What a delegated ratifier may ratify: guidance rules, enforced rules, concepts, retirements of either, and modules (a module's containment edge). */
@@ -95,6 +98,7 @@ export function defaultConfig(): Config {
     defaultBranch: 'main',
     ratifiers: [],
     delegate: null,
+    harness: defaultHarness(),
     gate: { staleBasis: 'warn', contextMoved: 'warn', testCommand: '', cards: 'warn' },
     hygiene: { archiveAfterDays: 90, dormantAfterDays: 180, overrideStreak: 3, proposalTtlDays: 30 },
     serve: { port: 7399, bufferEvents: 50_000 },
@@ -109,6 +113,8 @@ export function defaultConfig(): Config {
       '**/*.md', '**/*.{png,jpg,jpeg,gif,svg,ico,webp,pdf,woff,woff2,ttf}',
       // Configuration and manifests: settings, not code whose why gets lost.
       '**/.*', '**/*.json', '**/*.{yml,yaml,toml,ini,cfg}', '**/*.snap', '**/LICENSE*', '**/*.txt',
+      // Data and tool configuration: fixtures, CSVs, and a tool's config file (eslint.config.mjs, vite.config.ts).
+      '**/*.{jsonl,ndjson,csv,tsv}', '**/*.config.{js,cjs,mjs,ts,cts,mts}',
     ],
   };
 }
@@ -209,6 +215,8 @@ export function loadConfig(graphDir: string | undefined): Config {
   if (graphDir) {
     apply(join(graphDir, 'config.toml'));
     cfg.delegate = delegateFrom(join(graphDir, 'config.toml'));
+    const file = join(graphDir, 'config.toml');
+    if (existsSync(file)) cfg.harness = harnessFrom(parseToml(readFileSync(file, 'utf8')).harness);
   }
   apply(join(ctxHome(), 'config.toml'));
   return cfg;

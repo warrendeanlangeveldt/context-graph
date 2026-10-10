@@ -74,6 +74,25 @@ describe('hygiene', () => {
     expect(findings.some((f) => f.signal === 'overridden-in-practice' && f.target === 'core.fine')).toBe(false);
   });
 
+  it('CUR-2 flags an agreed rule overridden three or more times since it was ratified, not only on a streak', () => {
+    writeFileSync(join(repo, '.ctx/graph.ctx'), GRAPH + 'K G core.mixed L:core a rule kept and broken since:2026-04-01\n');
+    writeFileSync(
+      join(repo, '.ctx/decisions.ctx'),
+      DECISIONS +
+        'D d-0101 2026-03-20 w/c a101 main src/core/a.ts ->K core.fine !K core.mixed before it was agreed\n' +
+        'D d-0102 2026-04-02 w/c a102 main src/core/a.ts ->K core.fine !K core.mixed broke it\n' +
+        'D d-0103 2026-04-03 w/c a103 main src/core/a.ts ->K core.fine !K core.mixed broke it again\n' +
+        'D d-0104 2026-04-04 w/c a104 main src/core/b.ts ->K core.mixed kept it\n' +
+        'D d-0105 2026-04-05 w/c a105 main src/core/a.ts ->K core.fine !K core.mixed broke it a third time\n',
+    );
+    const findings = hygieneReport(openRepo({ repo }));
+    const flagged = findings.find((f) => f.signal === 'overridden-since-ratified' && f.target === 'core.mixed');
+    expect(flagged?.evidence.map((e) => e.split(' ')[0])).toEqual(['d-0102', 'd-0103', 'd-0105']);
+    expect(flagged?.proposal).toMatch(/reword core.mixed .* or retire it/);
+    // One on a streak is reported once, as the streak.
+    expect(findings.filter((f) => f.target === 'core.rule').map((f) => f.signal)).toEqual(['overridden-in-practice']);
+  });
+
   it('archives inactive records, keeps ids resolvable in the timeline, and retires with a reason', () => {
     const ctx = openRepo({ repo });
     const r = gc(ctx, { now: new Date('2026-09-07'), deleted: true });

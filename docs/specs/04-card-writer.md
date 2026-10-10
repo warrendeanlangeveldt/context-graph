@@ -10,6 +10,7 @@
 - A background agent, off until the project turns it on, that writes cards for files owed this session or changed on the branch without a current card.
 - It follows the cards skill: reads each file in full with what it imports, then writes the card.
 - It works only while the lead and lanes leave room: between turns, and never on a file an agent is editing.
+- A backfill for a project that already has code (`[harness] backfill`: `active`, the modules changed in the last 90 days, or `all`): the existing files without a current card, leaves first, after the cards owed and changed; offered by init, paused from the band.
 
 ## Data
 

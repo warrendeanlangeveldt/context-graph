@@ -104,10 +104,17 @@ export function proposals(ctx: RepoContext) {
   const g = needGraph(ctx);
   const index = loadOrBuildImportIndex(ctx.root);
   const decisions = [...g.decisions.values()];
-  const evidence = (id: string) => ({
-    served: decisions.filter((d) => d.serves === id).length,
-    overridden: decisions.filter((d) => d.overrides === id).length,
-  });
+  // The decisions that served or overrode it, counted and dated (the Proposals queue's sparklines, VIEW-3).
+  const evidence = (id: string) => {
+    const serving = decisions.filter((d) => d.serves === id);
+    const overriding = decisions.filter((d) => d.overrides === id);
+    return {
+      served: serving.length,
+      overridden: overriding.length,
+      servedOn: serving.map((d) => d.date).sort(),
+      overriddenOn: overriding.map((d) => d.date).sort(),
+    };
+  };
   const rules = [...g.constraints.values()].filter((k) => k.mode === 'G?' && !g.isRetired(k.id)).map((k: KRecord) => ({
     id: k.id, kind: k.test ? 'enforced' : 'guidance', module: k.attachedTo, text: k.text,
     ...evidence(k.id), violations: k.rule ? violationsFor(g, k, index).length : null,
