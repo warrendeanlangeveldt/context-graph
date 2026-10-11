@@ -3313,7 +3313,7 @@ function defaultConfig() {
     embed: { enabled: false, provider: "minilm", apiKeyEnv: "OPENAI_API_KEY", minScore: 0.45, maxHints: 2, include: ["docs/**/*.md"], exclude: ["**/generated/**", "**/*.lock", "**/package-lock.json", "**/*.min.js"], includeArchived: false, inProcessHooks: false },
     packs: ["auto"],
     packBindings: {},
-    enforce: { readBeforeEdit: "block", dependencies: "block", cards: "block", maxImporters: 5 },
+    enforce: { readBeforeEdit: "block", dependencies: "block", cards: "background", maxImporters: 5 },
     cardsExclude: [
       ".ctx/**",
       ".claude/**",
@@ -3419,7 +3419,9 @@ function loadConfig(graphDir) {
     cfg.packs = tomlGet(t, "init", "packs", cfg.packs);
     cfg.enforce.readBeforeEdit = mode(tomlGet(t, "enforce", "read_before_edit", cfg.enforce.readBeforeEdit), cfg.enforce.readBeforeEdit);
     cfg.enforce.dependencies = mode(tomlGet(t, "enforce", "dependencies", cfg.enforce.dependencies), cfg.enforce.dependencies);
-    cfg.enforce.cards = mode(tomlGet(t, "enforce", "cards", cfg.enforce.cards), cfg.enforce.cards);
+    const cards = tomlGet(t, "enforce", "cards", cfg.enforce.cards);
+    if (cards === "background" || cards === "off" || cards === "nudge" || cards === "block") cfg.enforce.cards = cards;
+    else if (typeof cards === "boolean") cfg.enforce.cards = cards ? "block" : "off";
     cfg.enforce.maxImporters = tomlGet(t, "enforce", "max_importers", cfg.enforce.maxImporters);
     for (const g of tomlGet(t, "cards", "exclude", [])) if (!cfg.cardsExclude.includes(g)) cfg.cardsExclude.push(g);
     const bindings = t["init.packs"];
@@ -5946,12 +5948,13 @@ ${sessionContext(ctx, injecting, false)}` : void 0;
     const g = ctx.graph;
     const recorder = new Recorder(g, state);
     const slices = announce ? [announce] : [];
-    const owed = ctx.config.demand || ctx.config.enforce.cards !== "off" ? recorder.nudge({ cards: ctx.config.enforce.cards !== "off" }) : void 0;
+    const agentCards = ctx.config.enforce.cards === "block" || ctx.config.enforce.cards === "nudge";
+    const owed = ctx.config.demand || agentCards ? recorder.nudge({ cards: agentCards }) : void 0;
     if (owed) slices.push(owed);
     const intent = intentOf(ti);
     const announced = new Set(state.data.modulesAnnounced ?? []);
     const targets = profile.preEditTargets(tool, ti, tc).slice(0, 3).filter((t) => !t.path.startsWith("/") && t.path !== ".");
-    if (profile.isEditTool(tool) && targets.length) {
+    if ((profile.isEditTool(tool) || isShell(tool)) && targets.length) {
       const e = ctx.config.enforce;
       const modeOf = (r) => r === "read-before-edit" ? e.readBeforeEdit : e.dependencies;
       const rules = ["read-before-edit", "dependencies"];
@@ -6066,7 +6069,7 @@ ${deps}` : s.text);
     const index = loadOrBuildImportIndex(root);
     const recorder = new Recorder(ctx.graph, state, root);
     for (const e of edits) {
-      if (injecting && ctx.config.enforce.cards !== "off" && e.mode !== "delete" && !exemptFromCards(e.path, ctx.config.cardsExclude)) recorder.owesCard(e.path);
+      if (injecting && (ctx.config.enforce.cards === "block" || ctx.config.enforce.cards === "nudge") && e.mode !== "delete" && !exemptFromCards(e.path, ctx.config.cardsExclude)) recorder.owesCard(e.path);
       const symbol = e.range ? symbolAt(tc, e.path, e.range[0]) : void 0;
       const w = walk(ctx.graph, e.path, { maxDecisions: ctx.config.maxDecisions, ...symbol ? { symbol } : {} });
       const injected = events.some((ev) => ev.t === "slice" && ev.p.path === e.path);
@@ -6203,7 +6206,8 @@ function loopText(ctx) {
   const e = ctx.config.enforce;
   const parts = [];
   if (e.readBeforeEdit !== "off") parts.push(`Before you edit a file, it must be understood: either it has a fresh card (shown when you first read it), or you read it in full (no offset or limit)${e.dependencies !== "off" ? ", along with the files it imports (or their cards), and, when your edit changes what it exports, the files that import it" : ""}. ${e.readBeforeEdit === "block" ? "An edit without that is refused, with the list of what to read." : "An edit without that gets a note."}`);
-  if (e.cards !== "off") parts.push(`After editing a file, write or update its card while it is in your context (MCP tool: card; shell: ctx card <path> --text "..."): what the file is for, what it relies on, who relies on it, and what it must keep true.${e.cards === "block" ? " The turn will not end with a card owed." : ""}`);
+  if (e.cards === "background") parts.push("You don't write cards: Context Graph's card writer writes each edited file's card in the background once your edit settles, from the file, its diff and its commit messages. Say why in your commit messages; that's what the card will carry.");
+  else if (e.cards !== "off") parts.push(`After editing a file, write or update its card while it is in your context (MCP tool: card; shell: ctx card <path> --text "..."): what the file is for, what it relies on, who relies on it, and what it must keep true.${e.cards === "block" ? " The turn will not end with a card owed." : ""}`);
   return parts.join(" ");
 }
 function sessionContext(ctx, injecting, afterCompact) {
@@ -6676,6 +6680,18 @@ var init_install = __esm({
 // src/init/instructions.ts
 import { existsSync as existsSync16, lstatSync, readFileSync as readFileSync15, realpathSync as realpathSync2, writeFileSync as writeFileSync4 } from "node:fs";
 import { join as join16 } from "node:path";
+function blockSpan(text) {
+  const start = text.indexOf(INSTRUCTION_HEADING);
+  if (start < 0) return null;
+  const after = text.slice(start + INSTRUCTION_HEADING.length);
+  const next = after.search(/\n#{1,2} /);
+  return [start, next < 0 ? text.length : start + INSTRUCTION_HEADING.length + next + 1];
+}
+function instructionBlockState(text) {
+  const span = blockSpan(text);
+  if (!span) return "missing";
+  return text.slice(span[0], span[1]).trimEnd() === INSTRUCTION_BLOCK.trimEnd() ? "current" : "outdated";
+}
 function appendInstructionBlock(root) {
   const seen = /* @__PURE__ */ new Set();
   for (const name of CANDIDATES) {
@@ -6689,7 +6705,13 @@ function appendInstructionBlock(root) {
     if (seen.has(real)) continue;
     seen.add(real);
     const text = readFileSync15(file, "utf8");
-    if (text.includes(INSTRUCTION_HEADING)) return { file: name, status: "present" };
+    if (text.includes(INSTRUCTION_HEADING)) {
+      if (instructionBlockState(text) === "current") return { file: name, status: "present" };
+      const [start, end] = blockSpan(text);
+      const updated = `${text.slice(0, start)}${INSTRUCTION_BLOCK}${end < text.length ? "\n" : ""}${text.slice(end)}`;
+      writeFileSync4(lstatSync(file).isSymbolicLink() ? real : file, updated, "utf8");
+      return { file: name, status: "updated" };
+    }
     const sep3 = text.endsWith("\n\n") ? "" : text.endsWith("\n") ? "\n" : "\n\n";
     writeFileSync4(lstatSync(file).isSymbolicLink() ? real : file, `${text}${sep3}${INSTRUCTION_BLOCK}`, "utf8");
     return { file: name, status: "appended" };
@@ -6705,7 +6727,7 @@ var init_instructions = __esm({
 
 Before working in a module you have not read this session, call the \`hydrate\` MCP tool with the file or module id (shell: \`ctx hydrate <scope>\`). It returns each file's card (why the file exists), the rules in force with their history, the callers with the lines that use the file, and what this session already holds. Before editing a file through the shell, run \`ctx slice <path>\` first.
 
-Before you edit a file, understand it: through its fresh card, or by reading it in full along with what it imports (and, when you change its exports, what imports it). An edit without that is refused with the list of what to read. After the edit, write or update the file's card with the \`card\` tool (shell: \`ctx card <path> --text "..."\`): what it is for, what it relies on, who relies on it, what it must keep true. When a turn ends owing a decision, record it with the \`record\` tool: what you did and why, pointing at the rule or concept it serves. When unsure what Context Graph needs next, run \`ctx next\`.
+Before you edit a file, understand it: through its fresh card, or by reading it in full along with what it imports (and, when you change its exports, what imports it). An edit without that, through the edit tools or a shell script that writes the file, is refused with the list of what to read. After the edit, the file's card is brought up to date: by Context Graph's card writer in the background, from the file, its diff and your commit messages (so say why in them), unless the session start says this project has you write it yourself with the \`card\` tool (shell: \`ctx card <path> --text "..."\`). When a turn ends owing a decision, record it with the \`record\` tool: what you did and why, pointing at the rule or concept it serves. When unsure what Context Graph needs next, run \`ctx next\`.
 `;
     CANDIDATES = ["AGENTS.md", "CLAUDE.md"];
   }
@@ -30722,6 +30744,7 @@ async function init(args, env) {
       console.log(`wrote ${graphFile} (${all.length} records) and config.toml`);
       const ins = appendInstructionBlock(ctx.root);
       if (ins.status === "appended") console.log(`appended the Context Graph block to ${ins.file}`);
+      else if (ins.status === "updated") console.log(`brought the Context Graph block in ${ins.file} up to date`);
       else if (ins.status === "present") console.log(`${ins.file} already carries the Context Graph block`);
       else console.log(`no AGENTS.md or CLAUDE.md to carry the Context Graph block; add this to your agent instructions:
 
@@ -36174,6 +36197,7 @@ __export(guide_exports, {
   cardsReport: () => cardsReport,
   changedFiles: () => changedFiles,
   nextStep: () => nextStep,
+  recentFiles: () => recentFiles,
   run: () => run7
 });
 import { existsSync as existsSync30, readFileSync as readFileSync29 } from "node:fs";
@@ -36188,11 +36212,16 @@ function changedFiles(ctx) {
   }
   return [...out].filter((f) => existsSync30(join32(root, f)));
 }
+function recentFiles(ctx, days2 = 14) {
+  const out = /* @__PURE__ */ new Set();
+  for (const f of (git(ctx.root, ["log", `--since=${days2}.days`, "--name-only", "--format=", "HEAD"]) ?? "").split("\n").filter(Boolean)) out.add(f);
+  return [...out].filter((f) => existsSync30(join32(ctx.root, f)));
+}
 function cardsReport(ctx, opts = {}) {
   const g = ctx.graph;
-  const report = { fresh: [], stale: [], missing: [], scope: opts.changed ? "changed" : "all" };
+  const report = { fresh: [], stale: [], missing: [], scope: opts.changed ? "changed" : opts.recent ? "recent" : "all" };
   if (!g) return report;
-  const files = opts.changed ? changedFiles(ctx) : (git(ctx.root, ["ls-files", "--cached", "--others", "--exclude-standard"]) ?? "").split("\n").filter(Boolean);
+  const files = opts.changed ? changedFiles(ctx) : opts.recent ? recentFiles(ctx) : (git(ctx.root, ["ls-files", "--cached", "--others", "--exclude-standard"]) ?? "").split("\n").filter(Boolean);
   for (const f of files.sort()) {
     if (exemptFromCards(f, ctx.config.cardsExclude)) continue;
     if (opts.module && !walk(g, f, { maxDecisions: 0 }).chain.includes(opts.module)) continue;
@@ -36227,8 +36256,12 @@ function nextStep(ctx, opts = {}) {
     }
   }
   const ins = ["AGENTS.md", "CLAUDE.md"].find((f) => existsSync30(join32(ctx.root, f)));
-  if (ins && !readFileSync29(join32(ctx.root, ins), "utf8").includes(INSTRUCTION_HEADING)) {
+  const block = ins ? instructionBlockState(readFileSync29(join32(ctx.root, ins), "utf8")) : "current";
+  if (block === "missing") {
     return result("init", `${ins} has no Context Graph block, so agents are never told to hydrate before they read, or how the loop works.`, { command: "ctx install instructions" });
+  }
+  if (block === "outdated") {
+    return result("init", `${ins} carries an older Context Graph block, which tells agents something the hooks no longer do. ctx install instructions brings it up to date.`, { command: "ctx install instructions" });
   }
   const changed = cardsReport(ctx, { changed: true });
   if (changed.missing.length || changed.stale.length) {
@@ -36262,7 +36295,7 @@ async function run7(args, env) {
       return 0;
     }
     const module = str(args.flags.module);
-    const r = cardsReport(ctx, { changed: args.flags.changed === true, ...module ? { module } : {} });
+    const r = cardsReport(ctx, { changed: args.flags.changed === true, recent: args.flags.recent === true, ...module ? { module } : {} });
     if (!ctx.graph) {
       console.error("no graph for this repository: ctx init");
       return 1;
@@ -36273,7 +36306,7 @@ async function run7(args, env) {
       return 0;
     }
     const total = r.fresh.length + r.stale.length + r.missing.length;
-    console.log(`${r.scope === "changed" ? "changed files" : "files"}: ${r.fresh.length} with a current card, ${r.stale.length} stale, ${r.missing.length} missing, of ${total}`);
+    console.log(`${r.scope === "changed" ? "changed files" : r.scope === "recent" ? "files changed in the last 14 days" : "files"}: ${r.fresh.length} with a current card, ${r.stale.length} stale, ${r.missing.length} missing, of ${total}`);
     if (args.flags.missing !== true) for (const f of r.stale) console.log(`  stale    ${f}`);
     if (args.flags.stale !== true) for (const f of r.missing) console.log(`  missing  ${f}`);
     return 0;
@@ -37005,6 +37038,7 @@ async function main() {
       if (target === "instructions") {
         const ins = appendInstructionBlock(openFromArgs(args).root);
         if (ins.status === "appended") console.log(`appended the Context Graph block to ${ins.file}`);
+        else if (ins.status === "updated") console.log(`brought the Context Graph block in ${ins.file} up to date`);
         else if (ins.status === "present") console.log(`${ins.file} already carries the Context Graph block`);
         else console.log(`no AGENTS.md or CLAUDE.md here; add this to your agent instructions:
 
@@ -37127,7 +37161,7 @@ var init_main = __esm({
 
 Start here
   ctx next [--json]                                the one thing to do now, and the skill that does it
-  ctx cards [--changed] [--module <L:id>] [--missing|--stale]  which files have a card matching them
+  ctx cards [--changed|--recent] [--module <L:id>] [--missing|--stale]  which files have a card matching them
   ctx cards --backfill [--scope active|all]        the files to card in a brownfield backfill, leaves first
 
 Graph

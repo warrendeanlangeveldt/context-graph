@@ -93,6 +93,7 @@ describe('what the Context Graph pane shows, and the person\'s acts', () => {
   });
 
   it("a card owed is settled once a card matches the file, whoever wrote it, though the agent hasn't acted since", async () => {
+    writeFileSync(join(repo, '.ctx/config.toml'), '[repo]\nratifiers = ["warren"]\n[enforce]\ncards = "block"\n');
     await read('src/a.ts', lane);
     writeFileSync(join(repo, 'src/a.ts'), 'export const a = 2;\n');
     await edit('src/a.ts', lane);

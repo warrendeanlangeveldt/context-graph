@@ -11,18 +11,19 @@ export const SETTLE_MS = 2 * 60000;
 export const BATCH = 10;
 
 /**
- * CARDW-1, CARDW-4: the card jobs, in order: files the person asked for, files owed a card this
- * session, files changed on the branch without a current card, then the backfill's (existing code,
- * leaves first); none edited in the last 2 minutes, none twice. [{ path, reason }], reason `asked`,
- * `owed`, `changed` or `backfill`.
+ * CARDW-1, CARDW-4, CARDW-7: the card jobs, in order: files the person asked for, files owed a card
+ * this session, files changed on the branch without a current card, files merged in the last 14 days
+ * without one, then the backfill's (existing code, leaves first); none edited in the last 2 minutes,
+ * none twice. [{ path, reason }], reason `asked`, `owed`, `changed`, `recent` or `backfill`.
  */
-export function cardJobs({ asked = [], owed = [], changed = [], backfill = [], editedAt = {}, now }) {
+export function cardJobs({ asked = [], owed = [], changed = [], recent = [], backfill = [], editedAt = {}, now }) {
   const seen = new Set();
   const jobs = [];
   for (const [list, reason] of [
     [asked, 'asked'],
     [owed, 'owed'],
     [changed, 'changed'],
+    [recent, 'recent'],
     [backfill, 'backfill'],
   ])
     for (const path of list) {
@@ -53,8 +54,9 @@ export function cardWriterSpec({ ctx, skill, model }) {
       '',
       `Follow the cards skill (${skill}). For each file:`,
       '1. Read it in full, with what it imports; where its exports changed, read what imports it too. Never write a card from a partial read: a card is only as good as the reading behind it.',
-      `2. Write the card with the MCP tool \`card\`, or \`node "${ctx}" card <path> --text "…"\`.`,
-      '3. Record a decision only where the file shows one nobody recorded.',
+      '2. For a file someone just changed, find out why before you write: its last commits (`git log -3 --format="%s%n%b" -- <path>`) and its diff since (`git diff HEAD~1 -- <path>`, or against the base on a branch), and the story or requirement they name. The card says what the change was for, not only what the file does.',
+      `3. Write the card with the MCP tool \`card\`, or \`node "${ctx}" card <path> --text "…"\`.`,
+      '4. Record a decision only where the file shows one nobody recorded.',
       '',
       "You never edit a file (the tools are withheld), ratify, drop or retire anything. If a file is being edited as you read it, skip it: it's written later.",
       'End with one line per file: written, or skipped and why.',

@@ -147,7 +147,8 @@ describe('the context loop', () => {
     expect(reads).toHaveLength(1);
   });
 
-  it('owes a card after an edit, asks on the next call, and holds the turn until it matches the file', async () => {
+  it('with cards = "block", owes a card after an edit, asks on the next call, and holds the turn until it matches the file', async () => {
+    writeFileSync(join(repo, '.ctx/config.toml'), '[enforce]\ncards = "block"\n');
     await read(bb());
     await read(join(repo, 'api/src/core/helper.ts'));
     await edit(bb(), 'helper(e);', 'helper(e); // x', { tool_use_id: 'e1' });
@@ -168,6 +169,29 @@ describe('the context loop', () => {
     const { SessionState } = await import('../observe/store.js');
     new Recorder(Graph.load(join(repo, '.ctx')), new SessionState(repo, 's1'), repo).record({ node: 'api/src/core/orch/bb.ts', serves: 'orch.events', text: 'a comment only', who: 't', branch: 'main' });
     expect((await runClaudeHook({ ...base(), hook_event_name: 'Stop' })).stdout).toBeUndefined();
+  });
+
+  it('CARDW-7 in the default background mode, an edit owes no card: nothing is asked and the turn ends', async () => {
+    await read(bb());
+    await read(join(repo, 'api/src/core/helper.ts'));
+    await edit(bb(), 'helper(e);', 'helper(e); // y', { tool_use_id: 'e2' });
+    writeFileSync(bb(), BB.replace('helper(e);', 'helper(e); // y'));
+    await runClaudeHook({ ...base(), hook_event_name: 'PostToolUse', tool_name: 'Edit', tool_use_id: 'e2', tool_input: { file_path: bb(), old_string: 'helper(e);', new_string: 'helper(e); // y' } });
+    const next = await runClaudeHook({ ...base(), hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: 'ls' } });
+    expect(next.stdout ?? '').not.toContain('no card matching its content');
+    const stop = await runClaudeHook({ ...base(), hook_event_name: 'Stop' });
+    expect(stop.stdout ?? '').not.toContain('ctx card');
+  });
+
+  it('GATE-5 a shell script that writes a file it never read is refused like an edit', async () => {
+    const script = `python3 - <<'PY'\np = 'api/src/core/orch/bb.ts'\ns = open(p).read()\nopen(p, 'w').write(s.replace('a', 'b'))\nPY`;
+    const refused = await runClaudeHook({ ...base(), hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: script } });
+    expect(refused.stdout ?? '').toContain('"permissionDecision":"deny"');
+    expect(refused.stdout ?? '').toContain('api/src/core/orch/bb.ts');
+    await read(bb());
+    await read(join(repo, 'api/src/core/helper.ts'));
+    const allowed = await runClaudeHook({ ...base(), hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: script } });
+    expect(allowed.stdout ?? '').not.toContain('"permissionDecision":"deny"');
   });
 
   it('owes nothing for an edit another hook refused', async () => {

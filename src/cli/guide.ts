@@ -2,7 +2,7 @@ import { backfillOrder, type BackfillScope } from '../cards/backfill.js';
 import { cardState, exemptFromCards } from '../cards/cards.js';
 import type { RepoContext } from '../core/context.js';
 import { hygieneReport } from '../hygiene/hygiene.js';
-import { INSTRUCTION_HEADING } from '../init/instructions.js';
+import { instructionBlockState } from '../init/instructions.js';
 import { ObservationStore, SessionState } from '../observe/store.js';
 import { Recorder } from '../record/recorder.js';
 import { git } from '../util/git.js';
@@ -22,7 +22,7 @@ export interface CardsReport {
   stale: string[];
   missing: string[];
   /** Which files were considered: every tracked file, or only those this branch changed. */
-  scope: 'all' | 'changed';
+  scope: 'all' | 'changed' | 'recent';
 }
 
 /** Files this branch changed since it left the default branch, plus uncommitted and new files. */
@@ -37,12 +37,22 @@ export function changedFiles(ctx: RepoContext): string[] {
   return [...out].filter((f) => existsSync(join(root, f)));
 }
 
-/** Every file's card state, or the branch's changed files' (`changed`), or a module's files (`module`: its chain names it). */
-export function cardsReport(ctx: RepoContext, opts: { changed?: boolean; module?: string } = {}): CardsReport {
+/**
+ * CARDW-7: files changed by the commits on HEAD in the last `days` days: work merged from the lanes'
+ * worktrees, whose edits the card writer in this checkout never saw.
+ */
+export function recentFiles(ctx: RepoContext, days = 14): string[] {
+  const out = new Set<string>();
+  for (const f of (git(ctx.root, ['log', `--since=${days}.days`, '--name-only', '--format=', 'HEAD']) ?? '').split('\n').filter(Boolean)) out.add(f);
+  return [...out].filter((f) => existsSync(join(ctx.root, f)));
+}
+
+/** Every file's card state, or the branch's changed files' (`changed`), the recently merged ones' (`recent`), or a module's files (`module`: its chain names it). */
+export function cardsReport(ctx: RepoContext, opts: { changed?: boolean; recent?: boolean; module?: string } = {}): CardsReport {
   const g = ctx.graph;
-  const report: CardsReport = { fresh: [], stale: [], missing: [], scope: opts.changed ? 'changed' : 'all' };
+  const report: CardsReport = { fresh: [], stale: [], missing: [], scope: opts.changed ? 'changed' : opts.recent ? 'recent' : 'all' };
   if (!g) return report;
-  const files = opts.changed ? changedFiles(ctx) : (git(ctx.root, ['ls-files', '--cached', '--others', '--exclude-standard']) ?? '').split('\n').filter(Boolean);
+  const files = opts.changed ? changedFiles(ctx) : opts.recent ? recentFiles(ctx) : (git(ctx.root, ['ls-files', '--cached', '--others', '--exclude-standard']) ?? '').split('\n').filter(Boolean);
   for (const f of files.sort()) {
     if (exemptFromCards(f, ctx.config.cardsExclude)) continue;
     if (opts.module && !walk(g, f, { maxDecisions: 0 }).chain.includes(opts.module)) continue;
@@ -99,8 +109,12 @@ export function nextStep(ctx: RepoContext, opts: { doctor?: boolean } = {}): Nex
   }
 
   const ins = ['AGENTS.md', 'CLAUDE.md'].find((f) => existsSync(join(ctx.root, f)));
-  if (ins && !readFileSync(join(ctx.root, ins), 'utf8').includes(INSTRUCTION_HEADING)) {
+  const block = ins ? instructionBlockState(readFileSync(join(ctx.root, ins), 'utf8')) : 'current';
+  if (block === 'missing') {
     return result('init', `${ins} has no Context Graph block, so agents are never told to hydrate before they read, or how the loop works.`, { command: 'ctx install instructions' });
+  }
+  if (block === 'outdated') {
+    return result('init', `${ins} carries an older Context Graph block, which tells agents something the hooks no longer do. ctx install instructions brings it up to date.`, { command: 'ctx install instructions' });
   }
 
   const changed = cardsReport(ctx, { changed: true });
@@ -138,12 +152,12 @@ export async function run(args: Args, env: { json: boolean }): Promise<number> {
       return 0;
     }
     const module = str(args.flags.module);
-    const r = cardsReport(ctx, { changed: args.flags.changed === true, ...(module ? { module } : {}) });
+    const r = cardsReport(ctx, { changed: args.flags.changed === true, recent: args.flags.recent === true, ...(module ? { module } : {}) });
     if (!ctx.graph) { console.error('no graph for this repository: ctx init'); return 1; }
     const pick = args.flags.missing === true ? { missing: r.missing } : args.flags.stale === true ? { stale: r.stale } : r;
     if (env.json) { console.log(JSON.stringify(pick, null, 2)); return 0; }
     const total = r.fresh.length + r.stale.length + r.missing.length;
-    console.log(`${r.scope === 'changed' ? 'changed files' : 'files'}: ${r.fresh.length} with a current card, ${r.stale.length} stale, ${r.missing.length} missing, of ${total}`);
+    console.log(`${r.scope === 'changed' ? 'changed files' : r.scope === 'recent' ? 'files changed in the last 14 days' : 'files'}: ${r.fresh.length} with a current card, ${r.stale.length} stale, ${r.missing.length} missing, of ${total}`);
     if (args.flags.missing !== true) for (const f of r.stale) console.log(`  stale    ${f}`);
     if (args.flags.stale !== true) for (const f of r.missing) console.log(`  missing  ${f}`);
     return 0;

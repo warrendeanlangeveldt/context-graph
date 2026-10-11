@@ -60,3 +60,22 @@ The lead may decline a batch. Once it does, no other batch is offered this sessi
 | Question                         | Owner  | Blocks   |
 | -------------------------------- | ------ | -------- |
 | The card writer's default model. | Warren | 09-panes |
+
+### CARDW-7 Cards in the background, not the agents' work
+
+With `[enforce] cards = "background"` (the default), an edit owes no card: the agent isn't asked for one and its turn isn't held, and the session's instructions tell it the card writer writes them, from the file, its diff and its commit messages, so it says why in its commits. The card writer's jobs, in order: files asked for, files owed (with `block`), the branch's changed files without a current card, then files merged in the last 14 days without one (`ctx cards --recent`: the lanes' work, edited in worktrees this checkout never saw), then the backfill. For a file someone just changed it reads its last commits and diff before writing, so the card carries what the change was for. `cards = "block"` keeps the old behaviour, where the agent writes it. An instruction block that still tells agents to write their cards is out of date: `ctx next` says so, and `ctx install instructions` replaces it in place.
+
+**Acceptance**
+
+- Given the default config and an agent editing a file, then nothing asks it for a card on its next call, and its turn ends.
+- Given a commit merged from a lane changing `src/b.ts` without a card, then `ctx cards --recent` lists it missing, and the card writer's batch has it after the branch's own changed files.
+- Given a CLAUDE.md with the older block, then `ctx next` gives `ctx install instructions`, which replaces the block in place and keeps the sections after it.
+
+### GATE-5 Shell edits are checked like the edit tools
+
+A shell command that writes a file (a redirect, `tee`, `sed -i`, or an interpreter script such as `python3 - <<'PY'` that opens it for writing) is refused before it runs when the file isn't understood, with the same list of what to read as an edit tool gets.
+
+**Acceptance**
+
+- Given a `python3` heredoc that reads and rewrites `api/src/core/orch/bb.ts`, unread, then it's refused naming the file; once it and what it imports are read, it runs.
+

@@ -5,7 +5,7 @@ description: Switch Context Graph on in a repository, or finish switching it on.
 
 # Switch Context Graph on
 
-Context Graph runs in the background. Agents read a file's card (or the whole file) before they change it, and write the card after; the card writer fills in missing cards while the lead is idle; guidance agents find applies at once. The person isn't asked to review anything. Running this skill is their decision to switch it on, so don't ask questions: build it, configure it, commit it, and say in a few lines what it will now do.
+Context Graph runs in the background. Agents read a file's card (or the whole file) before they change it; the card writer writes the cards of edited files, and fills in the existing code's, while the lead is idle; guidance agents find applies at once. The person isn't asked to review anything. Running this skill is their decision to switch it on, so don't ask questions: build it, configure it, commit it, and say in a few lines what it will now do.
 
 The CLI is `node "${CLAUDE_PLUGIN_ROOT}/ctx.mjs"` (or `ctx`). Nothing here changes code; it adds `.ctx/` and a block in AGENTS.md or CLAUDE.md.
 
@@ -29,7 +29,7 @@ If the repository also runs code-kit with layers, pack import rules stay as guid
 
 In `.ctx/config.toml`:
 1. **Ratifiers.** Set `[repo] ratifiers` to this repository's own git identity: run `git config user.name` and `git config user.email` here and use `Name <email>` from those, nothing from anywhere else (not a global or account email). They're needed only for the rare rule that blocks edits, or a concept; nothing else asks for them.
-2. **The loop.** Leave `[enforce]` at its defaults: `read_before_edit`, `dependencies` and `cards` are `block`, so an edit without understanding is refused with what to read, and a card is owed after every edit. That's agent work, not the person's. Generated or vendored folders go under `[cards] exclude`, which adds to the defaults.
+2. **The loop.** Leave `[enforce]` at its defaults: `read_before_edit` and `dependencies` are `block`, so an edit without understanding (through the edit tools or a shell script) is refused with what to read; `cards` is `background`, so the card writer writes each edited file's card and agents spend no time on it. Generated or vendored folders go under `[cards] exclude`, which adds to the defaults.
 3. **The harness.** The defaults are the background ones: `agent_guidance = true` (an agent's rule applies at once as guidance), `card_writer = true` and `backfill = "active"` (the card writer cards the code changed in the last 90 days, leaves first, while the lead is idle; it pauses near the plan's limit and when code-kit's loop is paused). Write nothing unless the repository needs something else; `card_writer_model = "haiku"` keeps the backfill cheap on a big repository.
 
 Then add `.ctx/decisions.ctx merge=union` and `.ctx/cards.ctx merge=union` to `.gitattributes`, so decisions and cards recorded on parallel branches all survive a merge.

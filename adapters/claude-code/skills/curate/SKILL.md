@@ -5,7 +5,7 @@ description: Review a Context Graph with the person, when they want to. Lays out
 
 # Curate the graph
 
-Context Graph runs in the background: agents read and write the cards, and the guidance they find applies at once. Only rules that would block an edit, and concepts, need a person's signature. This skill is for when the person wants to look over the graph anyway: it lays out what's there with its evidence, and applies what they decide. It is never a step the person has to take for the plugin to work.
+Context Graph runs in the background: agents read the cards, the card writer writes them, and the guidance agents find applies at once. Only rules that would block an edit, and concepts, need a person's signature. This skill is for when the person wants to look over the graph anyway: it lays out what's there with its evidence, and applies what they decide. It is never a step the person has to take for the plugin to work.
 
 The CLI is `node "${CLAUDE_PLUGIN_ROOT}/ctx.mjs"` (or `ctx`).
 
