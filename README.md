@@ -37,7 +37,7 @@ In Claude Code:
 /context-graph:next
 ```
 
-`/context-graph:next` looks at the repository and takes you through the next step. With no graph yet, that means proposing one from your tree, tests and docs, and reviewing it with you. Nothing is enforced until a graph exists. Want to see one first? `examples/booking-service/` is a real one, built by an agent.
+`/context-graph:next` looks at the repository and takes the next step. With no graph yet, that means switching Context Graph on: it builds the graph from your tree, tests and docs, and from then on runs in the background. It asks you nothing; agents read the cards (or the files) before they edit, write them after, and a background writer cards the code that's already there. Nothing is enforced until a graph exists. Want to see one first? `examples/booking-service/` is a real one, built by an agent.
 
 ## Why
 
@@ -66,11 +66,11 @@ It costs something. Enforced reading and writing cards took about 2.5 times the 
 
 ## Start: `/context-graph:next`
 
-Not sure what to do? Run `/context-graph:next`, in a new repository or at any point after. It reads where the repository stands and runs the right skill. It carries on until something needs you: a proposal to ratify, a commit to make, or nothing left to do.
+Not sure what to do? Run `/context-graph:next`, in a new repository or at any point after. It reads where the repository stands and runs the right skill. It carries on until something needs you, which is rare: a rule that would block edits, a restart after an update, or nothing left to do.
 
 | The repository has | `next` runs |
 | --- | --- |
-| No graph | `init`: propose one from the tree, tests, instruction files and ADRs, and review it with you |
+| No graph | `init`: build one from the tree, tests, instruction files and ADRs, and switch it on, with no questions |
 | A broken graph or setup | `status`: what's wrong and how to fix it |
 | Cards or decisions owed by the last session | `cards` |
 | No Context Graph block in AGENTS.md or CLAUDE.md | `ctx install instructions` |
@@ -83,7 +83,7 @@ Not sure what to do? Run `/context-graph:next`, in a new repository or at any po
 | Skill | What it's for |
 | --- | --- |
 | `/context-graph:next` | The next step, from the repository's state |
-| `/context-graph:init` | Set up a graph, ratifiers, the loop's settings and the instruction block |
+| `/context-graph:init` | Switch Context Graph on: the graph, the background settings and the instruction block, with no questions |
 | `/context-graph:cards` | Write the cards and decisions the work owes, from a full read |
 | `/context-graph:curate` | Ratify, reword, retire and tidy the graph, with you deciding |
 | `/context-graph:status` | Is it working, is the graph valid, what it holds, what the last session did |
@@ -194,10 +194,10 @@ With Claude Code 2.1.287 or later, the plugin's mod shows the graph to you while
   - **Coverage:** for each agent this session, files read in full, files only searched, files edited, and cards owed. An edit made without understanding is marked, with what was still unread; Enter on an agent opens the file it edited without understanding.
   - **Map:** the modules as a graph, left to right: each a node with its rules (proposed ones marked `+n?`) and how many of its files have a current card, joined to the modules it contains, drawn with box-drawing characters in the terminal and as an image with coverage rings and import lines on Desktop. A module where a decision was just recorded pulses; one whose rule is overridden again and again is outlined red. **j**/**k** select a module and show its detail: its decisions over the last 30 days as a sparkline, what it imports, an overridden rule with what to reword, and the proposals on it with **Accept**, **Reject…** and **Later**. **Enter** on a module shows its files as a heat map, a cell each, current, stale, missing or owed this session, with a legend; **Enter** on a file opens it in the File tab.
 - **Read-assist:** when an edit is refused because the file isn't understood yet, the refusal is drawn as a card listing the files still to read, ticked as the agent reads them ("1 of 2 read", then "understood"), and the agent is told to read them in full and edit again. Only its own full reads count. Edit rows in the transcript carry a tag while they're "not understood" or have a "card owed". The Coverage tab lists each reading list's progress.
-- **The band** above the prompt shows the same health line while proposals or cards wait, or the graph's health isn't good, with a button that opens the pane.
-- **The card writer,** when `/graph-settings` turns it on: when the lead finishes a turn, the lead is asked to start it in the background on the cards owed this session and the files the branch changed without a current card, up to ten at a time. It reads each file in full, with what it imports, before writing its card, and never edits a file. A file an agent edited in the last 2 minutes waits. With it on, **Write card** and **Cards for this module** queue files for it instead of asking the lead. It pauses while the plan's 5-hour use is past the pause point (code-kit's, when code-kit is installed). The Coverage tab says what it's doing.
-- **The backfill,** for a project that already has code: with `[harness] backfill` set to `active` (the modules changed in the last 90 days) or `all`, the card writer also cards the existing files, leaves first, so each file's imports are carded before it's read. `/context-graph:init` offers it, and `ctx cards --backfill` shows what it would take. Its progress shows in the band, with **Pause**, and in the Map tab.
-- **The curator,** when turned on: after every 10 new decisions, or when you press **Curate now** in the Proposals tab, the lead is asked to start it in the background. It reviews the decisions and the graph's evidence and proposes the rules three or more decisions on one module follow that nobody wrote down, citing them. It only proposes: ratifying, dropping and retiring stay yours. Agreed rules the team keeps overriding (three times since ratified, or on a streak) are flagged in the Proposals tab with the decisions that overrode them, and count against the health line. It pauses with the card writer.
+- **The band** above the prompt stays empty while all is well. Context Graph runs in the background: cards owed are the agents' work, and suggestions wait in the pane. It shows a line only when something is wrong that you may want to know, such as rules the agents keep working around, with a button that opens the pane.
+- **The card writer,** on by default (`/graph-settings` turns it off): when the lead finishes a turn, the lead is asked to start it in the background on the cards owed this session and the files the branch changed without a current card, up to ten at a time. It reads each file in full, with what it imports, before writing its card, and never edits a file. A file an agent edited in the last 2 minutes waits. With it on, **Write card** and **Cards for this module** queue files for it instead of asking the lead. It pauses while the plan's 5-hour use is past the pause point (code-kit's, when code-kit is installed). The Coverage tab says what it's doing.
+- **The backfill,** for a project that already has code: with `[harness] backfill` at `active` (the default: the modules changed in the last 90 days) or `all`, the card writer also cards the existing files, leaves first, so each file's imports are carded before it's read. It starts on its own once Context Graph is switched on, and `ctx cards --backfill` shows what it would take. Its progress shows in the Map tab, with **Pause**.
+- **The curator,** when turned on: after every 10 new decisions, or when you press **Curate now** in the Proposals tab, the lead is asked to start it in the background. It reviews the decisions and the graph's evidence and adds, as guidance, the rules three or more decisions on one module follow that nobody wrote down, citing them. It never adds a rule that blocks edits, and ratifying, dropping and retiring stay yours. Agreed rules the team keeps overriding (three times since ratified, or on a streak) are flagged in the Proposals tab with the decisions that overrode them, and count against the health line. It pauses with the card writer.
 - **`/why <path, module, rule or question>`** (or **Why?** on the file in view, on **w**) asks the graph why, beside the conversation: the records on what it names (cards, rules, decisions) are looked up, and a side call over the session's own context answers from them alone, citing them, in a pane of its own with its time and tokens. The lead's conversation gains nothing. When the graph holds nothing on it, it says so and makes no call.
 - **`/graph-settings`** opens the harness settings: the card writer, the curator and side questions, each on or off with its model, and the pause point. A change asks your reason, and is written to `.ctx/config.toml` as yours. With code-kit's mod as well, both plugins' lines stand together.
 
@@ -323,7 +323,7 @@ ctx module L:billing --paths "src/billing/** src/invoices/**" --name "Billing"
 - **Edge:** its containment edge is proposed until a person ratifies it, and its files inherit the parent's rules through it meanwhile. With `modules` in `[delegate] may_ratify`, the lead adds it agreed, with `--delegated --reason "…"`.
 - **On a graph that already names its modules,** `ctx init` proposes modules for the folders nothing maps yet, other than the root or a parent folder's glob, in the same way.
 
-**Proposing a rule.** Any agent, or you, can propose a rule for a path's module: `ctx propose src/billing/invoice.ts "Money is stored as integer cents"` (or the MCP tool `propose`). Name the module as `L:…` instead of a path if you like; add `--test <path>` for a test that checks it, or `--rule` for a checkable rule. It goes into `proposals.ctx` and applies as proposed until a person ratifies it.
+**Proposing a rule.** Any agent, or you, can propose a rule for a path's module: `ctx propose src/billing/invoice.ts "Money is stored as integer cents"` (or the MCP tool `propose`). Name the module as `L:…` instead of a path if you like; add `--test <path>` for a test that checks it, or `--rule` for a checkable rule. It's guidance: it informs every agent that edits there and never blocks an edit, so it applies at once, added to `graph.ctx` with no one asked. With `[harness] agent_guidance = false`, it waits in `proposals.ctx` instead, applying as proposed until a person accepts it. A rule that blocks edits (`E`) and a concept always need a person's signature.
 
 **Proposals, ratifying and dropping, as the person.** `ctx proposals` lists the proposed rules and concepts with their evidence: decisions that served each, decisions that overrode it, and current violations of a checkable rule.
 

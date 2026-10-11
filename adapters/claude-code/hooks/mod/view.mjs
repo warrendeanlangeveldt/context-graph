@@ -298,6 +298,7 @@ export function contextPane(model, els, handlers) {
               proposals: model.proposals ?? [],
               now: model.now,
               backfill: model.backfillLine ?? null,
+              backfillPaused: model.backfillPaused ?? false,
             },
             handlers,
           )

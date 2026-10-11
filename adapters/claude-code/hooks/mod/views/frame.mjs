@@ -41,11 +41,17 @@ export function healthOf({ cards = null, owed = 0, proposals = 0, flagged = 0 })
 
 const LEVEL_COLOR = { good: 'green', amber: 'yellow', red: 'red' };
 
-/** VIEW-1: the band's line, while something waits on the person or the health isn't good; else none. */
+/**
+ * VIEW-1: the band's line, only when something is wrong that the person may want to know: rules the
+ * agents keep working around. Context Graph runs in the background: cards owed are the agents' work,
+ * and suggestions wait in the pane, so neither is shown above the prompt.
+ */
 export function bandHealth(health) {
-  if (!health) return null;
-  if (health.level === 'good' && !health.proposals && !health.owed) return null;
-  return { text: health.text, color: LEVEL_COLOR[health.level] };
+  if (!health?.flagged) return null;
+  return {
+    text: `${plural(health.flagged, 'rule', 'rules')} the agents keep working around`,
+    color: health.flagged >= 3 ? 'red' : 'yellow',
+  };
 }
 
 /**

@@ -249,7 +249,22 @@ export function moduleGraph(map, els, view = {}, handlers = {}) {
   const detail = m ? moduleDetail(m, map, { flagged: flagged.get(m.id) ?? [], proposals: proposals.filter((p) => p.module === m.id), now }, els, handlers) : [];
   return [
     text('MODULES', { bold: true, color: 'cyan' }),
-    ...(backfill ? [text(backfill, { key: 'map-backfill', color: 'yellow' })] : []),
+    // The backfill's progress, with Pause or Resume here rather than above the prompt.
+    ...(backfill
+      ? [
+          Box({
+            key: 'map-backfill-row',
+            flexDirection: 'row',
+            columnGap: 2,
+            children: [
+              text(backfill, { key: 'map-backfill', color: 'yellow' }),
+              ...(handlers.onPauseBackfill
+                ? [Button({ key: 'map-backfill-pause', label: view.backfillPaused ? 'Resume' : 'Pause', plain: true, onPress: () => handlers.onPauseBackfill() })]
+                : []),
+            ],
+          }),
+        ]
+      : []),
     Box({ key: 'graph', flexDirection: 'column', children: drawing }),
     text("r rules · +n? proposed · files with their why/files (a file's why is its card) · red: a rule overridden · blue: a decision just recorded", { key: 'graph-legend', dimColor: true }),
     ...detail,

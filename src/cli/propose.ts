@@ -15,8 +15,10 @@ export async function run(args: Args, env: { json: boolean }): Promise<number> {
   const r = result.record;
   console.log(
     env.json
-      ? JSON.stringify({ proposed: r.id, module: r.attachedTo, text: r.text, test: r.test ?? null, rule: r.rule ?? null }, null, 2)
-      : `proposed ${r.id} on ${r.attachedTo}: ${formatRecord(r)}\nIt applies as proposed until a person ratifies it (ctx ratify ${r.id}, or Ratify in the Context pane).`,
+      ? JSON.stringify({ [r.mode === 'G' ? 'added' : 'proposed']: r.id, mode: r.mode, module: r.attachedTo, text: r.text, test: r.test ?? null, rule: r.rule ?? null }, null, 2)
+      : r.mode === 'G'
+        ? `added guidance ${r.id} on ${r.attachedTo}: ${formatRecord(r)}\nIt applies now: agents editing ${r.attachedTo} see it before they edit.`
+        : `proposed ${r.id} on ${r.attachedTo}: ${formatRecord(r)}\nIt applies as proposed until a person accepts it (ctx ratify ${r.id}, or Accept in the Context pane).`,
   );
   return 0;
 }

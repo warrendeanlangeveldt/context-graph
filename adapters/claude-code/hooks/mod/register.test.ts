@@ -296,14 +296,14 @@ test('FILE-5 without a graph, /graph says how to start one and there is no band'
   await band.unmount();
 });
 
-test('RAT-1 and RAT-2 the proposals show their evidence, and the band counts them', async ($, on) => {
+test('RAT-1 and RAT-2 the proposals show their evidence in the pane, and never call for the person in the band', async ($, on) => {
   const w = project();
   await start($, on, w);
   const band = await bandUi($);
-  expect(await band.find({ type: 'Text', text: '☀ 90% have their why · 0 owed · 2 proposals' })).toBeDefined();
-  await press($, 'band-context');
-  expect(w.opened).toContain(PANE);
+  // Suggestions wait quietly: Context Graph runs in the background.
+  expect(await band.find({ key: 'band-context-graph' })).toBeUndefined();
   await band.unmount();
+  await ctx($);
   const ui = await mountPane($, PANE);
   await press($, 'tab-proposals', PANE);
   expect(await ui.find({ type: 'Text', text: 'Evidence: served by 3 decisions, overridden by 1 decision' })).toBeDefined();
@@ -469,8 +469,20 @@ test("VIEW-1 the header and the band sum up the graph's health: carded share, ca
   const header = await ui.find({ type: 'Text', text: '⛅ 90% have their why · 1 owed · 0 proposals' });
   expect(header?.props.color).toBe('yellow');
   await ui.unmount();
+  // Cards owed are the agents' work: the band says nothing of them.
   const band = await bandUi($);
-  expect((await band.find({ type: 'Text', text: '⛅ 90% have their why · 1 owed · 0 proposals' }))?.props.color).toBe('yellow');
+  expect(await band.find({ key: 'band-context-graph' })).toBeUndefined();
+  await band.unmount();
+});
+
+test('VIEW-1 the band speaks only when something is wrong: rules the agents keep working around', async ($, on) => {
+  const w = project();
+  w.hygiene = [{ signal: 'overridden-in-practice', target: 'src.small', evidence: 'overridden by 3 decisions', proposal: 'reword it' }];
+  await start($, on, w);
+  const band = await bandUi($);
+  expect((await band.find({ type: 'Text', text: '1 rule the agents keep working around' }))?.props.color).toBe('yellow');
+  await press($, 'band-context');
+  expect(w.opened).toContain(PANE);
   await band.unmount();
 });
 
@@ -746,7 +758,7 @@ const moreDecisions = async ($: any, w: any, clock: any, n: number) => {
   await clock.advance(2000);
 };
 
-test('CUR-1 and CUR-3 after 10 new decisions, the lead starts the curator, which only proposes', async ($, on) => {
+test('CUR-1 and CUR-3 after 10 new decisions, the lead starts the curator, which only adds guidance', async ($, on) => {
   const w = curating(5);
   const clock = await start($, on, w);
   expect(w.registered.find((s) => s.name === 'curator')).toMatchObject({ disallowedTools: ['Edit', 'MultiEdit', 'Write', 'NotebookEdit'] });
@@ -757,7 +769,7 @@ test('CUR-1 and CUR-3 after 10 new decisions, the lead starts the curator, which
   await moreDecisions($, w, clock, 15);
   await leadTurn($, clock, 't-2');
   expect(w.prompts).toEqual([
-    'Start Context Graph\'s curator in the background: use the Agent tool with subagent_type "context-graph:curator", run_in_background true, description "Curate the graph (Context Graph)", and the prompt "Review the 10 decisions recorded since you last ran and the graph\'s evidence; propose the rules they show." Then carry on; it only proposes. If the person has asked you not to run it now, say so and don\'t start it: Context Graph won\'t ask again until ten more decisions are recorded.',
+    'Start Context Graph\'s curator in the background: use the Agent tool with subagent_type "context-graph:curator", run_in_background true, description "Curate the graph (Context Graph)", and the prompt "Review the 10 decisions recorded since you last ran and the graph\'s evidence; add the rules they show as guidance." Then carry on; it only adds guidance, never a rule that blocks edits. If the person has asked you not to run it now, say so and don\'t start it: Context Graph won\'t ask again until ten more decisions are recorded.',
   ]);
   // Its report ends its run; the next counts from there.
   w.running = [{ id: 'cu1', type: 'context-graph:curator', description: 'Curate the graph (Context Graph)', status: 'completed' }];
@@ -1016,20 +1028,25 @@ test('backfill: the card writer takes the existing code, leaves first, ten at a 
   expect(w.prompts[0]).toMatch(/Write 10 cards/);
 });
 
-test('backfill: the band shows its progress with Pause; paused, no batch starts until Resume', async ($, on) => {
+test('backfill: it runs in the background, out of the band; the Map tab shows its progress with Pause, and paused no batch starts until Resume', async ($, on) => {
   const w = backfilling();
   const clock = await start($, on, w);
-  let band = await bandUi($);
-  expect(await band.find({ type: 'Text', text: 'Card backfill: 2 of 12 files have their why (modules changed in the last 90 days)' })).toBeDefined();
-  await press($, 'band-backfill-pause');
+  const band = await bandUi($);
+  expect(await band.find({ type: 'Text', text: /Card backfill/ })).toBeUndefined();
   await band.unmount();
+  await ctx($);
+  let ui = await mountPane($, PANE);
+  await press($, 'tab-map', PANE);
+  expect(await ui.find({ type: 'Text', text: 'Card backfill: 2 of 12 files have their why (modules changed in the last 90 days)' })).toBeDefined();
+  await press($, 'map-backfill-pause', PANE);
+  await ui.unmount();
   await leadTurn($, clock);
   expect(w.prompts).toEqual([]);
-  band = await bandUi($);
-  expect(await band.find({ type: 'Text', text: /^Card backfill paused: 2 of 12/ })).toBeDefined();
-  expect((await band.find({ key: 'band-backfill-pause' }))?.props.label).toBe('Resume');
-  await press($, 'band-backfill-pause');
-  await band.unmount();
+  ui = await mountPane($, PANE);
+  expect(await ui.find({ type: 'Text', text: /^Card backfill paused: 2 of 12/ })).toBeDefined();
+  expect((await ui.find({ key: 'map-backfill-pause' }))?.props.label).toBe('Resume');
+  await press($, 'map-backfill-pause', PANE);
+  await ui.unmount();
   await leadTurn($, clock, 't-2');
   expect(w.prompts).toHaveLength(1);
 });

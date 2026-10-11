@@ -26,7 +26,7 @@ A rule overridden three or more times since it was ratified is flagged in the ba
 
 ### CUR-3 Never decides
 
-The curator may only propose; ratifying, dropping and retiring stay the person's or the delegated ratifier's.
+The curator adds only guidance, which applies at once (with `[harness] agent_guidance` on, the default; off, it waits as a proposal). It never adds a rule that blocks edits; ratifying, dropping and retiring stay the person's or the delegated ratifier's.
 
 ### CUR-4 Paused near the plan's limit
 

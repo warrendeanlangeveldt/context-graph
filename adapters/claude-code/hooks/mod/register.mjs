@@ -37,7 +37,7 @@ const EDIT_TOOLS = new Set(['Edit', 'MultiEdit', 'Write', 'NotebookEdit']);
 const cardWriter = { agent: null, model: null, writing: [], batch: null, declined: false };
 const declined = new Set(); // files whose batch the lead didn't start (the card writer then stops offering for the session)
 const asked = []; // paths queued for the card writer from the pane (CARDW-4)
-let backfillPaused = false; // the person paused the backfill for this session, from the band
+let backfillPaused = false; // the person paused the backfill for this session, from the Map tab
 // The curator (spec 05): its agent, whether it's running, and the decision count at its last run.
 const curator = { agent: null, model: null, running: false, baseline: null, asked: false, turnId: null, awaiting: false, declined: false };
 let asking = null; // the side question in its pane (spec 07): { question, sources, answer?, error?, ms?, usage?, pending }
@@ -672,6 +672,7 @@ export function register(on) {
         baseline: curator.baseline ?? 0,
       }),
       backfillLine: backfillNow(),
+      backfillPaused,
       declined: cardWriter.declined ? declined.size || 1 : 0,
       curatorDeclined: curator.declined,
       cardWriterLine: cardWriterLine({
@@ -763,6 +764,7 @@ export function register(on) {
       onLanes: () => act.lanes(),
       onWriteCard: (path) => act.askForCards(path, `card for ${path}`),
       onModuleCards: (module) => act.askForCards(module, `cards for the files in ${module} without a current one`),
+      onPauseBackfill: () => act.pauseBackfill(),
     });
   });
 
@@ -815,50 +817,32 @@ export function register(on) {
     });
   });
 
-  // RAT-2: one line while proposals wait, above whatever else the band holds (another plugin's, or
-  // Claude Code's own), so the two mods' lines stand together.
+  // VIEW-1: one line, only when something is wrong, above whatever else the band holds (another
+  // plugin's, or Claude Code's own), so the two mods' lines stand together.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    // Context Graph runs in the background: its band line shows only when something is wrong (rules the
+    // agents keep working around). The backfill's progress and its Pause are in the Map tab.
     const line = model.kind === 'graph' ? bandHealth(healthNow()) : null;
-    // The backfill's line while it has files left, with Pause or Resume.
-    const filling = model.kind === 'graph' && model.backfill?.files.length ? backfillNow() : null;
-    if ((!line && !filling) || !act) return next(e);
+    if (!line || !act) return next(e);
     const { Box, Text, Button } = $.ui.resolve(e);
     const below = await next(e);
     return Box({
       flexDirection: 'column',
       children: [
-        ...(line
-          ? [
-              Box({
-                key: 'band-context-graph',
-                flexDirection: 'row',
-                columnGap: 2,
-                children: [
-                  Text({ color: 'cyan', children: ['Context Graph'] }),
-                  Text({ color: line.color, children: [line.text] }),
-                  Button({
-                    key: 'band-context',
-                    label: 'Context',
-                    onPress: () => act.open(),
-                  }),
-                ],
-              }),
-            ]
-          : []),
-        ...(filling
-          ? [
-              Box({
-                key: 'band-backfill',
-                flexDirection: 'row',
-                columnGap: 2,
-                children: [
-                  Text({ color: 'cyan', children: ['Context Graph'] }),
-                  Text({ children: [filling] }),
-                  Button({ key: 'band-backfill-pause', label: backfillPaused ? 'Resume' : 'Pause', onPress: () => act.pauseBackfill() }),
-                ],
-              }),
-            ]
-          : []),
+        Box({
+          key: 'band-context-graph',
+          flexDirection: 'row',
+          columnGap: 2,
+          children: [
+            Text({ color: 'cyan', children: ['Context Graph'] }),
+            Text({ color: line.color, children: [line.text] }),
+            Button({
+              key: 'band-context',
+              label: 'Context',
+              onPress: () => act.open(),
+            }),
+          ],
+        }),
         ...(below ? [below] : []),
       ],
     });
