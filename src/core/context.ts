@@ -23,14 +23,20 @@ export interface EmbedConfig {
 
 /** How a rule of the context loop acts: not at all, as a note on the next tool call, or by refusing. */
 export type EnforceMode = 'off' | 'nudge' | 'block';
+/** Cards may also be written in the background, by the card writer, instead of by the agent that edited. */
+export type CardsMode = EnforceMode | 'background';
 
 export interface EnforceConfig {
   /** Before editing a file: its fresh card, or the file read in full. */
   readBeforeEdit: EnforceMode;
   /** On a miss, what the file imports; when an edit changes its exports, what imports it. Each read, or its fresh card. */
   dependencies: EnforceMode;
-  /** After editing a file, its card is written or brought up to date. `block` holds the turn like a decision. */
-  cards: EnforceMode;
+  /**
+   * After editing a file, its card is written or brought up to date. `background` (the default): the card
+   * writer writes it once the edit settles, and the agent owes nothing; `block` holds the agent's turn
+   * like a decision until it writes the card itself.
+   */
+  cards: CardsMode;
   /** At most this many importers are required, the ones without fresh cards first. */
   maxImporters: number;
 }
@@ -106,7 +112,7 @@ export function defaultConfig(): Config {
     embed: { enabled: false, provider: 'minilm', apiKeyEnv: 'OPENAI_API_KEY', minScore: 0.45, maxHints: 2, include: ['docs/**/*.md'], exclude: ['**/generated/**', '**/*.lock', '**/package-lock.json', '**/*.min.js'], includeArchived: false, inProcessHooks: false },
     packs: ['auto'],
     packBindings: {},
-    enforce: { readBeforeEdit: 'block', dependencies: 'block', cards: 'block', maxImporters: 5 },
+    enforce: { readBeforeEdit: 'block', dependencies: 'block', cards: 'background', maxImporters: 5 },
     cardsExclude: [
       '.ctx/**', '.claude/**', '.git/**', '.github/**', '**/node_modules/**', '**/dist/**', '**/build/**', '**/generated/**',
       '**/*.lock', '**/package-lock.json', '**/pnpm-lock.yaml', '**/yarn.lock', '**/*.min.js', '**/*.map',
@@ -205,7 +211,11 @@ export function loadConfig(graphDir: string | undefined): Config {
     cfg.packs = tomlGet(t, 'init', 'packs', cfg.packs);
     cfg.enforce.readBeforeEdit = mode(tomlGet<TomlValue>(t, 'enforce', 'read_before_edit', cfg.enforce.readBeforeEdit), cfg.enforce.readBeforeEdit);
     cfg.enforce.dependencies = mode(tomlGet<TomlValue>(t, 'enforce', 'dependencies', cfg.enforce.dependencies), cfg.enforce.dependencies);
-    cfg.enforce.cards = mode(tomlGet<TomlValue>(t, 'enforce', 'cards', cfg.enforce.cards), cfg.enforce.cards);
+    // `background` is the cards rule's own fourth mode; any other value reads as the others do, and one
+    // that isn't a mode keeps the default.
+    const cards = tomlGet<TomlValue>(t, 'enforce', 'cards', cfg.enforce.cards);
+    if (cards === 'background' || cards === 'off' || cards === 'nudge' || cards === 'block') cfg.enforce.cards = cards;
+    else if (typeof cards === 'boolean') cfg.enforce.cards = cards ? 'block' : 'off';
     cfg.enforce.maxImporters = tomlGet(t, 'enforce', 'max_importers', cfg.enforce.maxImporters);
     // A project's exclusions add to the defaults: listing one generated folder should not drop the rest.
     for (const g of tomlGet<string[]>(t, 'cards', 'exclude', [])) if (!cfg.cardsExclude.includes(g)) cfg.cardsExclude.push(g);

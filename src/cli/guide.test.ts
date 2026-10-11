@@ -107,6 +107,18 @@ describe('ctx next and ctx cards', () => {
     expect(r.missing).toEqual(['src/a.ts']);
   });
 
+  it('CARDW-7 --recent: files the commits of the last 14 days changed, merged from a lane, without a current card', () => {
+    withGraph();
+    writeFileSync(join(repo, 'src/b.ts'), 'export const b = 1;\n');
+    git('add', '-A');
+    git('commit', '-q', '-m', 'ST-4 b, merged from web/st-4');
+    const r = cardsReport(openRepo({ repo }), { recent: true });
+    expect(r.scope).toBe('recent');
+    expect(r.missing).toEqual(['src/a.ts', 'src/b.ts']);
+    writeCard(openRepo({ repo }).graph!, repo, { path: 'src/b.ts', text: 'Holds b.', who: 't', date: '2026-10-11' });
+    expect(cardsReport(openRepo({ repo }), { recent: true }).missing).toEqual(['src/a.ts']);
+  });
+
   it("CARDW-4 a module's files: those whose chain names it", () => {
     withGraph();
     mkdirSync(join(repo, 'lib'));

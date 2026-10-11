@@ -134,6 +134,7 @@ async function init(args: Args, env: { json: boolean }): Promise<number> {
       console.log(`wrote ${graphFile} (${all.length} records) and config.toml`);
       const ins = appendInstructionBlock(ctx.root);
       if (ins.status === 'appended') console.log(`appended the Context Graph block to ${ins.file}`);
+      else if (ins.status === 'updated') console.log(`brought the Context Graph block in ${ins.file} up to date`);
       else if (ins.status === 'present') console.log(`${ins.file} already carries the Context Graph block`);
       else console.log(`no AGENTS.md or CLAUDE.md to carry the Context Graph block; add this to your agent instructions:\n\n${INSTRUCTION_BLOCK}`);
     } else {

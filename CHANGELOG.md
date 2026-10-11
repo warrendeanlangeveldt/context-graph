@@ -2,6 +2,15 @@
 
 What changed in each release of Context Graph, newest first. Versions follow the plugin manifests and the npm package `@warren-dean/context-graph`. Each release is also on [GitHub Releases](https://github.com/warrendeanlangeveldt/context-graph/releases).
 
+## 0.6.0 (2026-10-11)
+
+Cards are written in the background, and the gate sees shell edits.
+
+- **Agents don't write cards any more.** By default (`[enforce] cards = "background"`), after an edit the card writer writes the file's card once the edit settles, from the file, its recent commits and its diff, so the card still says why the file changed. Agents are told to put that why in their commit messages. `cards = "block"` brings back the old behaviour, where each agent writes its own.
+- **Lane work gets its cards after it merges.** Lanes edit in their own worktrees, which the card writer can't see, so it also cards the files merged in the last 14 days without one. `ctx cards --recent` lists them.
+- **Shell edits are gated like the edit tools.** A `python3` or `node` script, `sed -i`, a redirect or `tee` that writes a file nobody read is refused before it runs, with the list of what to read.
+- **An older instruction block is brought up to date.** CLAUDE.md or AGENTS.md carrying the old block (which told agents to write their cards) is reported by `ctx next`, and `ctx install instructions` replaces it in place, keeping the rest of the file.
+
 ## 0.5.0 (2026-10-11)
 
 Context Graph now runs in the background. Agents read a file's card before they change it and write it after; nothing waits on you.

@@ -56,6 +56,7 @@ function project() {
     cards: { fresh: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'], stale: ['j'], missing: [] } as any,
     editRefusal: '',
     changed: { fresh: [], stale: [], missing: [] } as any,
+    recent: { fresh: [], stale: [], missing: [] } as any, // `ctx cards --recent`
     moduleCards: { fresh: [], stale: [], missing: [] } as any,
     registered: [] as any[],
     limits: [] as any[],
@@ -111,6 +112,7 @@ function stub(on: any, w: World) {
     if (sub === 'proposals') return ran(0, JSON.stringify(w.proposals));
     if (sub === 'cards' && argv.includes('--backfill')) return ran(0, JSON.stringify(w.backfill));
     if (sub === 'cards' && argv.includes('--changed')) return ran(0, JSON.stringify(w.changed));
+    if (sub === 'cards' && argv.includes('--recent')) return ran(0, JSON.stringify(w.recent));
     if (sub === 'cards' && argv.includes('--module')) return ran(0, JSON.stringify(w.moduleCards));
     if (sub === 'cards') return ran(0, JSON.stringify(w.cards));
     if (sub === 'neighbours') return ran(0, JSON.stringify(w.neighbours[argv[3]] ?? null));
@@ -683,6 +685,17 @@ test('CARDW-1 and CARDW-2 with the lead idle, the lead starts the card writer on
   await press($, 'tab-coverage', PANE);
   expect(await ui.find({ type: 'Text', text: 'Card writer: writing 2 (src/a.ts, src/b.ts)' })).toBeDefined();
   await ui.unmount();
+});
+
+test('CARDW-7 files merged in lately from the lanes come after the branch\'s own, and the writer looks for why they changed', async ($, on) => {
+  const w = writing();
+  w.recent = { fresh: [], stale: ['packages/design/src/contrast.ts'], missing: ['apps/web/src/form.ts'] };
+  const clock = await start($, on, w);
+  expect(w.registered[0].prompt).toMatch(/its last commits \(`git log -3/);
+  await leadTurn($, clock);
+  expect(w.prompts[0]).toMatch(
+    /"Write the cards for: src\/a\.ts, src\/b\.ts, packages\/design\/src\/contrast\.ts, apps\/web\/src\/form\.ts\."/,
+  );
 });
 
 test('CARDW-1 a file an agent edited in the last 2 minutes waits', async ($, on) => {

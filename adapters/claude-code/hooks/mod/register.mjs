@@ -118,6 +118,8 @@ export function register(on) {
         // Spec 04: the harness settings, and the branch's changed files without a current card.
         settingRowsNow = (await json('settings')) ?? settingRowsNow;
         const changed = setting('card_writer', false) ? await json('cards', '--changed') : null;
+        // CARDW-7: what merged in from the lanes' worktrees lately, which this checkout never saw edited.
+        const recent = setting('card_writer', false) ? await json('cards', '--recent') : null;
         // The backfill: the existing code's files without a current card, leaves first.
         const backfillScope = setting('backfill', 'off');
         const backfill = backfillScope !== 'off' ? await json('cards', '--backfill', '--scope', backfillScope) : null;
@@ -152,6 +154,7 @@ export function register(on) {
           cards,
           neighbours,
           changed,
+          recent,
           backfill,
           flagged,
           decisions: info.counts?.decisions ?? 0,
@@ -327,6 +330,7 @@ export function register(on) {
           asked: writing ? asked.filter((p) => !declined.has(p)) : [],
           owed: writing ? [...new Set((model.agents ?? []).flatMap((a) => a.cardsOwed ?? []))].filter((p) => !declined.has(p)) : [],
           changed: writing && model.changed ? [...model.changed.stale, ...model.changed.missing].filter((p) => !declined.has(p)) : [],
+          recent: writing && model.recent ? [...model.recent.stale, ...model.recent.missing].filter((p) => !declined.has(p)) : [],
           backfill: setting('backfill', 'off') !== 'off' && !backfillPaused ? (model.backfill?.files ?? []).filter((p) => !declined.has(p)) : [],
           editedAt,
           now,

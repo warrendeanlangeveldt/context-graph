@@ -272,7 +272,8 @@ async function handleHook(input: HookInput, profile: HarnessProfile): Promise<Ho
     const slices: string[] = announce ? [announce] : [];
     // A decision owed from an earlier edit is asked for here, on the next tool call, where it costs a few
     // tokens and no interruption. The turn-end block only fires for a turn that ends without one.
-    const owed = ctx.config.demand || ctx.config.enforce.cards !== 'off' ? recorder.nudge({ cards: ctx.config.enforce.cards !== 'off' }) : undefined;
+    const agentCards = ctx.config.enforce.cards === 'block' || ctx.config.enforce.cards === 'nudge';
+    const owed = ctx.config.demand || agentCards ? recorder.nudge({ cards: agentCards }) : undefined;
     if (owed) slices.push(owed);
 
     const intent = intentOf(ti);
@@ -281,7 +282,9 @@ async function handleHook(input: HookInput, profile: HarnessProfile): Promise<Ho
 
     // Read before edit: an edit tool call whose file (and, on a miss, its dependencies) is not in this
     // agent's context and has no fresh card is refused, or noted, before it runs.
-    if (profile.isEditTool(tool) && targets.length) {
+    // A shell edit is checked like the edit tools: a script that writes a file it never read is the same
+    // edit without understanding, made where the edit tools' gate couldn't see it.
+    if ((profile.isEditTool(tool) || isShell(tool)) && targets.length) {
       const e = ctx.config.enforce;
       const modeOf = (r: Requirement['rule']): string => (r === 'read-before-edit' ? e.readBeforeEdit : e.dependencies);
       const rules: Requirement['rule'][] = ['read-before-edit', 'dependencies'];
@@ -402,7 +405,8 @@ async function handleHook(input: HookInput, profile: HarnessProfile): Promise<Ho
     const index = loadOrBuildImportIndex(root);
     const recorder = new Recorder(ctx.graph, state, root);
     for (const e of edits) {
-      if (injecting && ctx.config.enforce.cards !== 'off' && e.mode !== 'delete' && !exemptFromCards(e.path, ctx.config.cardsExclude)) recorder.owesCard(e.path);
+      // In the background mode the card writer writes it once the edit settles; the agent owes nothing.
+      if (injecting && (ctx.config.enforce.cards === 'block' || ctx.config.enforce.cards === 'nudge') && e.mode !== 'delete' && !exemptFromCards(e.path, ctx.config.cardsExclude)) recorder.owesCard(e.path);
       const symbol = e.range ? symbolAt(tc, e.path, e.range[0]) : undefined;
       const w = walk(ctx.graph, e.path, { maxDecisions: ctx.config.maxDecisions, ...(symbol ? { symbol } : {}) });
       const injected = events.some((ev) => ev.t === 'slice' && (ev.p as SlicePayload).path === e.path);
@@ -551,7 +555,8 @@ function loopText(ctx: RepoContext): string {
   const e = ctx.config.enforce;
   const parts: string[] = [];
   if (e.readBeforeEdit !== 'off') parts.push(`Before you edit a file, it must be understood: either it has a fresh card (shown when you first read it), or you read it in full (no offset or limit)${e.dependencies !== 'off' ? ', along with the files it imports (or their cards), and, when your edit changes what it exports, the files that import it' : ''}. ${e.readBeforeEdit === 'block' ? 'An edit without that is refused, with the list of what to read.' : 'An edit without that gets a note.'}`);
-  if (e.cards !== 'off') parts.push(`After editing a file, write or update its card while it is in your context (MCP tool: card; shell: ctx card <path> --text "..."): what the file is for, what it relies on, who relies on it, and what it must keep true.${e.cards === 'block' ? ' The turn will not end with a card owed.' : ''}`);
+  if (e.cards === 'background') parts.push("You don't write cards: Context Graph's card writer writes each edited file's card in the background once your edit settles, from the file, its diff and its commit messages. Say why in your commit messages; that's what the card will carry.");
+  else if (e.cards !== 'off') parts.push(`After editing a file, write or update its card while it is in your context (MCP tool: card; shell: ctx card <path> --text "..."): what the file is for, what it relies on, who relies on it, and what it must keep true.${e.cards === 'block' ? ' The turn will not end with a card owed.' : ''}`);
   return parts.join(' ');
 }
 
