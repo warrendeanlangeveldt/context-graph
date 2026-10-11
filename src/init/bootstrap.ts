@@ -62,17 +62,15 @@ export function headerSentences(src: string): string[] {
   return out.slice(0, 8);
 }
 
-export function bootstrap(ctx: RepoContext, opts: BootstrapOptions = {}): BootstrapResult {
-  const root = ctx.root;
-  const minFiles = opts.minFiles ?? 5;
-  const maxDepth = opts.maxDepth ?? 7;
-  const maxModules = opts.maxModules ?? 60;
-  const today = opts.today ?? isoToday();
-  const notes: string[] = [];
-  const files = (git(root, ['ls-files', '--cached', '--others', '--exclude-standard']) ?? '').split('\n').filter(Boolean);
-  if (!files.length) throw new Error(`git ls-files returned nothing for ${root}; commit something first`);
-
-  // 1. Directory tree of source files -> modules.
+/**
+ * The folders that look like modules: at least `minFiles` source files, collapsed through single-child
+ * chains and `src` conventions, the largest `maxModules` kept. Shared by init and by the check for a
+ * graph the code has outgrown.
+ */
+export function moduleCandidates(
+  files: string[],
+  { minFiles = 5, maxDepth = 7, maxModules = 60, notes = [] as string[] } = {},
+): { candidates: { dir: string; n: number }[]; counts: Map<string, number> } {
   const counts = new Map<string, number>();
   const direct = new Map<string, number>();
   for (const f of files) {
@@ -105,6 +103,42 @@ export function bootstrap(ctx: RepoContext, opts: BootstrapOptions = {}): Bootst
   }
   // A `src` directory is a convention, not a module: its files roll up to the enclosing module.
   candidates = candidates.filter((c) => !(GENERIC_DIRS.has(basename(c.dir)) && candidates.some((o) => o.dir !== c.dir && c.dir.startsWith(o.dir + '/'))));
+  return { candidates, counts };
+}
+
+/**
+ * Folders that look like modules but that the graph maps only to the whole repository: code grown
+ * since init (a graph made before there was code maps everything to one module). Sorted by size.
+ */
+export function unmappedFolders(ctx: RepoContext): string[] {
+  const g = ctx.graph;
+  if (!g) return [];
+  const files = (git(ctx.root, ['ls-files', '--cached', '--others', '--exclude-standard']) ?? '').split('\n').filter(Boolean);
+  const { candidates } = moduleCandidates(files);
+  return candidates
+    .filter((c) => {
+      const m = g.mapPath(`${c.dir}/__ctx_probe__.ts`);
+      return !m || m.glob === '**';
+    })
+    // A folder inside another unmapped one is the outer module's, until init splits it.
+    .filter((c, _, all) => !all.some((o) => o.dir !== c.dir && c.dir.startsWith(`${o.dir}/`)))
+    .sort((a, b) => b.n - a.n)
+    .map((c) => c.dir);
+}
+
+export function bootstrap(ctx: RepoContext, opts: BootstrapOptions = {}): BootstrapResult {
+  const root = ctx.root;
+  const minFiles = opts.minFiles ?? 5;
+  const maxDepth = opts.maxDepth ?? 7;
+  const maxModules = opts.maxModules ?? 60;
+  const today = opts.today ?? isoToday();
+  const notes: string[] = [];
+  const files = (git(root, ['ls-files', '--cached', '--others', '--exclude-standard']) ?? '').split('\n').filter(Boolean);
+  if (!files.length) throw new Error(`git ls-files returned nothing for ${root}; commit something first`);
+
+  // 1. Directory tree of source files -> modules.
+  const { candidates: found, counts } = moduleCandidates(files, { minFiles, maxDepth, maxModules, notes });
+  let candidates = found;
   candidates.sort((a, b) => b.dir.split('/').length - a.dir.split('/').length || a.dir.localeCompare(b.dir));
 
   const ids = new Map<string, string>();

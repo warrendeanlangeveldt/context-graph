@@ -282,9 +282,28 @@ export function contextPane(model, els, handlers) {
   const ui = model.ui ?? DEFAULT_UI;
   const owed = new Set((model.agents ?? []).flatMap((a) => a.cardsOwed ?? []));
   const inMap = (tab) => (tab === 'map' && ui.mapModule ? (model.map ?? []).find((m) => m.id === ui.mapModule) : null);
+  // MAP-6: the code has outgrown the graph: folders with code are mapped only to the whole repository.
+  const unmapped = model.unmapped ?? [];
+  const outgrown = unmapped.length
+    ? [
+        els.Box({
+          key: 'unmapped',
+          flexDirection: 'column',
+          children: [
+            els.Text({
+              color: 'yellow',
+              children: [
+                `${unmapped.length} folder${unmapped.length === 1 ? '' : 's'} with code ${unmapped.length === 1 ? 'is' : 'are'} not ${unmapped.length === 1 ? 'a module' : 'modules'} yet (${unmapped.slice(0, 3).join(', ')}${unmapped.length > 3 ? ', …' : ''}): the graph sees ${unmapped.length === 1 ? 'it' : 'them'} only as part of the whole repository, so rules and decisions can't be scoped to ${unmapped.length === 1 ? 'it' : 'them'}.`,
+              ],
+            }),
+            ...(handlers.onAddModules ? [els.Button({ key: 'add-modules', label: 'Add them as modules', onPress: handlers.onAddModules })] : []),
+          ],
+        }),
+      ]
+    : [];
   const body = (tab) =>
     tab === 'map'
-      ? inMap(tab)
+      ? [...outgrown, ...[].concat(inMap(tab)
         ? heatMap(inMap(tab), owed, els, { selected: ui.selected }, handlers)
         : moduleGraph(
             model.map ?? [],
@@ -301,7 +320,7 @@ export function contextPane(model, els, handlers) {
               backfillPaused: model.backfillPaused ?? false,
             },
             handlers,
-          )
+          ))]
       : tab === 'proposals'
       ? [
           ...proposalsQueue(model.proposals, els, handlers, { selected: ui.selected, deferred: model.deferred ?? new Set(), now: model.now }),

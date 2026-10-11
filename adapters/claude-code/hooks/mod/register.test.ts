@@ -661,8 +661,8 @@ function writing() {
   w.changed = { fresh: [], stale: ['src/b.ts'], missing: [] };
   return w;
 }
-const leadTurn = async ($: any, clock: any, id = 't-1') => {
-  await $.turn.start({ turnId: id, text: '' } as any);
+const leadTurn = async ($: any, clock: any, id = 't-1', text = '') => {
+  await $.turn.start({ turnId: id, text } as any);
   await $.turn.complete({ turnId: id, answer: '', durationMs: 1, isAborted: false } as any);
   for (let i = 0; i < 3; i++) await clock.advance(1);
 };
@@ -1128,6 +1128,24 @@ test("once the lead declines a batch, no other batch is offered this session, un
   await press($, 'offer-again', PANE);
   expect(w.prompts).toHaveLength(2);
   await ui.unmount();
+});
+
+test("another prompt's turn (code-kit's loop) before the card writer's own isn't a decline", async ($, on) => {
+  const w = writing();
+  const clock = await start($, on, w);
+  await leadTurn($, clock);
+  expect(w.prompts).toHaveLength(1);
+  // code-kit's loop prompt runs first and starts no card writer: the batch still waits for its own turn.
+  await leadTurn($, clock, 't-2', 'Dispatch ST-7: run /code-kit:dispatch ST-7.');
+  await ctx($);
+  const ui = await mountPane($, PANE);
+  await press($, 'tab-coverage', PANE);
+  expect(await ui.find({ type: 'Text', text: "The lead declined the card writer; it isn't offered again this session." })).toBeUndefined();
+  await ui.unmount();
+  // Its own turn, with the agent started: no decline either.
+  w.running = [{ id: 'cw1', type: 'context-graph:card-writer', description: 'Write 2 cards (Context Graph)', status: 'running' }];
+  await leadTurn($, clock, 't-3', w.prompts[0]);
+  expect(w.prompts).toHaveLength(1);
 });
 
 test("the lead's own card writers finishing don't end the batch the mod asked for", async ($, on) => {

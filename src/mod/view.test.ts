@@ -72,6 +72,14 @@ describe('the Context Graph mod: what it draws', () => {
     expect(keys(contextPane({ kind: 'graph', followed: { path: 'src/a.ts', agentType: null }, file, proposals: [], agents: [] }, els, none))).not.toContain('open-lanes');
   });
 
+  it('MAP-6 the Map says which folders with code are not modules yet, and offers to add them', () => {
+    const model = { kind: 'graph', ui: { ...DEFAULT_UI, tab: 'map' }, proposals: [], agents: [], map: [], unmapped: ['packages', 'services/data-plane'] };
+    const shown = texts(contextPane(model, els, { ...none, onAddModules: () => {} })).join(' ');
+    expect(shown).toContain('2 folders with code are not modules yet (packages, services/data-plane)');
+    expect(keys(contextPane(model, els, { ...none, onAddModules: () => {} }))).toContain('add-modules');
+    expect(keys(contextPane({ ...model, unmapped: [] }, els, { ...none, onAddModules: () => {} }))).not.toContain('add-modules');
+  });
+
   it('FILE-5 without a graph it says how to start one', () => {
     expect(texts(contextPane({ kind: 'none' }, els, none))).toEqual([NO_GRAPH]);
     expect(NO_GRAPH).toBe('No graph here yet: run /context-graph:init');

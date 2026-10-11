@@ -3,6 +3,7 @@ import { cardState, exemptFromCards } from '../cards/cards.js';
 import type { RepoContext } from '../core/context.js';
 import { hygieneReport } from '../hygiene/hygiene.js';
 import { instructionBlockState } from '../init/instructions.js';
+import { unmappedFolders } from '../init/bootstrap.js';
 import { ObservationStore, SessionState } from '../observe/store.js';
 import { Recorder } from '../record/recorder.js';
 import { git } from '../util/git.js';
@@ -115,6 +116,13 @@ export function nextStep(ctx: RepoContext, opts: { doctor?: boolean } = {}): Nex
   }
   if (block === 'outdated') {
     return result('init', `${ins} carries an older Context Graph block, which tells agents something the hooks no longer do. ctx install instructions brings it up to date.`, { command: 'ctx install instructions' });
+  }
+
+  // A graph made before the code was (or before it grew) maps whole folders to one module: rules can't
+  // be scoped to them and the Map shows one box. init, run again, adds them as modules.
+  const unmapped = unmappedFolders(ctx);
+  if (unmapped.length) {
+    return result('init', `${unmapped.length} folder(s) with code (${unmapped.slice(0, 3).join(', ')}${unmapped.length > 3 ? ', …' : ''}) are mapped only to the whole repository, so the graph can't scope rules or decisions to them and its map shows one module. ctx init --write adds them as modules.`, { command: 'ctx init --write' });
   }
 
   const changed = cardsReport(ctx, { changed: true });

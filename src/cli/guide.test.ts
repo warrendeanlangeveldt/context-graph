@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { writeCard } from '../cards/cards.js';
 import { openRepo } from '../core/context.js';
+import { unmappedFolders } from '../init/bootstrap.js';
 import { INSTRUCTION_BLOCK } from '../init/instructions.js';
 import { ObservationStore, SessionState } from '../observe/store.js';
 import { cardsReport, nextStep } from './guide.js';
@@ -68,6 +69,21 @@ describe('ctx next and ctx cards', () => {
     const n = next();
     expect(n.step).toBe('init');
     expect(n.command).toBe('ctx install instructions');
+  });
+
+  it('MAP-6 a graph the code has outgrown: folders with code mapped only to the whole repository go to init --write, and once added they are modules', () => {
+    withGraph('M ** L:repo\nL L:repo Repo\n');
+    mkdirSync(join(repo, 'services/billing/src'), { recursive: true });
+    for (const f of ['a', 'b', 'c', 'd', 'e']) writeFileSync(join(repo, `services/billing/src/${f}.ts`), `export const ${f} = 1;\n`);
+    git('add', '-A');
+    git('commit', '-q', '-m', 'billing');
+    const n = next();
+    expect(n.step).toBe('init');
+    expect(n.command).toBe('ctx init --write');
+    expect(n.why).toContain('1 folder(s) with code (services/billing)');
+    expect(unmappedFolders(openRepo({ repo }))).toEqual(['services/billing']);
+    withGraph('M services/billing/** L:billing\nM ** L:repo\nL L:repo Repo\nL L:billing Billing\nE L:billing in L:repo\n');
+    expect(unmappedFolders(openRepo({ repo }))).toEqual([]);
   });
 
   it('asks for cards for files this branch changed, mentions suggestions without asking (unless the person decides each), then says done', () => {

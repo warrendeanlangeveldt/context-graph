@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { runClaudeHook, type HookInput } from '../adapters/claude-code/hook.js';
 import { writeCard } from '../cards/cards.js';
 import { openRepo } from '../core/context.js';
@@ -64,6 +64,23 @@ describe('what the Context Graph pane shows, and the person\'s acts', () => {
     expect(f.chain).toEqual(['L:src', 'L:repo']);
     expect(f.rules.map((r) => r.id)).toContain('src.pure');
     expect(f.decisions[0]).toMatchObject({ id: 'd-0001', text: 'a stays a constant' });
+  });
+
+  it("FILE-6 a file in a lane's worktree under the checkout is read in that worktree: its own path, card and branch", async () => {
+    writeCard(Graph.load(join(repo, '.ctx')), repo, { path: 'src/a.ts', text: 'Holds a.', who: 'warren/claude', date: '2026-10-06' });
+    git('add', '-A');
+    git('commit', '-q', '-m', 'card');
+    git('worktree', 'add', '-q', '.claude/worktrees/lane-1', '-b', 'web/st-1');
+    const out: string[] = [];
+    const spy = vi.spyOn(console, 'log').mockImplementation((x: string) => { out.push(x); });
+    try {
+      expect(await run({ cmd: 'file', positional: ['.claude/worktrees/lane-1/src/a.ts'], flags: {} }, { json: true })).toBe(0);
+    } finally {
+      spy.mockRestore();
+    }
+    const f = JSON.parse(out.join('\n'));
+    expect(f).toMatchObject({ path: 'src/a.ts', worktree: '.claude/worktrees/lane-1', chain: ['L:src', 'L:repo'] });
+    expect(f.card).toMatchObject({ text: 'Holds a.', fresh: true });
   });
 
   it('FILE-3 says whether an agent understood the file, and what it still has to read', async () => {

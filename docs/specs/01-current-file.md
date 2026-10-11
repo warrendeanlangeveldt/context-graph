@@ -55,6 +55,14 @@ With no graph, the pane says so with `ctx init` as the next step, and the mod dr
 
 - Given a repository with no `.ctx/`, when the person types `/graph`, then it says "No graph here yet: run /context-graph:init".
 
+### FILE-6 A file in a lane's worktree
+
+A file inside a linked worktree under the repository (a lane's or an agent's, such as `.claude/worktrees/<name>/`) is shown as that worktree's file: its path within it, which worktree, and the card, rules and neighbours on that worktree's branch.
+
+**Acceptance**
+
+- Given `src/a.ts` with a current card, and a lane's worktree at `.claude/worktrees/lane-1`, when `.claude/worktrees/lane-1/src/a.ts` is followed, then the pane shows `src/a.ts` in that worktree, with its current card and its module chain.
+
 ## Open questions
 
 | Question | Owner | Blocks |

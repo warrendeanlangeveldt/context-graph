@@ -39,6 +39,15 @@ The Map tab opens on the modules as a graph, read left to right: each module a n
 
 j/k and arrows move; Enter opens; Esc goes back; the pointer selects on Desktop and in terminals that report it.
 
+### MAP-6 Code the graph doesn't map yet
+
+A graph made before there was code, or before the code grew, maps whole folders to the repository's one module: rules and decisions can't be scoped to them, and the Map shows one box. `ctx next` and `ctx info` name the folders with code that look like modules and are mapped only to the whole repository; `ctx next` gives `init` with `ctx init --write`. The Map says which they are, with Add them as modules, which runs it: the modules are added and their edges proposed, nothing is ratified.
+
+**Acceptance**
+
+- Given a graph mapping only `**`, and five source files in `services/billing/src`, then `ctx next` gives `init` with `ctx init --write`, naming `services/billing`; once the graph maps it, it doesn't.
+- Given folders not mapped yet, then the Map names them and offers Add them as modules; given none, it doesn't.
+
 ## Open questions
 
 | Question | Owner | Blocks |
