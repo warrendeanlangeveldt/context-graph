@@ -76,19 +76,20 @@ export function startCardWriterPrompt({ agent, jobs }) {
   return `Start Context Graph's card writer in the background: use the Agent tool with subagent_type "${agent}", run_in_background true, description "${batchDescription(files.length)}", and the prompt "Write the cards for: ${files.join(', ')}." Then carry on; it only writes cards. If the person has asked you not to card these now, say so and don't start it: Context Graph won't offer the card writer again this session.`;
 }
 
-/** The backfill's line, for the band and the Map tab: how much of the existing code is carded. */
+/** The backfill's line, for the Overview: how much of the existing code is explained. */
 export function backfillLine({ scope, left, inScope, paused }) {
   if (!scope || scope === 'off' || !inScope) return null;
   const where = scope === 'all' ? 'all modules' : 'modules changed in the last 90 days';
-  if (!left) return `Card backfill done: ${inScope} files have their why (${where})`;
-  return `Card backfill${paused ? ' paused' : ''}: ${inScope - left} of ${inScope} files have their why (${where})`;
+  if (!left) return `Existing code explained: all ${inScope} files (${where})`;
+  return `Explaining the existing code${paused ? ' (paused)' : ''}: ${inScope - left} of ${inScope} files done (${where})`;
 }
 
-/** The pane's line for the card writer: off, paused, writing, or waiting. */
+/** The Overview's line for the card writer: off, paused, writing, or waiting. */
 export function cardWriterLine({ on, paused, percent, heldBy = null, writing = [], waiting = [] }) {
-  if (!on) return 'Card writer: off (/graph-settings turns it on)';
+  if (!on) return 'Card writer: off. Turn it on in Settings to have files explained in the background.';
   if (heldBy && !writing.length) return `Card writer: paused with ${heldBy}'s loop`;
-  if (paused) return `Card writer: paused, the plan at ${percent}%`;
-  if (writing.length) return `Card writer: writing ${writing.length} (${writing.slice(0, 3).join(', ')}${writing.length > 3 ? ', …' : ''})${waiting.length ? `, ${waiting.length} waiting` : ''}`;
-  return waiting.length ? `Card writer: ${waiting.length} waiting for the lead to be idle` : 'Card writer: nothing owed';
+  if (paused) return `Card writer: paused, the plan's 5-hour use at ${percent}%`;
+  if (writing.length)
+    return `Card writer: explaining ${writing.length} file${writing.length === 1 ? '' : 's'} (${writing.slice(0, 3).join(', ')}${writing.length > 3 ? ', …' : ''})${waiting.length ? `; ${waiting.length} more queued` : ''}`;
+  return waiting.length ? `Card writer: ${waiting.length} file${waiting.length === 1 ? '' : 's'} queued; it starts when the lead is next idle` : 'Card writer: nothing to explain right now';
 }

@@ -9,11 +9,11 @@
 
 ### FILE-1 Open and follow
 
-`/graph` opens the Context pane, focused. (It isn't `/context`, Claude Code's own command, or `/graph`, the plugin's `ctx` skill: a mod can't register a name that's taken.) The band's Context button does the same, and Escape closes it. The pane follows the file most recently read, edited or written by any agent in this session, and names that agent.
+`/graph` opens the Context pane, focused. (It isn't `/context`, Claude Code's own command, or `/graph`, the plugin's `ctx` skill: a mod can't register a name that's taken.) The band's Context button does the same, and Escape closes it. It opens on the Overview (08); its This file tab follows the file most recently read, edited or written by any agent in this session, and names that agent.
 
 **Acceptance**
 
-- Given an agent reads `src/a.ts`, when the person opens `/graph`, then the pane shows `src/a.ts` and the agent's type.
+- Given an agent reads `src/a.ts`, when the person opens `/graph`, then the pane opens on the Overview, and This file shows `src/a.ts` and the agent's type.
 - Given the pane is open, when an agent then edits `src/b.ts`, then the pane moves to `src/b.ts` within 2 seconds.
 
 ### FILE-2 What the file carries

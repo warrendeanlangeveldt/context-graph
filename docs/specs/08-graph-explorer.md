@@ -7,9 +7,9 @@
 
 ## In scope
 
-- A Map tab in the Context pane: modules as a graph (MAP-4) with, for each, its rules (agreed and proposed), decisions in the last 30 days, and card coverage.
+- The Overview tab in the Context pane: a row per module (MAP-4) with, for each, its files explained, its rules (agreed and proposed), its decisions and the last one.
 - A coverage heat map: one cell per file within each module, coloured current, stale, missing or owed this session.
-- Moving with keys or the pointer; Enter opens a module or file in the File tab.
+- Moving with keys or the pointer; Enter opens a module's files, and a file in This file.
 
 ## Requirements
 
@@ -25,9 +25,9 @@ Within a selected module, one cell per file, coloured current, stale, missing or
 
 - Given `L:billing` with 10 files, 6 carded, 2 stale and 2 missing, then its cells show 6 current, 2 stale and 2 missing, and the legend counts them.
 
-### MAP-4 Module graph
+### MAP-4 Overview
 
-The Map tab opens on the modules as a graph, read left to right: each module a node with its rule counts (proposed ones marked `+n?`) and how many of its files have a current card, joined to the modules it contains. On Desktop, VS Code and mobile it's drawn as an image, with the coverage as a ring and the imports between modules as dashed lines; in the terminal, with box-drawing characters. A module where a decision was just recorded pulses for a few seconds. A module with a rule hygiene flags as overridden is outlined red with "<rule> overridden n×". The selected module's detail shows its rules, decisions, coverage and imports, an overridden rule's text with what to reword, and the proposals on it with Accept, Reject… and Later.
+The Overview is where the pane opens: what the graph knows, a row per module, indented under its parent, with how many of its files are explained (a current card) and a bar, its rules (agreed, and how many proposed), its decisions and when the last one was. A module where a decision was just recorded is drawn blue for a few seconds; one with a rule hygiene flags as overridden, red. The selected module's detail shows its rules in words, its decisions as a sparkline, what it uses and what uses it, an overridden rule's text with what to reword, and the proposals on it with Accept, Reject… and Later. Under the table, Working now: the card writer and the backfill.
 
 **Acceptance**
 

@@ -9,7 +9,7 @@
 import { DROP_ID, NO_GRAPH, PANE_ID, contextPane, dropPane, followedPath, parseJson } from './view.mjs';
 import { SETTINGS_ID, settingsView } from './views/settings.mjs';
 import { DEFAULT_UI, bandHealth, closeGoesBack, healthOf, moved } from './views/frame.mjs';
-import { grewDecisions } from './views/graph.mjs';
+import { grewDecisions } from './views/overview.mjs';
 import { assistCard, editTag, readingList, readingMessage } from './views/assist.mjs';
 import { BATCH, backfillLine, batchDescription, cardJobs, cardWriterLine, cardWriterSpec, pausedAt, startCardWriterPrompt } from './card-writer.mjs';
 import { CURATE_DESCRIPTION, curatorDue, curatorLine, curatorSpec, flaggedRules, startCuratorPrompt } from './curator.mjs';

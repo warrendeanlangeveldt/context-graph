@@ -239,6 +239,9 @@ test('FILE-1 /graph opens the pane on the file an agent read, naming the agent',
   expect(w.opened).toEqual([PANE]);
   expect(w.fileAsks.at(-1)).toEqual(['src/a.ts', '--session', 's1', '--agent', 'agent-web', '--json']);
   const ui = await mountPane($, PANE);
+  // It opens on the Overview; This file follows the agents.
+  expect((await ui.find({ key: 'tab-map' }))?.props.variant).toBe('primary');
+  await press($, 'tab-file', PANE);
   expect(await ui.find({ type: 'Text', text: 'last touched by web-engineer' })).toBeDefined();
   expect(await ui.find({ type: 'Text', text: 'src/a.ts' })).toBeDefined();
   await ui.unmount();
@@ -259,6 +262,7 @@ test('FILE-1 the pane moves to the file an agent edits next, within 2 seconds', 
   } as any);
   await clock.advance(2000);
   const ui = await mountPane($, PANE);
+  await press($, 'tab-file', PANE);
   expect(await ui.find({ type: 'Text', text: 'src/b.ts' })).toBeDefined();
   await ui.unmount();
 });
@@ -269,7 +273,8 @@ test('FILE-3 the pane says what the agent still has to read', async ($, on) => {
   await $.tool.call({ tool: 'Read', tool_use_id: 'r1', file_path: '/work/src/a.ts', agentId: 'agent-web' } as any);
   await ctx($);
   const ui = await mountPane($, PANE);
-  expect(await ui.find({ type: 'Text', text: '✗ not yet: still to read src/b.ts' })).toBeDefined();
+  await press($, 'tab-file', PANE);
+  expect(await ui.find({ type: 'Text', text: '✗ web-engineer still has to read src/b.ts' })).toBeDefined();
   await ui.unmount();
 });
 
@@ -280,6 +285,7 @@ test("FILE-4 the code-kit section opens code-kit's Lanes pane", async ($, on) =>
   await $.tool.call({ tool: 'Read', tool_use_id: 'r1', file_path: '/work/src/a.ts' } as any);
   await ctx($);
   const ui = await mountPane($, PANE);
+  await press($, 'tab-file', PANE);
   expect(await ui.find({ type: 'Text', text: /lane web/ })).toBeDefined();
   await press($, 'open-lanes', PANE);
   expect(w.commands).toEqual(['lanes']);
@@ -368,20 +374,20 @@ test('RAT-4 Drop asks why, needs a reason, and drops it with that reason', async
   await ui.unmount();
 });
 
-test('COV-1 and COV-2 coverage per agent rises within 2 seconds of a read', async ($, on) => {
+test('COV-1 and COV-2 each agent\'s changes, and how many it understood first, rise within 2 seconds of an edit', async ($, on) => {
   const w = project();
   const clock = await start($, on, w);
   w.agents = [{ agent: 'agent-web', agentType: 'web-engineer', read: ['src/a.ts'], searched: [], edited: [], cardsOwed: [] }];
   await ctx($);
   const before = await mountPane($, PANE);
   await press($, 'tab-coverage', PANE);
-  expect(shownIn(await before.find({ key: 'agent-agent-web' }))).toEqual(['web-engineer', '1', '0', '0', '0']);
+  expect(shownIn(await before.find({ key: 'agent-agent-web' }))).toEqual(['web-engineer', '0', '-', '0']);
   await before.unmount();
-  w.agents = [{ ...w.agents[0], read: ['src/a.ts', 'src/b.ts'] }];
-  await $.tool.call({ tool: 'Read', tool_use_id: 'r2', file_path: '/work/src/b.ts', agentId: 'agent-web' } as any);
+  w.agents = [{ ...w.agents[0], edited: [{ path: 'src/a.ts', understood: true, missing: [] }] }];
+  await $.tool.call({ tool: 'Edit', tool_use_id: 'e2', file_path: '/work/src/a.ts', agentId: 'agent-web' } as any);
   await clock.advance(2000);
   const after = await mountPane($, PANE);
-  expect(shownIn(await after.find({ key: 'agent-agent-web' }))).toEqual(['web-engineer', '2', '0', '0', '0']);
+  expect(shownIn(await after.find({ key: 'agent-agent-web' }))).toEqual(['web-engineer', '1', '1  ✓', '0']);
   await after.unmount();
 });
 
@@ -401,7 +407,7 @@ test('COV-3 an edit made without understanding is marked, with what was unread',
   await ctx($);
   const ui = await mountPane($, PANE);
   await press($, 'tab-coverage', PANE);
-  expect(await ui.find({ type: 'Text', text: '✗ web-engineer edited src/a.ts without understanding it: src/b.ts unread' })).toBeDefined();
+  expect(await ui.find({ type: 'Text', text: '✗ web-engineer changed src/a.ts without reading src/b.ts' })).toBeDefined();
   await ui.unmount();
 });
 
@@ -412,6 +418,7 @@ test('Cards: Write card and Cards for this module ask the lead, who may write th
   await $.tool.call({ tool: 'Read', tool_use_id: 'r1', file_path: '/work/src/b.ts' } as any);
   await ctx($);
   const ui = await mountPane($, PANE);
+  await press($, 'tab-file', PANE);
   await press($, 'write-card', PANE);
   expect(w.prompts.at(-1)).toBe(
     'Write the Context Graph card for src/b.ts: run /context-graph:cards src/b.ts, or ask the agent working on src/b.ts to.',
@@ -468,7 +475,8 @@ test("VIEW-1 the header and the band sum up the graph's health: carded share, ca
   await start($, on, w);
   await ctx($);
   const ui = await mountPane($, PANE);
-  const header = await ui.find({ type: 'Text', text: '⛅ 90% have their why · 1 owed · 0 proposals' });
+  expect(await ui.find({ type: 'Text', text: 'CONTEXT GRAPH' })).toBeDefined();
+  const header = await ui.find({ type: 'Text', text: '90% of files explained · 1 file to explain from this session' });
   expect(header?.props.color).toBe('yellow');
   await ui.unmount();
   // Cards owed are the agents' work: the band says nothing of them.
@@ -494,11 +502,11 @@ test('VIEW-1 with nothing waiting and the graph healthy there is no band line', 
   w.cards = { fresh: ['a', 'b'], stale: [], missing: [] };
   await start($, on, w);
   const band = await bandUi($);
-  expect(await band.find({ type: 'Text', text: /have their why/ })).toBeUndefined();
+  expect(await band.find({ type: 'Text', text: /files explained/ })).toBeUndefined();
   await band.unmount();
 });
 
-test('VIEW-5 tabs on 1 to 3; j/k select an agent and Enter opens the file it edited without understanding', async ($, on) => {
+test('VIEW-5 tabs on 1 to 4; j/k select an agent and Enter opens the file it edited without understanding', async ($, on) => {
   const w = project();
   w.agents = [
     { agent: 'main', agentType: null, read: [], searched: [], edited: [], cardsOwed: [] },
@@ -507,7 +515,7 @@ test('VIEW-5 tabs on 1 to 3; j/k select an agent and Enter opens the file it edi
   await start($, on, w);
   await ctx($);
   const ui = await mountPane($, PANE);
-  expect((await ui.find({ key: 'tab-coverage' }))?.props.hotkey).toBe('3');
+  expect((await ui.find({ key: 'tab-coverage' }))?.props.hotkey).toBe('4');
   await press($, 'tab-coverage', PANE);
   await press($, 'move-prev', PANE);
   expect((await ui.find({ key: 'agent-agent-web' }))?.text).toMatch(/^› web-engineer/);
@@ -538,8 +546,9 @@ test('VIEW-2 the File tab draws the card as Markdown and the neighbourhood, and 
   await $.tool.call({ tool: 'Read', tool_use_id: 'r1', file_path: '/work/src/a.ts', agentId: 'agent-web' } as any);
   await ctx($);
   const ui = await mountPane($, PANE);
+  await press($, 'tab-file', PANE);
   expect((await ui.find({ type: 'Markdown' }))?.props.text).toBe('Holds a.');
-  expect((await ui.find({ key: 'imports-src/b.ts' }))?.props.label).toBe('○ src/b.ts');
+  expect((await ui.find({ key: 'imports-src/b.ts' }))?.props.label).toBe('○ src/b.ts (not explained)');
   await press($, 'imports-src/b.ts', PANE);
   expect(w.fileAsks.at(-1)?.[0]).toBe('src/b.ts');
   expect((await ui.find({ key: 'importers-src/a.ts' }))?.props.label).toBe('● src/a.ts');
@@ -563,8 +572,8 @@ test('VIEW-3 a proposal with evidence has its sparklines; a accepts, r rejects a
   expect((await ui.find({ key: 'key-drop' }))?.props.hotkey).toBe('r');
   await press($, 'key-defer', PANE);
   // Deferred, src.small goes to the back: C:events is first now.
-  const order = (await ui.findAll({ type: 'Text' })).map((x) => x.text).filter((x) => x === 'src.small' || x === 'C:events');
-  expect(order).toEqual(['C:events', 'src.small']);
+  const order = (await ui.findAll({ type: 'Text' })).map((x) => x.text).filter((x) => x === 'keep modules small' || x === 'Change goes through events');
+  expect(order).toEqual(['Change goes through events', 'keep modules small']);
   expect(await ui.find({ type: 'Text', text: 'later' })).toBeDefined();
   // No evidence yet, no sparkline: C:events has none.
   expect(await ui.find({ key: 'spark-C:events' })).toBeUndefined();
@@ -619,7 +628,7 @@ test("ASSIST-2 and ASSIST-3 progress follows the agent's own reads, as ctx judge
   await ctx($);
   const pane = await mountPane($, PANE);
   await press($, 'tab-coverage', PANE);
-  expect(await pane.find({ type: 'Text', text: /reading to edit src\/a\.ts: 1 of 2 read/ })).toBeDefined();
+  expect(await pane.find({ type: 'Text', text: /reading to change src\/a\.ts: 1 of 2 read/ })).toBeDefined();
   await pane.unmount();
   w.files['src/a.ts'] = { ...w.files['src/a.ts'], understood: { ok: true, missing: [] } };
   await $.tool.call({ tool: 'Read', tool_use_id: 'r2', file_path: '/work/src/c.ts', agentId: 'agent-web' } as any);
@@ -682,8 +691,7 @@ test('CARDW-1 and CARDW-2 with the lead idle, the lead starts the card writer on
   expect(w.prompts).toHaveLength(1);
   await ctx($);
   const ui = await mountPane($, PANE);
-  await press($, 'tab-coverage', PANE);
-  expect(await ui.find({ type: 'Text', text: 'Card writer: writing 2 (src/a.ts, src/b.ts)' })).toBeDefined();
+  expect(await ui.find({ type: 'Text', text: 'Card writer: explaining 2 files (src/a.ts, src/b.ts)' })).toBeDefined();
   await ui.unmount();
 });
 
@@ -719,8 +727,7 @@ test("CARDW-3 a batch's cards are done once current, and the writer's own end fr
   await clock.advance(2000);
   await ctx($);
   const ui = await mountPane($, PANE);
-  await press($, 'tab-coverage', PANE);
-  expect(await ui.find({ type: 'Text', text: 'Card writer: nothing owed' })).toBeDefined();
+  expect(await ui.find({ type: 'Text', text: 'Card writer: nothing to explain right now' })).toBeDefined();
   await ui.unmount();
 });
 
@@ -734,6 +741,7 @@ test('CARDW-4 with the card writer on, Cards for this module queue its files for
   await clock.advance(2000);
   await ctx($);
   const ui = await mountPane($, PANE);
+  await press($, 'tab-file', PANE);
   await press($, 'module-cards', PANE);
   expect(w.prompts).toEqual([expect.stringMatching(/"Write the cards for: src\/b\.ts, src\/c\.ts\."/)]);
   expect(await ui.find({ type: 'Text', text: /Queued the cards for the files in L:src/ })).toBeDefined();
@@ -748,8 +756,7 @@ test("CARDW-5 past the pause point (code-kit's, when it sets one) no batch start
   expect(w.prompts).toEqual([]);
   await ctx($);
   const ui = await mountPane($, PANE);
-  await press($, 'tab-coverage', PANE);
-  expect(await ui.find({ type: 'Text', text: 'Card writer: paused, the plan at 75%' })).toBeDefined();
+  expect(await ui.find({ type: 'Text', text: "Card writer: paused, the plan's 5-hour use at 75%" })).toBeDefined();
   await ui.unmount();
 });
 
@@ -897,6 +904,7 @@ test('ASKQ the file in view has Why? on w', async ($, on) => {
   await $.tool.call({ tool: 'Read', tool_use_id: 'r1', file_path: '/work/src/a.ts', agentId: 'agent-web' } as any);
   await ctx($);
   const ui = await mountPane($, PANE);
+  await press($, 'tab-file', PANE);
   expect((await ui.find({ key: 'why-file' }))?.props.hotkey).toBe('w');
   await press($, 'why-file', PANE);
   expect(w.asked).toHaveLength(1);
@@ -905,22 +913,20 @@ test('ASKQ the file in view has Why? on w', async ($, on) => {
 
 // --- the graph explorer -----------------------------------------------------------------------------
 
-test('MAP-4 the Map tab draws the module graph: a node per module with its rules and coverage, joined to its parent', async ($, on) => {
+test('MAP-4 the Overview is the first tab: what Context Graph is for, then a row per module with its files explained, rules and decisions, under its parent', async ($, on) => {
   const w = project();
   await start($, on, w);
   await ctx($);
   const ui = await mountPane($, PANE);
-  expect((await ui.find({ key: 'tab-map' }))?.props.hotkey).toBe('4');
-  await press($, 'tab-map', PANE);
-  const rows = (await ui.findAll({ type: 'Box' })).filter((b) => /^graph-row-/.test(String(b.key))).map((b) => b.text);
-  expect(rows.filter((r) => r.includes('┌ src ')).length).toBe(1);
-  expect(rows.filter((r) => r.includes('┌ billing ')).length).toBe(1);
-  // src's middle line carries the edge to billing, which holds its counts.
-  expect(rows.find((r) => r.includes('2r 1/1'))).toMatch(/│ 2r 1\/1\s*│────│ 1r \+1\? 6\/10\s*│/);
+  expect((await ui.find({ key: 'tab-map' }))?.props).toMatchObject({ hotkey: '1', label: 'Overview', variant: 'primary' });
+  expect((await ui.find({ key: 'purpose' }))?.text).toMatch(/^CONTEXT GRAPH\s*keeps the why of your code/);
+  expect(await ui.find({ type: 'Text', text: 'WHAT IT KNOWS' })).toBeDefined();
+  expect(shownIn(await ui.find({ key: 'module-L:src' }))).toEqual(['  src', '  1 of 1   █████', '2', '0', 'none']);
+  expect(shownIn(await ui.find({ key: 'module-L:billing' }))).toEqual(['    billing', '  6 of 10  ███░░', '1 + 1 proposed', '2', expect.any(String)]);
   await press($, 'move-next', PANE);
   await press($, 'move-next', PANE);
-  expect((await ui.findAll({ type: 'Text' })).some((t) => /┌ ›billing/.test(t.text) && t.props.color === 'cyan')).toBe(true);
-  expect(await ui.find({ type: 'Text', text: 'Billing (L:billing)' })).toBeDefined();
+  expect((await ui.findAll({ type: 'Text' })).some((t) => t.text === '›   billing' && t.props.color === 'cyan')).toBe(true);
+  expect(await ui.find({ type: 'Text', text: 'billing (L:billing)' })).toBeDefined();
   await ui.unmount();
 });
 
@@ -933,7 +939,7 @@ test('MAP-4 a module whose rule is overridden is outlined red, and selecting it 
   await ctx($);
   const ui = await mountPane($, PANE);
   await press($, 'tab-map', PANE);
-  expect((await ui.findAll({ type: 'Text' })).some((t) => /┌ billing/.test(t.text) && t.props.color === 'red')).toBe(true);
+  expect((await ui.findAll({ type: 'Text' })).some((t) => t.text === '    billing' && t.props.color === 'red')).toBe(true);
   await press($, 'move-next', PANE);
   await press($, 'move-next', PANE);
   expect(await ui.find({ type: 'Text', text: 'billing.cents overridden 3×' })).toBeDefined();
@@ -944,13 +950,13 @@ test('MAP-4 a module whose rule is overridden is outlined red, and selecting it 
   await ui.unmount();
 });
 
-test('MAP-4 a module where a decision was just recorded pulses, then stops', async ($, on) => {
+test('MAP-4 a module where a decision was just recorded lights up, then stops', async ($, on) => {
   const w = project();
   const clock = await start($, on, w);
   await ctx($);
   const ui = await mountPane($, PANE);
   await press($, 'tab-map', PANE);
-  const billingColor = async () => (await ui.findAll({ type: 'Text' })).find((t) => /┌ billing/.test(t.text))?.props.color;
+  const billingColor = async () => (await ui.findAll({ type: 'Text' })).find((t) => t.text === '    billing')?.props.color;
   expect(await billingColor()).toBeUndefined();
   // A decision is recorded on billing: the next read of the map has one more.
   w.map = w.map.map((m: any) => (m.id === 'L:billing' ? { ...m, decisions: [...m.decisions, '2026-10-10'] } : m));
@@ -974,7 +980,7 @@ test('MAP-2 and MAP-3 Enter opens a module as a heat map of its files, and a fil
   await press($, 'move-next', PANE);
   await press($, 'open-selected', PANE);
   // One owed this session shows as owed, over its current card.
-  expect((await ui.find({ key: 'heat-legend' }))?.text).toBe('● 5 current◐ 2 stale○ 2 missing✱ 1 owed this session');
+  expect((await ui.find({ key: 'heat-legend' }))?.text).toBe('● 5 explained◐ 2 out of date○ 2 not explained yet✱ 1 changed this session, to explain');
   expect((await ui.find({ key: 'cell-src/billing/i.ts' }))?.text).toBe('○');
   await $.ui.select({ plugin: 'context-graph', key: 'heat-select', value: 'src/billing/i.ts', requestId: PANE });
   expect(JSON.stringify((await ui.find({ key: 'cell-src/billing/i.ts' }))?.children)).toMatch(/"inverse":true/);
@@ -991,6 +997,7 @@ test("with no session bound (claude -p before it mounts), the agent list's failu
   await $.tool.call({ tool: 'Read', tool_use_id: 'r1', file_path: '/work/src/a.ts', agentId: 'agent-web' } as any);
   await ctx($);
   const ui = await mountPane($, PANE);
+  await press($, 'tab-file', PANE);
   expect((await ui.find({ type: 'Markdown' }))?.props.text).toBe('Holds a.');
   await ui.unmount();
 });
@@ -1008,9 +1015,9 @@ test('VIEW-3 the queue groups proposals by module, and Accept all accepts a modu
   const ui = await mountPane($, PANE);
   await press($, 'tab-proposals', PANE);
   expect(await ui.find({ type: 'Text', text: /Accept one and agents are held to it from now on; reject it to remove it\./ })).toBeDefined();
-  const ids = (await ui.findAll({ type: 'Text' })).map((x) => x.text).filter((x) => /^(ai|evals)\./.test(x));
-  expect(ids).toEqual(['ai.a', 'ai.c', 'evals.b']);
-  expect((await ui.find({ key: 'accept-all-L:ai' }))?.props.label).toBe('Accept all 2 on L:ai');
+  const rules = (await ui.findAll({ type: 'Text' })).map((x) => x.text).filter((x) => ['a', 'b', 'c'].includes(x));
+  expect(rules).toEqual(['a', 'c', 'b']);
+  expect((await ui.find({ key: 'accept-all-L:ai' }))?.props.label).toBe('Accept all 2 in ai');
   expect(await ui.find({ key: 'accept-all-L:evals' })).toBeUndefined();
   await press($, 'accept-all-L:ai', PANE);
   expect(w.acts).toEqual([['ratify', 'ai.a', 'ai.c', '--commit']]);
@@ -1041,22 +1048,22 @@ test('backfill: the card writer takes the existing code, leaves first, ten at a 
   expect(w.prompts[0]).toMatch(/Write 10 cards/);
 });
 
-test('backfill: it runs in the background, out of the band; the Map tab shows its progress with Pause, and paused no batch starts until Resume', async ($, on) => {
+test('backfill: it runs in the background, out of the band; the Overview shows its progress with Pause, and paused no batch starts until Resume', async ($, on) => {
   const w = backfilling();
   const clock = await start($, on, w);
   const band = await bandUi($);
-  expect(await band.find({ type: 'Text', text: /Card backfill/ })).toBeUndefined();
+  expect(await band.find({ type: 'Text', text: /existing code/ })).toBeUndefined();
   await band.unmount();
   await ctx($);
   let ui = await mountPane($, PANE);
   await press($, 'tab-map', PANE);
-  expect(await ui.find({ type: 'Text', text: 'Card backfill: 2 of 12 files have their why (modules changed in the last 90 days)' })).toBeDefined();
+  expect(await ui.find({ type: 'Text', text: 'Explaining the existing code: 2 of 12 files done (modules changed in the last 90 days)' })).toBeDefined();
   await press($, 'map-backfill-pause', PANE);
   await ui.unmount();
   await leadTurn($, clock);
   expect(w.prompts).toEqual([]);
   ui = await mountPane($, PANE);
-  expect(await ui.find({ type: 'Text', text: /^Card backfill paused: 2 of 12/ })).toBeDefined();
+  expect(await ui.find({ type: 'Text', text: /^Explaining the existing code \(paused\): 2 of 12/ })).toBeDefined();
   expect((await ui.find({ key: 'map-backfill-pause' }))?.props.label).toBe('Resume');
   await press($, 'map-backfill-pause', PANE);
   await ui.unmount();
@@ -1064,20 +1071,19 @@ test('backfill: it runs in the background, out of the band; the Map tab shows it
   expect(w.prompts).toHaveLength(1);
 });
 
-test("MAP-4 the Map shows the backfill's progress above the graph, a module's coverage counted", async ($, on) => {
+test("MAP-4 the Overview shows the backfill's progress under the table, a module's files explained counted", async ($, on) => {
   const w = backfilling();
   w.map = [{ id: 'L:src', name: 'Source', depth: 0, parents: [], rules: { agreed: 1, proposed: 0 }, decisions: [], files: [{ path: 'src/f00.ts', card: 'missing' }] }];
   await start($, on, w);
   await ctx($);
   const ui = await mountPane($, PANE);
   await press($, 'tab-map', PANE);
-  expect(await ui.find({ type: 'Text', text: /^Card backfill: 2 of 12 files have their why/ })).toBeDefined();
-  const rows = (await ui.findAll({ type: 'Box' })).filter((b) => /^graph-row-/.test(String(b.key))).map((b) => b.text);
-  expect(rows).toEqual(['┌ src ' + '─'.repeat(rows[0].length - 7) + '┐', expect.stringMatching(/^│ 1r 0\/1\s*│$/), expect.stringMatching(/^└─+┘$/)]);
+  expect(await ui.find({ type: 'Text', text: /^Explaining the existing code: 2 of 12 files done/ })).toBeDefined();
+  expect(shownIn(await ui.find({ key: 'module-L:src' }))).toEqual(['  src', '  0 of 1   ░░░░░', '1', '0', 'none']);
   await ui.unmount();
 });
 
-test('MAP-2 the heat map has Write cards for this module on c', async ($, on) => {
+test('MAP-2 the heat map has Explain the ones not explained on c', async ($, on) => {
   const w = project();
   await start($, on, w);
   await ctx($);
@@ -1101,7 +1107,6 @@ test("with code-kit's loop paused by the person, the card writer isn't started, 
   expect(w.prompts).toEqual([]);
   await ctx($);
   const ui = await mountPane($, PANE);
-  await press($, 'tab-coverage', PANE);
   expect(await ui.find({ type: 'Text', text: "Card writer: paused with code-kit's loop" })).toBeDefined();
   await ui.unmount();
   // Resumed: the next idle turn starts it.
@@ -1123,8 +1128,7 @@ test("once the lead declines a batch, no other batch is offered this session, un
   expect(w.prompts).toHaveLength(1);
   await ctx($);
   const ui = await mountPane($, PANE);
-  await press($, 'tab-coverage', PANE);
-  expect(await ui.find({ type: 'Text', text: "The lead declined the card writer; it isn't offered again this session." })).toBeDefined();
+  expect(await ui.find({ type: 'Text', text: "The lead turned down the card writer's last batch, so it won't ask again this session." })).toBeDefined();
   await press($, 'offer-again', PANE);
   expect(w.prompts).toHaveLength(2);
   await ui.unmount();
@@ -1139,8 +1143,7 @@ test("another prompt's turn (code-kit's loop) before the card writer's own isn't
   await leadTurn($, clock, 't-2', 'Dispatch ST-7: run /code-kit:dispatch ST-7.');
   await ctx($);
   const ui = await mountPane($, PANE);
-  await press($, 'tab-coverage', PANE);
-  expect(await ui.find({ type: 'Text', text: "The lead declined the card writer; it isn't offered again this session." })).toBeUndefined();
+  expect(await ui.find({ type: 'Text', text: "The lead turned down the card writer's last batch, so it won't ask again this session." })).toBeUndefined();
   await ui.unmount();
   // Its own turn, with the agent started: no decline either.
   w.running = [{ id: 'cw1', type: 'context-graph:card-writer', description: 'Write 2 cards (Context Graph)', status: 'running' }];

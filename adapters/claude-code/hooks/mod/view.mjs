@@ -7,7 +7,7 @@ import { DEFAULT_UI, frame, healthOf } from './views/frame.mjs';
 import { proposalsQueue, queueKeys } from './views/proposals.mjs';
 import { progressText } from './views/assist.mjs';
 import { heatMap } from './views/map.mjs';
-import { moduleGraph } from './views/graph.mjs';
+import { overview } from './views/overview.mjs';
 
 export const PANE_ID = 'context-graph';
 export const DROP_ID = 'context-graph-drop';
@@ -35,10 +35,8 @@ export function followedPath(call, root) {
   return path.startsWith(prefix) ? path.slice(prefix.length) : null;
 }
 
-const who = (agentType) => agentType ?? 'the main session';
-
 // The pane's layout: a heading per section, then rows of a fixed-width label and its value.
-const LABEL = 12;
+const LABEL = 16;
 
 function layout({ Box, Text }) {
   const text = (value, style = {}) => Text({ ...style, children: [value] });
@@ -60,15 +58,15 @@ function layout({ Box, Text }) {
   return { text, heading, row };
 }
 
+/** A rule's kind, in the words the pane uses (VIEW-2): agreed and checked, agreed as guidance, or proposed. */
 const ruleKind = (r) => (r.mode === 'G?' ? 'proposed' : r.test ? 'enforced' : 'guidance');
-
-/** FILE-2 to FILE-4: the followed file. */
-/** Each rule kind's chip (VIEW-2): its word on a background colour. */
-const CHIP = { enforced: 'red', guidance: 'blue', proposed: 'yellow' };
+const RULE_WORDS = { enforced: 'agreed, edits that break it are refused', guidance: 'agreed, agents are told it', proposed: 'proposed, not agreed yet' };
+const RULE_COLOR = { enforced: 'red', guidance: 'green', proposed: 'yellow' };
 /** A neighbour's card as a glyph (VIEW-2), readable without colour. */
 const CARD_GLYPH = { current: '●', stale: '◐', missing: '○', exempt: '·' };
+const CARD_WORDS = { current: '', stale: ' (out of date)', missing: ' (not explained)', exempt: '' };
 
-/** VIEW-2: what the file imports and what imports it, each a press away, uncarded and rule-breaking ones marked. */
+/** VIEW-2: what the file uses and what uses it, each a press away; unexplained and rule-breaking ones marked. */
 function neighbourhood(n, els, onNeighbour) {
   const { Box, Button, Text } = els;
   const side = (title, list, key) =>
@@ -81,104 +79,78 @@ function neighbourhood(n, els, onNeighbour) {
           ? list.map((x) =>
               Button({
                 key: `${key}-${x.path}`,
-                label: `${CARD_GLYPH[x.card]} ${x.path}${x.breaks.length ? ` ✗ ${x.breaks.join(', ')}` : ''}`,
+                label: `${CARD_GLYPH[x.card]} ${x.path}${CARD_WORDS[x.card]}${x.breaks.length ? ` ✗ breaks ${x.breaks.join(', ')}` : ''}`,
                 plain: true,
                 ...(x.card === 'current' && !x.breaks.length ? { dimColor: true } : {}),
                 onPress: () => onNeighbour(x.path),
               }),
             )
-          : [Text({ dimColor: true, children: ['none'] })]),
+          : [Text({ dimColor: true, children: ['nothing'] })]),
       ],
     });
   return Box({
     key: 'neighbours',
     flexDirection: 'row',
-    columnGap: 2,
-    children: [
-      side('imports', n.imports, 'imports'),
-      Text({ children: [`→ ${n.path} ←`] }),
-      side('imported by', n.importers, 'importers'),
-    ],
+    columnGap: 4,
+    children: [side('uses', n.imports, 'imports'), side('used by', n.importers, 'importers')],
   });
 }
 
+/** FILE-2 to FILE-4 and FILE-6: the followed file: why it exists, its rules, decisions, what editing it takes, and what it's connected to. */
 function fileSection(followed, file, els, { onLanes, onWriteCard, onModuleCards, onNeighbour = () => {}, onWhy = null }, near = null) {
   const { Box, Button } = els;
   const { text, heading, row } = layout(els);
-  const by = followed ? `${followed.agentType ? `last touched by ${followed.agentType}` : 'last touched by the main session'}` : null;
-  if (!followed) return [heading('File'), text('No file yet. The pane follows the file an agent last reads or edits.', { dimColor: true })];
-  if (!file) return [heading('File', by), row('Path', followed.path, { bold: true }), text('Reading it…', { dimColor: true })];
+  const who = followed?.agentType ?? 'the main session';
+  if (!followed)
+    return [heading('This file'), text('No file yet. This tab follows the file an agent last read or changed, and shows what the graph knows about it.', { dimColor: true })];
+  if (!file) return [heading('This file', `last touched by ${who}`), row('Path', followed.path, { bold: true }), text('Reading it…', { dimColor: true })];
   const rows = [
-    heading('File', by),
-    row(
-      'Path',
-      Box({
-        flexDirection: 'row',
-        columnGap: 2,
-        children: [
-          text(file.path, { bold: true }),
-          // ASKQ: a side question on the file in view.
-          ...(onWhy ? [Button({ key: 'why-file', label: 'Why?', hotkey: 'w', plain: true, onPress: () => onWhy(file.path) })] : []),
-        ],
-      }),
-    ),
+    heading('This file', `last touched by ${who}`),
+    Box({
+      key: 'file-path',
+      flexDirection: 'row',
+      columnGap: 2,
+      children: [
+        text(file.path, { bold: true }),
+        ...(file.worktree ? [text(`in ${file.worktree}`, { dimColor: true })] : []),
+        // ASKQ: a side question on the file in view.
+        ...(onWhy ? [Button({ key: 'why-file', label: 'Ask why', hotkey: 'w', plain: true, onPress: () => onWhy(file.path) })] : []),
+      ],
+    }),
   ];
-  // A card to write, or one gone stale, is a press away: the lead runs the cards skill on the file.
+  // Its card is its why: written, or out of date, a press away from the card writer or the lead.
   const cardButton = (label) => Button({ key: 'write-card', label, onPress: () => onWriteCard(file.path) });
   rows.push(
     file.card?.fresh
-      ? row('Card', els.Markdown ? els.Markdown({ key: 'card', text: file.card.text }) : text(file.card.text))
+      ? row('Why it exists', Box({ flexDirection: 'column', children: [els.Markdown ? els.Markdown({ key: 'card', text: file.card.text }) : text(file.card.text), text('up to date', { color: 'green' })] }))
       : row(
-          'Card',
+          'Why it exists',
           Box({
             flexDirection: 'column',
             children: [
               file.card
-                ? text(`${file.card.text}  (stale: the file changed since)`, { color: 'yellow' })
-                : text('No card yet.', { dimColor: true }),
-              cardButton(file.card ? 'Update card' : 'Write card'),
+                ? text(`${file.card.text}  (out of date: the file changed since it was written)`, { color: 'yellow' })
+                : text('Not explained yet: no card says what this file is for.', { color: 'yellow' }),
+              cardButton(file.card ? 'Update its card' : 'Explain this file'),
             ],
           }),
         ),
   );
   rows.push(
-    file.understood.ok
-      ? row('Understood', '✓ yes', { color: 'green' })
-      : row('Understood', `✗ not yet: still to read ${file.understood.missing.map((m) => m.path).join(', ')}`, { color: 'yellow' }),
-  );
-  if (file.chain.length)
-    rows.push(
-      row(
-        'Module',
-        Box({
-          flexDirection: 'row',
-          columnGap: 2,
-          children: [
-            text(file.chain.join(' › ')),
-            Button({ key: 'module-cards', label: 'Cards for this module', plain: true, onPress: () => onModuleCards(file.chain[0]) }),
-          ],
-        }),
-      ),
-    );
-  rows.push(
     row(
-      'Rules',
+      'Rules here',
       file.rules.length
         ? Box({
             flexDirection: 'column',
             children: file.rules.map((r) =>
               Box({
-                flexDirection: 'row',
-                columnGap: 1,
-                children: [
-                  text(` ${ruleKind(r)} `, { backgroundColor: CHIP[ruleKind(r)], color: 'black' }),
-                  text(r.id, { bold: true }),
-                  text(r.text),
-                ],
+                key: `rule-${r.id}`,
+                flexDirection: 'column',
+                children: [text(`● ${r.text}`, { color: RULE_COLOR[ruleKind(r)] }), text(`  ${RULE_WORDS[ruleKind(r)]} · ${r.id}`, { dimColor: true })],
               }),
             ),
           })
-        : 'none',
+        : 'none apply to it yet',
       { dimColor: true },
     ),
   );
@@ -186,13 +158,32 @@ function fileSection(followed, file, els, { onLanes, onWriteCard, onModuleCards,
     row(
       'Decisions',
       file.decisions.length
-        ? Box({ flexDirection: 'column', children: file.decisions.map((d) => text(`${d.date}  ${d.text}  (${d.who})`)) })
-        : 'none recorded yet',
+        ? Box({ flexDirection: 'column', children: file.decisions.map((d) => text(`${d.date}  ${d.text}  (${d.who})`, { key: `decision-${d.id}` })) })
+        : 'none recorded about it yet',
       { dimColor: true },
     ),
   );
-  if (near?.path === file.path)
-    rows.push(row('Neighbours', neighbourhood(near, els, onNeighbour)));
+  // FILE-3: what an agent has to have read before it may change the file.
+  rows.push(
+    file.understood.ok
+      ? row('Before editing', `✓ ${who} understood it first: a current card, or a full read with what it imports`, { color: 'green' })
+      : row('Before editing', `✗ ${who} still has to read ${file.understood.missing.map((m) => m.path).join(', ')}`, { color: 'yellow' }),
+  );
+  if (file.chain.length)
+    rows.push(
+      row(
+        'Part of',
+        Box({
+          flexDirection: 'row',
+          columnGap: 2,
+          children: [
+            text(file.chain.map((id) => id.replace(/^L:/, '')).join(' › ')),
+            Button({ key: 'module-cards', label: "Explain the module's files", plain: true, onPress: () => onModuleCards(file.chain[0]) }),
+          ],
+        }),
+      ),
+    );
+  if (near?.path === file.path) rows.push(row('Connected to', neighbourhood(near, els, onNeighbour)));
   // FILE-4: what a tool sharing the repository says of the file (code-kit: lane, layer, requirement).
   if (file.tools?.lines?.length)
     rows.push(
@@ -232,39 +223,46 @@ function overriddenSection(flagged, els) {
   ];
 }
 
-/** COV-1 and COV-3: each agent's coverage as a table, with edits made without understanding marked; the selected agent marked (VIEW-5). */
-function coverageSection(agents, types, els, selected = -1, assists = []) {
+/**
+ * COV-1 and COV-3: did each agent understand code before changing it? A row per agent: the files it
+ * changed, how many it understood first, and cards it still owes; then each change made without
+ * understanding, with what was unread. The selected agent marked (VIEW-5).
+ */
+function agentsSection(agents, types, els, selected = -1, assists = []) {
   const { Box } = els;
   const { text, heading } = layout(els);
-  if (!agents.length && !assists.length) return [heading('Coverage'), text('Nothing read or edited yet this session.', { dimColor: true })];
+  const intro = text('An agent understands a file before changing it when it has a current card, or reads it in full with what it imports.', { dimColor: true });
+  if (!agents.length && !assists.length) return [heading('Agents', 'this session'), intro, text('No agent has read or changed anything yet this session.', { dimColor: true })];
   const name = (a) => (a.agent === 'main' ? 'main session' : (a.agentType ?? types[a.agent] ?? a.agent));
-  const width = Math.max(14, ...agents.map((a) => name(a).length + 2));
+  const width = Math.max(18, ...agents.map((a) => name(a).length + 4));
   const cells = (values, style = {}) =>
     Box({
       flexDirection: 'row',
-      children: values.map((v, i) => Box({ width: i === 0 ? width : 10, children: [text(String(v), style)] })),
+      children: values.map((v, i) => Box({ width: i === 0 ? width : 18, children: [text(String(v), style)] })),
     });
-  // Every edit with its state; one made without understanding stands out, with what was unread (COV-3).
-  const marked = agents.flatMap((a) =>
-    a.edited.map((e) =>
-      e.understood
-        ? text(`✓ ${name(a)} edited ${e.path}, understood first`, { dimColor: true })
-        : text(`✗ ${name(a)} edited ${e.path} without understanding it: ${e.missing.join(', ')} unread`, { color: 'yellow' }),
-    ),
-  );
+  const blind = agents.flatMap((a) => a.edited.filter((e) => !e.understood).map((e) => ({ a, e })));
   return [
-    heading('Coverage', 'this session'),
-    cells(['agent', 'read', 'searched', 'edited', 'cards owed'], { dimColor: true }),
-    ...agents.map((a, i) =>
-      Box({
+    heading('Agents', 'this session: did they understand code before changing it?'),
+    intro,
+    cells(['agent', 'files changed', 'understood first', 'cards owed'], { dimColor: true }),
+    ...agents.map((a, i) => {
+      const ok = a.edited.filter((e) => e.understood).length;
+      const missed = a.edited.length - ok;
+      return Box({
         key: `agent-${a.agent}`,
-        children: [cells([`${i === selected ? '› ' : ''}${name(a)}`, a.read.length, a.searched.length, a.edited.length, a.cardsOwed.length], i === selected ? { color: 'cyan' } : {})],
-      }),
-    ),
-    ...marked,
+        children: [
+          cells(
+            [`${i === selected ? '› ' : ''}${name(a)}`, a.edited.length, a.edited.length ? (missed ? `${ok}  ✗ ${missed} not` : `${ok}  ✓`) : '-', a.cardsOwed.length],
+            i === selected ? { color: 'cyan' } : missed ? { color: 'yellow' } : {},
+          ),
+        ],
+      });
+    }),
+    // COV-3: each change made without understanding, with what was unread.
+    ...blind.map(({ a, e }) => text(`✗ ${name(a)} changed ${e.path} without reading ${e.missing.join(', ')}`, { key: `blind-${a.agent}-${e.path}`, color: 'yellow' })),
     // ASSIST-2: each reading list a refused edit gave, with the agent's progress through it.
     ...assists.map((x) =>
-      text(`${progressText(x, x.missing) === 'understood' ? '✓' : '…'} ${x.agentId ? (types[x.agentId] ?? x.agentId) : 'main session'} reading to edit ${x.edit}: ${progressText(x, x.missing)}`, {
+      text(`${progressText(x, x.missing) === 'understood' ? '✓' : '…'} ${x.agentId ? (types[x.agentId] ?? x.agentId) : 'main session'} reading to change ${x.edit}: ${progressText(x, x.missing)}`, {
         key: `reading-${x.id}`,
         ...(progressText(x, x.missing) === 'understood' ? { dimColor: true } : { color: 'yellow' }),
       }),
@@ -272,9 +270,40 @@ function coverageSection(agents, types, els, selected = -1, assists = []) {
   ];
 }
 
+/** The background work, for the Overview: the card writer, the backfill (with Pause), and a decline to offer again. */
+function workingNow(model, els, handlers) {
+  const { Box, Text, Button } = els;
+  const line = (key, value, style, button) => Box({ key, flexDirection: 'row', columnGap: 2, children: [Text({ ...style, children: [value] }), ...(button ? [button] : [])] });
+  return [
+    ...(model.cardWriterLine ? [line('card-writer', model.cardWriterLine, { dimColor: true })] : []),
+    ...(model.backfillLine
+      ? [
+          line(
+            'map-backfill-row',
+            model.backfillLine,
+            { color: 'yellow' },
+            handlers.onPauseBackfill ? Button({ key: 'map-backfill-pause', label: model.backfillPaused ? 'Resume' : 'Pause', plain: true, onPress: () => handlers.onPauseBackfill() }) : null,
+          ),
+        ]
+      : []),
+    // The lead declined a batch: the card writer waits until the person offers it again.
+    ...(model.declined
+      ? [
+          line(
+            'card-writer-declined',
+            "The lead turned down the card writer's last batch, so it won't ask again this session.",
+            { color: 'yellow' },
+            handlers.onOfferAgain ? Button({ key: 'offer-again', label: 'Ask again', plain: true, onPress: handlers.onOfferAgain }) : null,
+          ),
+        ]
+      : []),
+  ];
+}
+
 /**
- * The Context pane (spec 09): the graph's health, the tabs (the followed file, the proposals, each
- * agent's coverage) and the keys. `model.ui` is the pane's own state; `model.health` is healthOf's.
+ * The Context pane (spec 09): what Context Graph is for, then its tabs: the Overview (what the graph
+ * knows, module by module, and what's being written now), This file, Rules to review, and Agents.
+ * `model.ui` is the pane's own state; `model.health` is healthOf's.
  */
 export function contextPane(model, els, handlers) {
   const { Text } = els;
@@ -284,6 +313,7 @@ export function contextPane(model, els, handlers) {
   const inMap = (tab) => (tab === 'map' && ui.mapModule ? (model.map ?? []).find((m) => m.id === ui.mapModule) : null);
   // MAP-6: the code has outgrown the graph: folders with code are mapped only to the whole repository.
   const unmapped = model.unmapped ?? [];
+  const one = unmapped.length === 1;
   const outgrown = unmapped.length
     ? [
         els.Box({
@@ -293,74 +323,57 @@ export function contextPane(model, els, handlers) {
             els.Text({
               color: 'yellow',
               children: [
-                `${unmapped.length} folder${unmapped.length === 1 ? '' : 's'} with code ${unmapped.length === 1 ? 'is' : 'are'} not ${unmapped.length === 1 ? 'a module' : 'modules'} yet (${unmapped.slice(0, 3).join(', ')}${unmapped.length > 3 ? ', …' : ''}): the graph sees ${unmapped.length === 1 ? 'it' : 'them'} only as part of the whole repository, so rules and decisions can't be scoped to ${unmapped.length === 1 ? 'it' : 'them'}.`,
+                `${unmapped.length} folder${one ? '' : 's'} with code ${one ? 'is' : 'are'} not ${one ? 'a module' : 'modules'} yet (${unmapped.slice(0, 3).join(', ')}${unmapped.length > 3 ? ', …' : ''}): the graph sees ${one ? 'it' : 'them'} only as part of the whole repository, so rules and decisions can't be scoped to ${one ? 'it' : 'them'}.`,
               ],
             }),
-            ...(handlers.onAddModules ? [els.Button({ key: 'add-modules', label: 'Add them as modules', onPress: handlers.onAddModules })] : []),
+            ...(handlers.onAddModules ? [els.Button({ key: 'add-modules', label: one ? 'Add it as a module' : 'Add them as modules', onPress: handlers.onAddModules })] : []),
           ],
         }),
       ]
     : [];
   const body = (tab) =>
     tab === 'map'
-      ? [...outgrown, ...[].concat(inMap(tab)
-        ? heatMap(inMap(tab), owed, els, { selected: ui.selected }, handlers)
-        : moduleGraph(
-            model.map ?? [],
-            els,
-            {
-              surface: model.surface ?? 'terminal',
-              selected: ui.selected,
-              flagged: model.flagged ?? [],
-              pulsing: model.pulsing ?? new Set(),
-              beat: model.beat ?? 0,
-              proposals: model.proposals ?? [],
-              now: model.now,
-              backfill: model.backfillLine ?? null,
-              backfillPaused: model.backfillPaused ?? false,
-            },
-            handlers,
-          ))]
-      : tab === 'proposals'
       ? [
-          ...proposalsQueue(model.proposals, els, handlers, { selected: ui.selected, deferred: model.deferred ?? new Set(), now: model.now }),
-          ...overriddenSection(model.flagged ?? [], els),
-          ...(model.curatorLine
-            ? [
-                els.Box({
-                  key: 'curator',
-                  flexDirection: 'row',
-                  columnGap: 2,
-                  children: [
-                    els.Text({ dimColor: true, children: [model.curatorLine] }),
-                    ...(handlers.onCurate && !/off|reviewing/.test(model.curatorLine)
-                      ? [els.Button({ key: 'curate-now', label: 'Curate now', plain: true, onPress: handlers.onCurate })]
-                      : []),
-                  ],
-                }),
-              ]
-            : []),
+          ...outgrown,
+          ...(inMap(tab)
+            ? heatMap(inMap(tab), owed, els, { selected: ui.selected }, handlers)
+            : overview(
+                model.map ?? [],
+                els,
+                {
+                  selected: ui.selected,
+                  flagged: model.flagged ?? [],
+                  pulsing: model.pulsing ?? new Set(),
+                  proposals: model.proposals ?? [],
+                  now: model.now,
+                  working: workingNow(model, els, handlers),
+                },
+                handlers,
+              )),
         ]
-      : tab === 'coverage'
+      : tab === 'proposals'
         ? [
-            ...(model.cardWriterLine ? [els.Text({ key: 'card-writer', dimColor: true, children: [model.cardWriterLine] })] : []),
-            // The lead declined a batch: the card writer waits until the person offers it again.
-            ...(model.declined
+            ...proposalsQueue(model.proposals, els, handlers, { selected: ui.selected, deferred: model.deferred ?? new Set(), now: model.now }),
+            ...overriddenSection(model.flagged ?? [], els),
+            ...(model.curatorLine
               ? [
                   els.Box({
-                    key: 'card-writer-declined',
+                    key: 'curator',
                     flexDirection: 'row',
                     columnGap: 2,
                     children: [
-                      els.Text({ color: 'yellow', children: ["The lead declined the card writer; it isn't offered again this session."] }),
-                      ...(handlers.onOfferAgain ? [els.Button({ key: 'offer-again', label: 'Offer it again', plain: true, onPress: handlers.onOfferAgain })] : []),
+                      els.Text({ dimColor: true, children: [model.curatorLine] }),
+                      ...(handlers.onCurate && !/off|reviewing/.test(model.curatorLine)
+                        ? [els.Button({ key: 'curate-now', label: 'Curate now', plain: true, onPress: handlers.onCurate })]
+                        : []),
                     ],
                   }),
                 ]
               : []),
-            ...coverageSection(model.agents, model.types ?? {}, els, ui.selected, model.assists ?? []),
           ]
-        : fileSection(model.followed, model.file, els, handlers, model.neighbours ?? null);
+        : tab === 'coverage'
+          ? agentsSection(model.agents, model.types ?? {}, els, ui.selected, model.assists ?? [])
+          : fileSection(model.followed, model.file, els, handlers, model.neighbours ?? null);
   const keys =
     ui.tab === 'proposals' ? queueKeys(model.proposals, els, handlers, { selected: ui.selected, deferred: model.deferred ?? new Set() }) : [];
   return frame(

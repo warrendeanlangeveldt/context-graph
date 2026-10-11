@@ -1,25 +1,17 @@
 // The graph explorer (docs/specs/08-graph-explorer.md): within a module of the Map tab's graph
-// (views/graph.mjs, MAP-4), a coverage heat map, a cell per file (MAP-2). Pure: the mod passes the
+// (views/overview.mjs, MAP-4), a coverage heat map, a cell per file (MAP-2). Pure: the mod passes the
 // module from `ctx map --json`, the files owed a card this session, and the selection.
 
 /** Each file cell's state: its glyph, readable without colour, and its colour (MAP-2). */
 export const HEAT = {
-  current: { glyph: '●', color: 'green', words: 'current' },
-  stale: { glyph: '◐', color: 'yellow', words: 'stale' },
-  missing: { glyph: '○', color: 'red', words: 'missing' },
-  owed: { glyph: '✱', color: 'magenta', words: 'owed this session' },
+  current: { glyph: '●', color: 'green', words: 'explained' },
+  stale: { glyph: '◐', color: 'yellow', words: 'out of date' },
+  missing: { glyph: '○', color: 'red', words: 'not explained yet' },
+  owed: { glyph: '✱', color: 'magenta', words: 'changed this session, to explain' },
 };
 
 /** A file's cell: owed this session wins over its card's state. */
 export const heatOf = (file, owed) => (owed.has(file.path) ? 'owed' : file.card);
-
-/** The share of a module's files with a current card, as a bar of ten cells and words. */
-export function coverageBar(files) {
-  if (!files.length) return { filled: '', empty: '', words: 'no files' };
-  const current = files.filter((f) => f.card === 'current').length;
-  const full = Math.round((current / files.length) * 10);
-  return { filled: '█'.repeat(full), empty: '░'.repeat(10 - full), words: `${current}/${files.length} have their why` };
-}
 
 /**
  * MAP-2: a module's files as cells coloured current, stale, missing or owed, a legend counting them,
@@ -38,10 +30,10 @@ export function heatMap(module, owed, { Box, Text, Select, Button }, { selected 
       flexDirection: 'row',
       columnGap: 2,
       children: [
-        text(`${module.name} (${module.id})`, { bold: true, color: 'cyan' }),
+        text(`Files in ${module.id.replace(/^L:/, '')}`, { bold: true, color: 'cyan' }),
         // Its files without a current card: to the card writer when it's on, else to the lead.
         ...(cells.some((c) => c.card !== 'current') && on.onModuleCards
-          ? [Button({ key: 'module-write-cards', label: 'Write cards for this module', hotkey: 'c', plain: true, onPress: () => on.onModuleCards(module.id) })]
+          ? [Button({ key: 'module-write-cards', label: 'Explain the ones not explained', hotkey: 'c', plain: true, onPress: () => on.onModuleCards(module.id) })]
           : []),
       ],
     }),
@@ -74,7 +66,7 @@ export function heatMap(module, owed, { Box, Text, Select, Button }, { selected 
             onSelect: (path) => on.onPick(cells.findIndex((c) => c.path === path)),
           }),
         ]
-      : [text('No files map to it.', { dimColor: true })]),
+      : [text('No files belong to it.', { dimColor: true })]),
     ...(picked ? [text(`${picked.path} · ${HEAT[picked.heat].words}. Enter opens it.`, { key: 'heat-picked' })] : []),
   ];
 }

@@ -42,7 +42,8 @@ export function queueOrder(proposals, deferred) {
   return [...modules.flatMap((m) => waiting.filter((p) => (p.module ?? '') === m)), ...proposals.filter((p) => deferred.has(p.id))];
 }
 
-const what = (p) => (p.kind === 'concepts' ? 'concept' : `rule (${p.kind})`);
+const KIND_WORDS = { guidance: 'a rule agents would be told', enforced: 'a rule edits that break it would be refused for', concepts: 'a concept' };
+const what = (p) => KIND_WORDS[p.kind] ?? `a rule (${p.kind})`;
 const hasEvidence = (p) => Boolean(p.servedOn?.length || p.overriddenOn?.length);
 
 /**
@@ -54,7 +55,7 @@ const hasEvidence = (p) => Boolean(p.servedOn?.length || p.overriddenOn?.length)
 export function proposalsQueue(proposals, els, { onRatify, onDrop, onDefer, onRatifyAll }, { selected = -1, deferred = new Set(), now = Date.now() } = {}) {
   const { Box, Text, Button } = els;
   const text = (value, style = {}) => Text({ ...style, children: [value] });
-  if (!proposals.length) return [text('PROPOSALS', { bold: true, color: 'cyan' }), text('None waiting.', { dimColor: true })];
+  if (!proposals.length) return [text('RULES TO REVIEW', { bold: true, color: 'cyan' }), text('None waiting. Rules Context Graph finds in your code and decisions wait here for you to accept or reject.', { dimColor: true })];
   const queue = queueOrder(proposals, deferred);
   const card = (p, i) => {
     const later = deferred.has(p.id);
@@ -68,9 +69,9 @@ export function proposalsQueue(proposals, els, { onRatify, onDrop, onDefer, onRa
         Box({
           flexDirection: 'row',
           columnGap: 2,
-          children: [text(p.id, { bold: true, dimColor: later }), text(`${what(p)}${p.module ? ` on ${p.module}` : ''}`, { dimColor: true }), ...(later ? [text('later', { color: 'yellow' })] : [])],
+          children: [text(p.text, { bold: true, dimColor: later }), ...(later ? [text('later', { color: 'yellow' })] : [])],
         }),
-        text(p.text, { dimColor: later }),
+        text(`${what(p)}${p.module ? ` in ${p.module.replace(/^L:/, '')}` : ''} · ${p.id}`, { dimColor: true }),
         text(`Evidence: ${evidence(p)}`, { dimColor: true }),
         // A sparkline only says something once decisions have cited it.
         ...(hasEvidence(p)
@@ -115,10 +116,10 @@ export function proposalsQueue(proposals, els, { onRatify, onDrop, onDefer, onRa
           flexDirection: 'row',
           columnGap: 2,
           children: [
-            text(key === 'later' ? 'Later' : key || 'Concepts', { bold: true }),
+            text(key === 'later' ? 'Later' : key ? key.replace(/^L:/, '') : 'Concepts', { bold: true }),
             ...(members.length ? [text(`${members.length} waiting`, { dimColor: true })] : []),
             ...(members.length > 1 && key && onRatifyAll
-              ? [Button({ key: `accept-all-${key}`, label: `Accept all ${members.length} on ${key}`, plain: true, onPress: () => onRatifyAll(key, members) })]
+              ? [Button({ key: `accept-all-${key}`, label: `Accept all ${members.length} in ${key.replace(/^L:/, '')}`, plain: true, onPress: () => onRatifyAll(key, members) })]
               : []),
           ],
         }),
@@ -128,7 +129,7 @@ export function proposalsQueue(proposals, els, { onRatify, onDrop, onDefer, onRa
   });
   const waiting = queue.length - deferred.size;
   return [
-    text('PROPOSALS', { bold: true, color: 'cyan' }),
+    text('RULES TO REVIEW', { bold: true, color: 'cyan' }),
     text(
       `${waiting} ${waiting === 1 ? 'rule waits' : 'rules wait'} for you${deferred.size ? `, ${deferred.size} put off till later` : ''}. Context Graph found them in your code and decisions. Accept one and agents are held to it from now on; reject it to remove it.`,
       { dimColor: true },
