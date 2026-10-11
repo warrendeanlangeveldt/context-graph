@@ -2432,9 +2432,9 @@ var require_picomatch = __commonJS({
     var utils = require_utils();
     var constants2 = require_constants();
     var isObject2 = (val) => val && typeof val === "object" && !Array.isArray(val);
-    var picomatch5 = (glob, options, returnState = false) => {
+    var picomatch6 = (glob, options, returnState = false) => {
       if (Array.isArray(glob)) {
-        const fns = glob.map((input) => picomatch5(input, options, returnState));
+        const fns = glob.map((input) => picomatch6(input, options, returnState));
         const arrayMatcher = (str2) => {
           for (const isMatch of fns) {
             const state2 = isMatch(str2);
@@ -2450,16 +2450,16 @@ var require_picomatch = __commonJS({
       }
       const opts = options || {};
       const posix = opts.windows;
-      const regex = isState ? picomatch5.compileRe(glob, options) : picomatch5.makeRe(glob, options, false, true);
+      const regex = isState ? picomatch6.compileRe(glob, options) : picomatch6.makeRe(glob, options, false, true);
       const state = regex.state;
       delete regex.state;
       let isIgnored = () => false;
       if (opts.ignore) {
         const ignoreOpts = { ...options, ignore: null, onMatch: null, onResult: null };
-        isIgnored = picomatch5(opts.ignore, ignoreOpts, returnState);
+        isIgnored = picomatch6(opts.ignore, ignoreOpts, returnState);
       }
       const matcher = (input, returnObject = false) => {
-        const { isMatch, match, output } = picomatch5.test(input, regex, options, { glob, posix });
+        const { isMatch, match, output } = picomatch6.test(input, regex, options, { glob, posix });
         const result = { glob, state, regex, posix, input, output, match, isMatch };
         if (typeof opts.onResult === "function") {
           opts.onResult(result);
@@ -2485,7 +2485,7 @@ var require_picomatch = __commonJS({
       }
       return matcher;
     };
-    picomatch5.test = (input, regex, options, { glob, posix } = {}) => {
+    picomatch6.test = (input, regex, options, { glob, posix } = {}) => {
       if (typeof input !== "string") {
         throw new TypeError("Expected input to be a string");
       }
@@ -2502,24 +2502,24 @@ var require_picomatch = __commonJS({
       }
       if (match === false || opts.capture === true) {
         if (opts.matchBase === true || opts.basename === true) {
-          match = picomatch5.matchBase(input, regex, options, posix);
+          match = picomatch6.matchBase(input, regex, options, posix);
         } else {
           match = regex.exec(output);
         }
       }
       return { isMatch: Boolean(match), match, output };
     };
-    picomatch5.matchBase = (input, glob, options, posix = options && options.windows) => {
-      const regex = glob instanceof RegExp ? glob : picomatch5.makeRe(glob, options);
+    picomatch6.matchBase = (input, glob, options, posix = options && options.windows) => {
+      const regex = glob instanceof RegExp ? glob : picomatch6.makeRe(glob, options);
       return regex.test(utils.basename(input, { windows: posix }));
     };
-    picomatch5.isMatch = (str2, patterns, options) => picomatch5(patterns, options)(str2);
-    picomatch5.parse = (pattern, options) => {
-      if (Array.isArray(pattern)) return pattern.map((p) => picomatch5.parse(p, options));
+    picomatch6.isMatch = (str2, patterns, options) => picomatch6(patterns, options)(str2);
+    picomatch6.parse = (pattern, options) => {
+      if (Array.isArray(pattern)) return pattern.map((p) => picomatch6.parse(p, options));
       return parse3(pattern, { ...options, fastpaths: false });
     };
-    picomatch5.scan = (input, options) => scan(input, options);
-    picomatch5.compileRe = (state, options, returnOutput = false, returnState = false) => {
+    picomatch6.scan = (input, options) => scan(input, options);
+    picomatch6.compileRe = (state, options, returnOutput = false, returnState = false) => {
       if (returnOutput === true) {
         return state.output;
       }
@@ -2530,13 +2530,13 @@ var require_picomatch = __commonJS({
       if (state && state.negated === true) {
         source = `^(?!${source}).*$`;
       }
-      const regex = picomatch5.toRegex(source, options);
+      const regex = picomatch6.toRegex(source, options);
       if (returnState === true) {
         regex.state = state;
       }
       return regex;
     };
-    picomatch5.makeRe = (input, options = {}, returnOutput = false, returnState = false) => {
+    picomatch6.makeRe = (input, options = {}, returnOutput = false, returnState = false) => {
       if (!input || typeof input !== "string") {
         throw new TypeError("Expected a non-empty string");
       }
@@ -2547,9 +2547,9 @@ var require_picomatch = __commonJS({
       if (!parsed.output) {
         parsed = parse3(input, options);
       }
-      return picomatch5.compileRe(parsed, options, returnOutput, returnState);
+      return picomatch6.compileRe(parsed, options, returnOutput, returnState);
     };
-    picomatch5.toRegex = (source, options) => {
+    picomatch6.toRegex = (source, options) => {
       try {
         const opts = options || {};
         return new RegExp(source, opts.flags || (opts.nocase ? "i" : ""));
@@ -2558,8 +2558,8 @@ var require_picomatch = __commonJS({
         return /$^/;
       }
     };
-    picomatch5.constants = constants2;
-    module.exports = picomatch5;
+    picomatch6.constants = constants2;
+    module.exports = picomatch6;
   }
 });
 
@@ -2569,14 +2569,14 @@ var require_picomatch2 = __commonJS({
     "use strict";
     var pico = require_picomatch();
     var utils = require_utils();
-    function picomatch5(glob, options, returnState = false) {
+    function picomatch6(glob, options, returnState = false) {
       if (options && (options.windows === null || options.windows === void 0)) {
         options = { ...options, windows: utils.isWindows() };
       }
       return pico(glob, options, returnState);
     }
-    Object.assign(picomatch5, pico);
-    module.exports = picomatch5;
+    Object.assign(picomatch6, pico);
+    module.exports = picomatch6;
   }
 });
 
@@ -2835,6 +2835,17 @@ function realPath(p) {
   } catch {
     return resolve2(p);
   }
+}
+function nestedWorktree(root, path) {
+  const parts = path.replace(/^\.\//, "").split("/");
+  for (let i = 1; i < parts.length; i++) {
+    const dir = join(root, ...parts.slice(0, i));
+    try {
+      if (statSync(join(dir, ".git")).isFile()) return { root: dir, path: parts.slice(i).join("/") };
+    } catch {
+    }
+  }
+  return null;
 }
 function isLinkedWorktree(root) {
   return mainCheckout(root) !== realPath(root);
@@ -28911,7 +28922,7 @@ var init_propose = __esm({
 import { readFileSync as readFileSync16 } from "node:fs";
 import { join as join18 } from "node:path";
 function ctxVersion2() {
-  if (true) return "0.6.0";
+  if (true) return "0.7.0";
   try {
     return JSON.parse(readFileSync16(join18(packageRoot(), "package.json"), "utf8")).version ?? "unknown";
   } catch {
@@ -29427,6 +29438,16 @@ var init_replay = __esm({
 });
 
 // src/init/bootstrap.ts
+var bootstrap_exports = {};
+__export(bootstrap_exports, {
+  bootstrap: () => bootstrap,
+  headerSentences: () => headerSentences,
+  matchesGlob: () => matchesGlob,
+  moduleCandidates: () => moduleCandidates,
+  newRecordsOnly: () => newRecordsOnly,
+  slug: () => slug,
+  unmappedFolders: () => unmappedFolders
+});
 import { existsSync as existsSync19, readFileSync as readFileSync18, realpathSync as realpathSync3 } from "node:fs";
 import { basename as basename3, dirname as dirname6, join as join20 } from "node:path";
 function headerSentences(src) {
@@ -29441,15 +29462,7 @@ function headerSentences(src) {
   }
   return out.slice(0, 8);
 }
-function bootstrap(ctx, opts = {}) {
-  const root = ctx.root;
-  const minFiles = opts.minFiles ?? 5;
-  const maxDepth = opts.maxDepth ?? 7;
-  const maxModules = opts.maxModules ?? 60;
-  const today3 = opts.today ?? isoToday();
-  const notes = [];
-  const files = (git(root, ["ls-files", "--cached", "--others", "--exclude-standard"]) ?? "").split("\n").filter(Boolean);
-  if (!files.length) throw new Error(`git ls-files returned nothing for ${root}; commit something first`);
+function moduleCandidates(files, { minFiles = 5, maxDepth = 7, maxModules = 60, notes = [] } = {}) {
   const counts = /* @__PURE__ */ new Map();
   const direct = /* @__PURE__ */ new Map();
   for (const f of files) {
@@ -29483,6 +29496,29 @@ function bootstrap(ctx, opts = {}) {
     notes.push(`kept the ${keep.size} largest modules of ${counts.size} candidate directories; raise --max-modules to see more`);
   }
   candidates = candidates.filter((c) => !(GENERIC_DIRS.has(basename3(c.dir)) && candidates.some((o) => o.dir !== c.dir && c.dir.startsWith(o.dir + "/"))));
+  return { candidates, counts };
+}
+function unmappedFolders(ctx) {
+  const g = ctx.graph;
+  if (!g) return [];
+  const files = (git(ctx.root, ["ls-files", "--cached", "--others", "--exclude-standard"]) ?? "").split("\n").filter(Boolean);
+  const { candidates } = moduleCandidates(files);
+  return candidates.filter((c) => {
+    const m = g.mapPath(`${c.dir}/__ctx_probe__.ts`);
+    return !m || m.glob === "**";
+  }).filter((c, _, all) => !all.some((o) => o.dir !== c.dir && c.dir.startsWith(`${o.dir}/`))).sort((a, b) => b.n - a.n).map((c) => c.dir);
+}
+function bootstrap(ctx, opts = {}) {
+  const root = ctx.root;
+  const minFiles = opts.minFiles ?? 5;
+  const maxDepth = opts.maxDepth ?? 7;
+  const maxModules = opts.maxModules ?? 60;
+  const today3 = opts.today ?? isoToday();
+  const notes = [];
+  const files = (git(root, ["ls-files", "--cached", "--others", "--exclude-standard"]) ?? "").split("\n").filter(Boolean);
+  if (!files.length) throw new Error(`git ls-files returned nothing for ${root}; commit something first`);
+  const { candidates: found, counts } = moduleCandidates(files, { minFiles, maxDepth, maxModules, notes });
+  let candidates = found;
   candidates.sort((a, b) => b.dir.split("/").length - a.dir.split("/").length || a.dir.localeCompare(b.dir));
   const ids = /* @__PURE__ */ new Map();
   const used = /* @__PURE__ */ new Set();
@@ -29732,10 +29768,11 @@ function moduleOfDir(ids, dir) {
   }
   return void 0;
 }
-var CODE_EXT3, NOISE_DIRS, INSTRUCTION_FILES, HARNESS_INJECTED, MAX_INSTRUCTION_RULES, IMPERATIVE, GENERIC_DIRS, TEST_FILE, ARCH_FILE, RULE_TEXT, STRONG_ARCH_FILE, ruleShaped, RATIONALE;
+var import_picomatch4, CODE_EXT3, NOISE_DIRS, INSTRUCTION_FILES, HARNESS_INJECTED, MAX_INSTRUCTION_RULES, IMPERATIVE, GENERIC_DIRS, TEST_FILE, ARCH_FILE, RULE_TEXT, STRONG_ARCH_FILE, ruleShaped, RATIONALE, matchesGlob;
 var init_bootstrap = __esm({
   "src/init/bootstrap.ts"() {
     "use strict";
+    import_picomatch4 = __toESM(require_picomatch2(), 1);
     init_imports();
     init_git();
     CODE_EXT3 = /\.(ts|tsx|js|jsx|mts|cts|mjs|cjs|py|go|rs|java|kt|cs|rb|php|swift)$/;
@@ -29751,6 +29788,7 @@ var init_bootstrap = __esm({
     STRONG_ARCH_FILE = /(boundary|architecture|layering|\.arch\.|(^|\/)(no|never)-[^/]*)[^/]*\.(test|spec)\.[cm]?[jt]sx?$/i;
     ruleShaped = (t) => t.length <= 140 && t.split(/\s+/).length <= 22 && !/->|=>|\bbelow\b|\bhere\b|\btests?\s+[—-]|^(So|Two|Three|Both|Neither|Enough|Most|Some|Many|Half|Every case|What is|Runs|This|These|Those|It|There|Prior|Before|After|Previously|Historically|Originally|Once|When|Because|Since|Now)\b/.test(t);
     RATIONALE = /\b(because|so that|so a|so the|so they|there were|there was|used to|instead of|rather than|otherwise|deliberately|on purpose|never|must|one of each|the reason)\b/i;
+    matchesGlob = (glob, path) => (0, import_picomatch4.default)(glob, { dot: true })(path);
   }
 });
 
@@ -30169,7 +30207,7 @@ function addModule(ctx, m, today3 = (/* @__PURE__ */ new Date()).toISOString().s
   const isM = (l) => /^M\s/.test(l.trim());
   const shadows = (l, glob) => {
     const existing = l.trim().split(/\s+/)[1];
-    return Boolean(existing) && (0, import_picomatch4.default)(existing, { dot: true })(probePath(glob));
+    return Boolean(existing) && (0, import_picomatch5.default)(existing, { dot: true })(probePath(glob));
   };
   let at = lines.findIndex((l) => isM(l) && m.globs.some((glob) => shadows(l, glob)));
   if (at < 0) {
@@ -30186,11 +30224,11 @@ function addModule(ctx, m, today3 = (/* @__PURE__ */ new Date()).toISOString().s
 `).join(""), "utf8");
   return { mappings, logical, edge };
 }
-var import_picomatch4, MODULE_ID;
+var import_picomatch5, MODULE_ID;
 var init_modules = __esm({
   "src/graph/modules.ts"() {
     "use strict";
-    import_picomatch4 = __toESM(require_picomatch2(), 1);
+    import_picomatch5 = __toESM(require_picomatch2(), 1);
     init_graph();
     init_write();
     MODULE_ID = /^L:[A-Za-z0-9][A-Za-z0-9._-]*$/;
@@ -30591,14 +30629,23 @@ function commitGraph(ctx, message) {
   return git(ctx.root, ["rev-parse", "--short", "HEAD"]) ?? "";
 }
 async function run(args, env) {
-  const ctx = openFromArgs(args);
+  let ctx = openFromArgs(args);
+  let worktree = null;
+  if (args.cmd === "file" && args.positional[0] && !str(args.flags.repo)) {
+    const nested = nestedWorktree(ctx.root, args.positional[0]);
+    if (nested) {
+      worktree = args.positional[0].replace(/^\.\//, "").slice(0, -nested.path.length - 1);
+      ctx = openFromArgs({ ...args, flags: { ...args.flags, repo: nested.root } });
+      args = { ...args, positional: [nested.path, ...args.positional.slice(1)] };
+    }
+  }
   const print = (value, text) => console.log(env.json ? JSON.stringify(value, null, 2) : text);
   if (args.cmd === "file") {
     const path = args.positional[0];
     if (!path) throw new Error("ctx file <path> [--agent <id>] [--session <id>]");
-    const f = fileContext(ctx, path, { session: str(args.flags.session) ?? latestSession(ctx.root), agent: str(args.flags.agent) });
+    const f = { ...fileContext(ctx, path, { session: str(args.flags.session) ?? latestSession(ctx.root), agent: str(args.flags.agent) }), worktree };
     print(f, [
-      f.path,
+      `${f.path}${worktree ? ` (in ${worktree})` : ""}`,
       `  card: ${f.card ? `${f.card.fresh ? "current" : "stale"}: ${f.card.text}` : "none yet"}`,
       `  chain: ${f.chain.join(" > ") || "(unmapped)"}`,
       ...f.rules.map((r) => `  rule ${r.id} (${r.mode}): ${r.text}`),
@@ -36263,6 +36310,10 @@ function nextStep(ctx, opts = {}) {
   if (block === "outdated") {
     return result("init", `${ins} carries an older Context Graph block, which tells agents something the hooks no longer do. ctx install instructions brings it up to date.`, { command: "ctx install instructions" });
   }
+  const unmapped = unmappedFolders(ctx);
+  if (unmapped.length) {
+    return result("init", `${unmapped.length} folder(s) with code (${unmapped.slice(0, 3).join(", ")}${unmapped.length > 3 ? ", \u2026" : ""}) are mapped only to the whole repository, so the graph can't scope rules or decisions to them and its map shows one module. ctx init --write adds them as modules.`, { command: "ctx init --write" });
+  }
   const changed = cardsReport(ctx, { changed: true });
   if (changed.missing.length || changed.stale.length) {
     const n = changed.missing.length + changed.stale.length;
@@ -36329,6 +36380,7 @@ var init_guide = __esm({
     init_cards();
     init_hygiene();
     init_instructions();
+    init_bootstrap();
     init_store();
     init_recorder();
     init_git();
@@ -36549,9 +36601,14 @@ function neighbours(ctx, path) {
   };
 }
 async function run11(args, env) {
-  const ctx = openFromArgs(args);
-  const path = args.positional[0];
+  let ctx = openFromArgs(args);
+  let path = args.positional[0];
   if (!path) throw new Error("ctx neighbours <path>");
+  const nested = str(args.flags.repo) ? null : nestedWorktree(ctx.root, path);
+  if (nested) {
+    ctx = openFromArgs({ ...args, flags: { ...args.flags, repo: nested.root } });
+    path = nested.path;
+  }
   const n = neighbours(ctx, path.replace(/^\.\//, ""));
   const line = (x) => `  ${x.path}  card ${x.card}${x.breaks.length ? `, breaks ${x.breaks.join(", ")}` : ""}`;
   console.log(
@@ -36566,6 +36623,7 @@ var init_neighbours = __esm({
     init_imports();
     init_conformance();
     init_main();
+    init_paths();
   }
 });
 
@@ -36768,7 +36826,8 @@ async function main() {
     case "info": {
       const ctx = openFromArgs(args);
       const counts = ctx.graph ? { decisions: ctx.graph.decisions.size, rules: ctx.graph.constraints.size } : null;
-      const info = { root: ctx.root, repoHash: repoHash(ctx.root), graphDir: ctx.graphDir ?? null, config: ctx.config, ctxHome: ctxHome(), branch: currentBranch(ctx.root), person: gitPerson(ctx.root), counts };
+      const { unmappedFolders: unmappedFolders2 } = await Promise.resolve().then(() => (init_bootstrap(), bootstrap_exports));
+      const info = { root: ctx.root, repoHash: repoHash(ctx.root), graphDir: ctx.graphDir ?? null, config: ctx.config, ctxHome: ctxHome(), branch: currentBranch(ctx.root), person: gitPerson(ctx.root), counts, unmapped: unmappedFolders2(ctx) };
       console.log(json ? JSON.stringify(info, null, 2) : Object.entries(info).map(([k, v]) => `${k.padEnd(10)} ${typeof v === "object" && v !== null ? JSON.stringify(v) : String(v)}`).join("\n"));
       return 0;
     }

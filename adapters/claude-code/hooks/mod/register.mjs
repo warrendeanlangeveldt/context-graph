@@ -9,7 +9,7 @@
 import { DROP_ID, NO_GRAPH, PANE_ID, contextPane, dropPane, followedPath, parseJson } from './view.mjs';
 import { SETTINGS_ID, settingsView } from './views/settings.mjs';
 import { DEFAULT_UI, bandHealth, closeGoesBack, healthOf, moved } from './views/frame.mjs';
-import { grewDecisions } from './views/graph.mjs';
+import { grewDecisions } from './views/overview.mjs';
 import { assistCard, editTag, readingList, readingMessage } from './views/assist.mjs';
 import { BATCH, backfillLine, batchDescription, cardJobs, cardWriterLine, cardWriterSpec, pausedAt, startCardWriterPrompt } from './card-writer.mjs';
 import { CURATE_DESCRIPTION, curatorDue, curatorLine, curatorSpec, flaggedRules, startCuratorPrompt } from './curator.mjs';
@@ -78,7 +78,7 @@ export function register(on) {
       .catch((err) => $.ui.log(`Context Graph: /graph-settings isn't available in this session: ${err?.message ?? err}`));
     const cli = `${$.plugin.root}/ctx.mjs`;
     const cwd = e.cwd ?? (await $.session.cwd());
-    const session = await $.session.id();
+    let session = await $.session.id();
     const json = async (...args) => {
       const ran = await $.process.run(['node', cli, ...args, '--json'], {
         cwd,
@@ -95,6 +95,8 @@ export function register(on) {
     act = {
       // Everything the pane and the band show, read again.
       reload: async () => {
+        // The session's id now: a resumed or cleared session has a new one, and its coverage is recorded under it.
+        session = (await $.session.id().catch(() => null)) ?? session;
         const info = await json('info');
         if (!info?.graphDir) {
           model = {
@@ -159,6 +161,7 @@ export function register(on) {
           flagged,
           decisions: info.counts?.decisions ?? 0,
           map,
+          unmapped: info.unmapped ?? [],
         };
         // CUR-1: decisions are counted from the session's start.
         if (curator.baseline === null) curator.baseline = model.decisions;
@@ -335,6 +338,18 @@ export function register(on) {
           editedAt,
           now,
         });
+      },
+      // MAP-6: folders with code the graph maps only to the whole repository, added as modules on the
+      // person's press (init, run again, adds modules and proposes their edges; it ratifies nothing).
+      addModules: async () => {
+        const ran = await $.process.run(['node', cli, 'init', '--write'], { cwd, timeoutMs: 120000 }).catch((err) => ({ exitCode: 1, stdout: '', stderr: String(err?.message ?? err) }));
+        model = {
+          ...model,
+          notice: ran.exitCode === 0
+            ? { ok: true, text: ran.stdout.split('\n').find((l) => l.startsWith('added')) ?? 'The graph already maps every folder that looks like a module.' }
+            : { ok: false, text: `Adding the modules failed: ${firstLine(ran)}` },
+        };
+        await act.reload();
       },
       // The person offers the declined files again: the next idle turn asks the lead once more.
       offerAgain: async () => {
@@ -564,11 +579,13 @@ export function register(on) {
   on('turn.start', async ($, e, next) => {
     leadTurn = e.turnId;
     // The turn the mod's prompt starts: whether it starts the agent asked for is judged when it ends.
-    if (cardWriter.batch?.awaiting) {
+    // Only the turn carrying the prompt: another mod's prompt (code-kit's loop) may run first.
+    const text = typeof e.text === 'string' ? e.text : '';
+    if (cardWriter.batch?.awaiting && (!text || text.includes(cardWriter.batch.description))) {
       cardWriter.batch.turnId = e.turnId;
       cardWriter.batch.awaiting = false;
     }
-    if (curator.awaiting) {
+    if (curator.awaiting && (!text || text.includes(CURATE_DESCRIPTION))) {
       curator.turnId = e.turnId;
       curator.awaiting = false;
     }
@@ -744,6 +761,7 @@ export function register(on) {
       },
       onCurate: () => act.curateNow(),
       onOfferAgain: () => act.offerAgain(),
+      onAddModules: () => act.addModules(),
       onWhy: (path) => act.why(path),
       // VIEW-3: defer puts a proposal at the back of the queue for the session; again brings it back.
       onDefer: (p) => {

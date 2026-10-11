@@ -15,7 +15,7 @@ import { curatorDue, curatorLine, flaggedRules } from '../../adapters/claude-cod
 // @ts-expect-error: the mod is plain JavaScript beside the bundled CLI, outside the TypeScript build
 import { costText, sourcesOf, targetsOf } from '../../adapters/claude-code/hooks/mod/why.mjs';
 // @ts-expect-error: the mod is plain JavaScript beside the bundled CLI, outside the TypeScript build
-import { HEAT, coverageBar, heatOf } from '../../adapters/claude-code/hooks/mod/views/map.mjs';
+import { HEAT, heatOf } from '../../adapters/claude-code/hooks/mod/views/map.mjs';
 
 /** Stand-ins for the elements `$.ui.resolve` gives the mod. */
 type Node = { type: string; props: Record<string, unknown>; children: Node[] | string[] };
@@ -23,6 +23,7 @@ const make = (type: string) => (props: Record<string, unknown>): Node => ({ type
 const els = { Box: make('Box'), Text: make('Text'), Button: make('Button'), Input: make('Input') };
 const texts = (n: Node | string): string[] => (typeof n === 'string' ? [n] : n.type === 'Text' ? (n.children as string[]) : (n.children as Node[]).flatMap(texts));
 const keys = (n: Node | string): string[] => (typeof n === 'string' ? [] : [...(n.props.key ? [String(n.props.key)] : []), ...(n.type === 'Text' ? [] : (n.children as Node[]).flatMap(keys))]);
+const onFile = { ui: { ...DEFAULT_UI, tab: 'file' } };
 const none = { onRatify: () => {}, onDrop: () => {}, onLanes: () => {}, onWriteCard: () => {}, onModuleCards: () => {} };
 
 const file = {
@@ -47,29 +48,37 @@ describe('the Context Graph mod: what it draws', () => {
   });
 
   it('FILE-2 and FILE-3 show the card, rules, chain, decisions and what is still to read', () => {
-    const shown = texts(contextPane({ kind: 'graph', followed: { path: 'src/a.ts', agentType: 'web-engineer' }, file, proposals: [], agents: [] }, els, none));
-    expect(shown).toEqual(expect.arrayContaining(['FILE', 'last touched by web-engineer', 'Path', 'src/a.ts']));
+    const shown = texts(contextPane({ kind: 'graph', ...onFile, followed: { path: 'src/a.ts', agentType: 'web-engineer' }, file, proposals: [], agents: [] }, els, none));
+    expect(shown).toEqual(expect.arrayContaining(['THIS FILE', 'last touched by web-engineer', 'src/a.ts', 'Why it exists', 'up to date']));
     expect(shown).toContain('Holds a.');
-    expect(shown).toEqual(expect.arrayContaining([' guidance ', 'src.pure', 'no side effects', ' enforced ', 'src.typed']));
-    expect(shown).toContain('L:src › L:repo');
+    expect(shown).toEqual(expect.arrayContaining(['● no side effects', '  agreed, agents are told it · src.pure', '  agreed, edits that break it are refused · src.typed']));
+    expect(shown).toContain('src › repo');
     expect(shown).toContain('2026-10-03  keep a constant  (warren/claude)');
-    expect(shown).toContain('✗ not yet: still to read src/b.ts');
-    const bare = texts(contextPane({ kind: 'graph', followed: { path: 'src/a.ts', agentType: null }, file: { ...file, card: null, decisions: [] }, proposals: [], agents: [] }, els, none));
-    expect(bare).toContain('No card yet.');
-    const bareKeys = keys(contextPane({ kind: 'graph', followed: { path: 'src/a.ts', agentType: null }, file: { ...file, card: null }, proposals: [], agents: [] }, els, none));
+    expect(shown).toContain('✗ web-engineer still has to read src/b.ts');
+    const bare = texts(contextPane({ kind: 'graph', ...onFile, followed: { path: 'src/a.ts', agentType: null }, file: { ...file, card: null, decisions: [] }, proposals: [], agents: [] }, els, none));
+    expect(bare).toContain('Not explained yet: no card says what this file is for.');
+    const bareKeys = keys(contextPane({ kind: 'graph', ...onFile, followed: { path: 'src/a.ts', agentType: null }, file: { ...file, card: null }, proposals: [], agents: [] }, els, none));
     expect(bareKeys).toEqual(expect.arrayContaining(['write-card', 'module-cards']));
-    const current = keys(contextPane({ kind: 'graph', followed: { path: 'src/a.ts', agentType: null }, file, proposals: [], agents: [] }, els, none));
+    const current = keys(contextPane({ kind: 'graph', ...onFile, followed: { path: 'src/a.ts', agentType: null }, file, proposals: [], agents: [] }, els, none));
     expect(current).not.toContain('write-card');
     expect(bare).toContain('last touched by the main session');
-    expect(bare).toContain('none recorded yet');
+    expect(bare).toContain('none recorded about it yet');
   });
 
   it('FILE-4 shows what code-kit says of the file, with Lanes, only when code-kit is there', () => {
     const withKit = { ...file, tools: { lines: ['code-kit  lane web · layer ui · WEB-1'], requirements: ['WEB-1'] } };
-    const pane = contextPane({ kind: 'graph', followed: { path: 'src/a.ts', agentType: null }, file: withKit, proposals: [], agents: [] }, els, none);
+    const pane = contextPane({ kind: 'graph', ...onFile, followed: { path: 'src/a.ts', agentType: null }, file: withKit, proposals: [], agents: [] }, els, none);
     expect(texts(pane)).toContain('lane web · layer ui · WEB-1');
     expect(keys(pane)).toContain('open-lanes');
-    expect(keys(contextPane({ kind: 'graph', followed: { path: 'src/a.ts', agentType: null }, file, proposals: [], agents: [] }, els, none))).not.toContain('open-lanes');
+    expect(keys(contextPane({ kind: 'graph', ...onFile, followed: { path: 'src/a.ts', agentType: null }, file, proposals: [], agents: [] }, els, none))).not.toContain('open-lanes');
+  });
+
+  it('MAP-6 the Map says which folders with code are not modules yet, and offers to add them', () => {
+    const model = { kind: 'graph', ui: { ...DEFAULT_UI, tab: 'map' }, proposals: [], agents: [], map: [], unmapped: ['packages', 'services/data-plane'] };
+    const shown = texts(contextPane(model, els, { ...none, onAddModules: () => {} })).join(' ');
+    expect(shown).toContain('2 folders with code are not modules yet (packages, services/data-plane)');
+    expect(keys(contextPane(model, els, { ...none, onAddModules: () => {} }))).toContain('add-modules');
+    expect(keys(contextPane({ ...model, unmapped: [] }, els, { ...none, onAddModules: () => {} }))).not.toContain('add-modules');
   });
 
   it('FILE-5 without a graph it says how to start one', () => {
@@ -82,10 +91,12 @@ describe('the Context Graph mod: what it draws', () => {
       { id: 'src.small', kind: 'guidance', module: 'L:src', text: 'keep modules small', served: 3, overridden: 1, violations: null },
       { id: 'C:events', kind: 'concepts', module: null, text: 'Change goes through events', served: 0, overridden: 0, violations: null },
     ];
-    const pane = contextPane({ kind: 'graph', followed: null, file: null, proposals, agents: [], ui: { ...DEFAULT_UI, tab: 'proposals' } }, els, none);
+    const pane = contextPane({ kind: 'graph', ...onFile, followed: null, file: null, proposals, agents: [], ui: { ...DEFAULT_UI, tab: 'proposals' } }, els, none);
     expect(texts(pane)).toContain('Evidence: served by 3 decisions, overridden by 1 decision');
     expect(texts(pane)).toContain('Evidence: no decision has cited it yet');
-    expect(texts(pane)).toContain('rule (guidance) on L:src');
+    expect(texts(pane)).toContain('a rule agents would be told in src · src.small');
+    expect(texts(pane)).toContain('keep modules small');
+    expect(texts(pane)).toContain('RULES TO REVIEW');
     expect(keys(pane)).toEqual(expect.arrayContaining(['ratify-src.small', 'drop-src.small', 'ratify-C:events']));
     expect(bandHealth(healthOf({ proposals: proposals.length }))).toBeNull();
   });
@@ -105,23 +116,23 @@ describe('the Context Graph mod: what it draws', () => {
         cardsOwed: ['src/a.ts'],
       },
     ];
-    const shown = texts(contextPane({ kind: 'graph', followed: null, file: null, proposals: [], agents, ui: { ...DEFAULT_UI, tab: 'coverage' } }, els, none));
-    expect(shown).toEqual(expect.arrayContaining(['agent', 'read', 'searched', 'edited', 'cards owed']));
-    const row = (who: string) => shown.slice(shown.indexOf(who), shown.indexOf(who) + 5);
-    expect(row('web-engineer')).toEqual(['web-engineer', '4', '3', '2', '1']);
-    expect(row('main session')).toEqual(['main session', '2', '0', '0', '0']);
-    expect(shown).toContain('✓ web-engineer edited src/a.ts, understood first');
-    expect(shown).toContain('✗ web-engineer edited src/c.ts without understanding it: src/d.ts, src/e.ts unread');
+    const shown = texts(contextPane({ kind: 'graph', ...onFile, followed: null, file: null, proposals: [], agents, ui: { ...DEFAULT_UI, tab: 'coverage' } }, els, none));
+    expect(shown).toEqual(expect.arrayContaining(['AGENTS', 'this session: did they understand code before changing it?', 'agent', 'files changed', 'understood first', 'cards owed']));
+    const row = (who: string) => shown.slice(shown.indexOf(who), shown.indexOf(who) + 4);
+    expect(row('web-engineer')).toEqual(['web-engineer', '2', '1  ✗ 1 not', '1']);
+    expect(row('main session')).toEqual(['main session', '0', '-', '0']);
+    expect(shown).toContain('✗ web-engineer changed src/c.ts without reading src/d.ts, src/e.ts');
+    expect(shown.join(' ')).not.toContain('changed src/a.ts without');
   });
 
-  it("VIEW-1 the graph's health: the carded share, owed cards, proposals and overridden rules, as a glyph and a colour", () => {
+  it("VIEW-1 the graph's health in words: the share explained, files to explain, rules to review and overridden rules, with a colour", () => {
     const cards = { fresh: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'], stale: ['j'], missing: [] };
-    expect(healthOf({ cards, owed: 0, proposals: 0 })).toMatchObject({ carded: 90, level: 'good', text: '☀ 90% have their why · 0 owed · 0 proposals' });
-    expect(healthOf({ cards, owed: 1, proposals: 1 })).toMatchObject({ level: 'amber', glyph: '⛅' });
+    expect(healthOf({ cards, owed: 0, proposals: 0 })).toMatchObject({ carded: 90, level: 'good', text: '90% of files explained' });
+    expect(healthOf({ cards, owed: 1, proposals: 1 })).toMatchObject({ level: 'amber', text: '90% of files explained · 1 file to explain from this session · 1 rule to review' });
     // A low carded share is shown, not judged: a brownfield project starts at 0%.
-    expect(healthOf({ cards: { fresh: [], stale: [], missing: ['a', 'b'] }, owed: 0 })).toMatchObject({ carded: 0, level: 'good', text: '☀ 0% have their why · 0 owed · 0 proposals' });
-    expect(healthOf({ cards, owed: 5 })).toMatchObject({ level: 'red', glyph: '⛈' });
-    expect(healthOf({ cards, flagged: 3 }).text).toBe('⛈ 90% have their why · 0 owed · 0 proposals · 3 rules overridden');
+    expect(healthOf({ cards: { fresh: [], stale: [], missing: ['a', 'b'] }, owed: 0 })).toMatchObject({ carded: 0, level: 'good', text: '0% of files explained' });
+    expect(healthOf({ cards, owed: 5 })).toMatchObject({ level: 'red' });
+    expect(healthOf({ cards, flagged: 3 }).text).toBe('90% of files explained · 3 rules overridden');
     expect(bandHealth(healthOf({ cards, owed: 0, proposals: 0 }))).toBeNull();
     // The band speaks only of rules the agents keep working around; cards owed are the agents' work.
     expect(bandHealth(healthOf({ cards, owed: 2 }))).toBeNull();
@@ -152,16 +163,16 @@ describe('the Context Graph mod: what it draws', () => {
       ],
       importers: [{ path: 'src/d.ts', card: 'current', breaks: [] }],
     };
-    const pane = contextPane({ kind: 'graph', followed: { path: 'src/a.ts', agentType: null }, file, proposals: [], agents: [], neighbours: near }, md, none);
+    const pane = contextPane({ kind: 'graph', ...onFile, followed: { path: 'src/a.ts', agentType: null }, file, proposals: [], agents: [], neighbours: near }, md, none);
     const find = (n: Node | string, pred: (x: Node) => boolean): Node | undefined =>
       typeof n === 'string' ? undefined : pred(n) ? n : (n.children as Node[]).map((c) => find(c, pred)).find(Boolean);
     expect(find(pane, (n) => n.type === 'Markdown')?.props.text).toBe('Holds a.');
-    expect(find(pane, (n) => n.type === 'Text' && (n.children as string[])[0] === ' enforced ')?.props.backgroundColor).toBe('red');
+    expect(find(pane, (n) => n.type === 'Text' && (n.children as string[])[0] === '● no side effects')?.props.color).toBe('green');
     const labels = (find(pane, (n) => n.props.key === 'neighbours') as Node);
     const buttons: string[] = [];
     const walk = (n: Node | string) => { if (typeof n === 'string') return; if (n.type === 'Button') buttons.push(String(n.props.label)); (n.children as Node[]).forEach(walk); };
     walk(labels);
-    expect(buttons).toEqual(['◐ src/b.ts', '○ lib/c.ts ✗ src.no-lib', '● src/d.ts']);
+    expect(buttons).toEqual(['◐ src/b.ts (out of date)', '○ lib/c.ts (not explained) ✗ breaks src.no-lib', '● src/d.ts']);
   });
 
   it('VIEW-3 a sparkline of decisions a week a bar, and deferred proposals at the back of the queue', () => {
@@ -200,9 +211,9 @@ describe('the Context Graph mod: what it draws', () => {
     expect(pausedAt([{ kind: 'five_hour', percentUsed: 80 }], 80).paused).toBe(false);
     expect(pausedAt([], 80)).toEqual({ percent: null, paused: false });
     expect(cardWriterLine({ on: false })).toMatch(/^Card writer: off/);
-    expect(cardWriterLine({ on: true, paused: true, percent: 82 })).toBe('Card writer: paused, the plan at 82%');
-    expect(cardWriterLine({ on: true, writing: ['a', 'b', 'c', 'd'], waiting: ['e'] })).toBe('Card writer: writing 4 (a, b, c, …), 1 waiting');
-    expect(cardWriterLine({ on: true, waiting: ['e'] })).toBe('Card writer: 1 waiting for the lead to be idle');
+    expect(cardWriterLine({ on: true, paused: true, percent: 82 })).toBe("Card writer: paused, the plan's 5-hour use at 82%");
+    expect(cardWriterLine({ on: true, writing: ['a', 'b', 'c', 'd'], waiting: ['e'] })).toBe('Card writer: explaining 4 files (a, b, c, …); 1 more queued');
+    expect(cardWriterLine({ on: true, waiting: ['e'] })).toBe('Card writer: 1 file queued; it starts when the lead is next idle');
   });
 
   it('CUR-1 and CUR-2 when the curator is due, its line, and the rules hygiene flags', () => {
@@ -230,10 +241,9 @@ describe('the Context Graph mod: what it draws', () => {
     expect(costText(1500, undefined)).toBe('1.5 s');
   });
 
-  it("MAP-1 and MAP-2 a module's coverage bar, and each file's cell, owed this session winning", () => {
+  it("MAP-2 each file's cell, owed this session winning, its state in words", () => {
     const files = [{ path: 'a', card: 'current' }, { path: 'b', card: 'current' }, { path: 'c', card: 'stale' }, { path: 'd', card: 'missing' }];
-    expect(coverageBar(files)).toEqual({ filled: '█████', empty: '░░░░░', words: '2/4 have their why' });
-    expect(coverageBar([])).toEqual({ filled: '', empty: '', words: 'no files' });
+    expect(Object.values(HEAT).map((h: { words: string }) => h.words)).toEqual(['explained', 'out of date', 'not explained yet', 'changed this session, to explain']);
     expect(files.map((f) => heatOf(f, new Set(['b'])))).toEqual(['current', 'owed', 'stale', 'missing']);
     const glyphs = Object.values(HEAT).map((h: { glyph: string }) => h.glyph);
     expect(new Set(glyphs).size).toBe(glyphs.length);

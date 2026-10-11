@@ -2,6 +2,18 @@
 
 What changed in each release of Context Graph, newest first. Versions follow the plugin manifests and the npm package `@warren-dean/context-graph`. Each release is also on [GitHub Releases](https://github.com/warrendeanlangeveldt/context-graph/releases).
 
+## 0.7.0 (2026-10-12)
+
+The Context pane says what Context Graph is for, and shows what it knows about your code.
+
+- **An Overview of the codebase.** The pane opens on a row per module: how many of its files are explained (have a current card), its rules, its decisions and when the last one was. Under it, what's being written now: the card writer and the backfill. The weather glyphs, `0r +1?` counts and the box-drawn graph are gone; everything is said in words.
+- **This file, in plain sections.** Why it exists, the rules here (agreed or proposed, in words), the decisions about it, what an agent has to read before editing it, the module it's part of, and what it uses and what uses it.
+- **Rules to review and Agents.** Proposals lead with the rule itself. The Agents tab answers one question: did each agent understand the code before changing it?
+- **Code the graph doesn't map yet.** A graph made before there was code saw everything as one module. `ctx next` and the Overview now name the folders with code that aren't modules yet, with **Add them as modules**.
+- **Files in a lane's worktree** show their own card and neighbours, instead of "No card yet".
+- **The card writer isn't stopped by another prompt.** When code-kit's loop prompted the lead first, Context Graph took that turn for the lead turning the card writer down, and stopped asking for the session. Only the turn carrying its own prompt counts now.
+- **Coverage follows a resumed session.** The pane reads the session's id on each refresh, so a resumed or cleared session's reads show up.
+
 ## 0.6.0 (2026-10-11)
 
 Cards are written in the background, and the gate sees shell edits.

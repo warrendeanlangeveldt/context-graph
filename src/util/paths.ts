@@ -42,6 +42,24 @@ function realPath(p: string): string {
   try { return realpathSync(resolve(p)); } catch { return resolve(p); }
 }
 
+/**
+ * A path inside a linked worktree that sits under `root` (a lane's or an agent's, such as
+ * `.claude/worktrees/<name>/`): that worktree and the path within it, or null. The file is the
+ * worktree's own, on its branch, with its own cards, not a file of `root`'s.
+ */
+export function nestedWorktree(root: string, path: string): { root: string; path: string } | null {
+  const parts = path.replace(/^\.\//, '').split('/');
+  for (let i = 1; i < parts.length; i++) {
+    const dir = join(root, ...parts.slice(0, i));
+    try {
+      if (statSync(join(dir, '.git')).isFile()) return { root: dir, path: parts.slice(i).join('/') };
+    } catch {
+      // no .git here: keep going down
+    }
+  }
+  return null;
+}
+
 /** Whether `root` is a linked worktree of another checkout (an agent's or a lane's). */
 export function isLinkedWorktree(root: string): boolean {
   return mainCheckout(root) !== realPath(root);

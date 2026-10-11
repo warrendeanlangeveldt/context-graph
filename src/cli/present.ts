@@ -12,7 +12,7 @@ import type { Envelope, Touch } from '../observe/event.js';
 import { ObservationStore, SessionState } from '../observe/store.js';
 import { factsFor, toolProtectedBranches } from '../tool-adapters/index.js';
 import { git, gitPerson } from '../util/git.js';
-import { readRepoText } from '../util/paths.js';
+import { nestedWorktree, readRepoText } from '../util/paths.js';
 import { walk } from '../walker/walk.js';
 import { latestSession, needGraph, openFromArgs, str, type Args } from './main.js';
 
@@ -168,14 +168,24 @@ export function commitGraph(ctx: RepoContext, message: string): string {
 }
 
 export async function run(args: Args, env: { json: boolean }): Promise<number> {
-  const ctx = openFromArgs(args);
+  let ctx = openFromArgs(args);
+  let worktree: string | null = null;
+  // A file in a lane's worktree under this checkout is read in that worktree, with its own cards.
+  if (args.cmd === 'file' && args.positional[0] && !str(args.flags.repo)) {
+    const nested = nestedWorktree(ctx.root, args.positional[0]);
+    if (nested) {
+      worktree = args.positional[0].replace(/^\.\//, '').slice(0, -nested.path.length - 1);
+      ctx = openFromArgs({ ...args, flags: { ...args.flags, repo: nested.root } });
+      args = { ...args, positional: [nested.path, ...args.positional.slice(1)] };
+    }
+  }
   const print = (value: unknown, text: string) => console.log(env.json ? JSON.stringify(value, null, 2) : text);
   if (args.cmd === 'file') {
     const path = args.positional[0];
     if (!path) throw new Error('ctx file <path> [--agent <id>] [--session <id>]');
-    const f = fileContext(ctx, path, { session: str(args.flags.session) ?? latestSession(ctx.root), agent: str(args.flags.agent) });
+    const f = { ...fileContext(ctx, path, { session: str(args.flags.session) ?? latestSession(ctx.root), agent: str(args.flags.agent) }), worktree };
     print(f, [
-      f.path,
+      `${f.path}${worktree ? ` (in ${worktree})` : ''}`,
       `  card: ${f.card ? `${f.card.fresh ? 'current' : 'stale'}: ${f.card.text}` : 'none yet'}`,
       `  chain: ${f.chain.join(' > ') || '(unmapped)'}`,
       ...f.rules.map((r) => `  rule ${r.id} (${r.mode}): ${r.text}`),

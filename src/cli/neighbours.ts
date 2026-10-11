@@ -2,7 +2,8 @@ import { cardState, exemptFromCards } from '../cards/cards.js';
 import { callersOf, loadOrBuildImportIndex } from '../index/imports.js';
 import { conformanceReport } from '../init/conformance.js';
 import type { RepoContext } from '../core/context.js';
-import { needGraph, openFromArgs, type Args } from './main.js';
+import { needGraph, openFromArgs, str, type Args } from './main.js';
+import { nestedWorktree } from '../util/paths.js';
 
 /** A file's card as the File tab marks it: current, stale, missing, or exempt (it owes none). */
 export type CardMark = 'current' | 'stale' | 'missing' | 'exempt';
@@ -49,9 +50,15 @@ export function neighbours(ctx: RepoContext, path: string): Neighbours {
 
 /** `ctx neighbours <path>`: what a file imports and what imports it, with their cards and broken rules. */
 export async function run(args: Args, env: { json: boolean }): Promise<number> {
-  const ctx = openFromArgs(args);
-  const path = args.positional[0];
+  let ctx = openFromArgs(args);
+  let path = args.positional[0];
   if (!path) throw new Error('ctx neighbours <path>');
+  // A file in a lane's worktree under this checkout: its neighbours on that worktree's branch.
+  const nested = str(args.flags.repo) ? null : nestedWorktree(ctx.root, path);
+  if (nested) {
+    ctx = openFromArgs({ ...args, flags: { ...args.flags, repo: nested.root } });
+    path = nested.path;
+  }
   const n = neighbours(ctx, path.replace(/^\.\//, ''));
   const line = (x: Neighbour) => `  ${x.path}  card ${x.card}${x.breaks.length ? `, breaks ${x.breaks.join(', ')}` : ''}`;
   console.log(
