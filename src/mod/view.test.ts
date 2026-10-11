@@ -77,7 +77,7 @@ describe('the Context Graph mod: what it draws', () => {
     expect(NO_GRAPH).toBe('No graph here yet: run /context-graph:init');
   });
 
-  it('RAT-1 and RAT-2 list proposals with their evidence, and count them for the band', () => {
+  it('RAT-1 and RAT-2 list proposals with their evidence, which never call the person in the band', () => {
     const proposals = [
       { id: 'src.small', kind: 'guidance', module: 'L:src', text: 'keep modules small', served: 3, overridden: 1, violations: null },
       { id: 'C:events', kind: 'concepts', module: null, text: 'Change goes through events', served: 0, overridden: 0, violations: null },
@@ -87,8 +87,7 @@ describe('the Context Graph mod: what it draws', () => {
     expect(texts(pane)).toContain('Evidence: no decision has cited it yet');
     expect(texts(pane)).toContain('rule (guidance) on L:src');
     expect(keys(pane)).toEqual(expect.arrayContaining(['ratify-src.small', 'drop-src.small', 'ratify-C:events']));
-    expect(bandHealth(healthOf({ proposals: proposals.length }))).toEqual({ text: '☀ 0 owed · 2 proposals', color: 'green' });
-    expect(bandHealth(healthOf({ proposals: 0 }))).toBeNull();
+    expect(bandHealth(healthOf({ proposals: proposals.length }))).toBeNull();
   });
 
   it('COV-1 and COV-3 give each agent its counts, and mark an edit made without understanding', () => {
@@ -117,14 +116,17 @@ describe('the Context Graph mod: what it draws', () => {
 
   it("VIEW-1 the graph's health: the carded share, owed cards, proposals and overridden rules, as a glyph and a colour", () => {
     const cards = { fresh: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'], stale: ['j'], missing: [] };
-    expect(healthOf({ cards, owed: 0, proposals: 0 })).toMatchObject({ carded: 90, level: 'good', text: '☀ 90% carded · 0 owed · 0 proposals' });
+    expect(healthOf({ cards, owed: 0, proposals: 0 })).toMatchObject({ carded: 90, level: 'good', text: '☀ 90% have their why · 0 owed · 0 proposals' });
     expect(healthOf({ cards, owed: 1, proposals: 1 })).toMatchObject({ level: 'amber', glyph: '⛅' });
     // A low carded share is shown, not judged: a brownfield project starts at 0%.
-    expect(healthOf({ cards: { fresh: [], stale: [], missing: ['a', 'b'] }, owed: 0 })).toMatchObject({ carded: 0, level: 'good', text: '☀ 0% carded · 0 owed · 0 proposals' });
+    expect(healthOf({ cards: { fresh: [], stale: [], missing: ['a', 'b'] }, owed: 0 })).toMatchObject({ carded: 0, level: 'good', text: '☀ 0% have their why · 0 owed · 0 proposals' });
     expect(healthOf({ cards, owed: 5 })).toMatchObject({ level: 'red', glyph: '⛈' });
-    expect(healthOf({ cards, flagged: 3 }).text).toBe('⛈ 90% carded · 0 owed · 0 proposals · 3 rules overridden');
+    expect(healthOf({ cards, flagged: 3 }).text).toBe('⛈ 90% have their why · 0 owed · 0 proposals · 3 rules overridden');
     expect(bandHealth(healthOf({ cards, owed: 0, proposals: 0 }))).toBeNull();
-    expect(bandHealth(healthOf({ cards, owed: 2 }))).toEqual({ text: '⛅ 90% carded · 2 owed · 0 proposals', color: 'yellow' });
+    // The band speaks only of rules the agents keep working around; cards owed are the agents' work.
+    expect(bandHealth(healthOf({ cards, owed: 2 }))).toBeNull();
+    expect(bandHealth(healthOf({ cards, flagged: 1 }))).toEqual({ text: '1 rule the agents keep working around', color: 'yellow' });
+    expect(bandHealth(healthOf({ cards, flagged: 3 }))).toEqual({ text: '3 rules the agents keep working around', color: 'red' });
   });
 
   it('VIEW-5 j/k move from nothing selected, and Escape goes back while there is somewhere to go', () => {
@@ -230,7 +232,7 @@ describe('the Context Graph mod: what it draws', () => {
 
   it("MAP-1 and MAP-2 a module's coverage bar, and each file's cell, owed this session winning", () => {
     const files = [{ path: 'a', card: 'current' }, { path: 'b', card: 'current' }, { path: 'c', card: 'stale' }, { path: 'd', card: 'missing' }];
-    expect(coverageBar(files)).toEqual({ filled: '█████', empty: '░░░░░', words: '2/4 carded' });
+    expect(coverageBar(files)).toEqual({ filled: '█████', empty: '░░░░░', words: '2/4 have their why' });
     expect(coverageBar([])).toEqual({ filled: '', empty: '', words: 'no files' });
     expect(files.map((f) => heatOf(f, new Set(['b'])))).toEqual(['current', 'owed', 'stale', 'missing']);
     const glyphs = Object.values(HEAT).map((h: { glyph: string }) => h.glyph);

@@ -3260,10 +3260,15 @@ var init_harness = __esm({
     onOff = (v) => typeof v === "boolean" ? null : "must be true or false";
     model = (v) => typeof v === "string" ? null : `must be a model (haiku, sonnet, opus, or an id), or "" for the session's`;
     HARNESS = {
-      card_writer: { default: false, problem: onOff, about: "A background agent that writes the cards owed, from full reads" },
+      agent_guidance: {
+        default: true,
+        problem: onOff,
+        about: "A rule an agent proposes applies at once as guidance, with no one asked; off, it waits as a proposal for you to accept (rules that block edits always need a person)"
+      },
+      card_writer: { default: true, problem: onOff, about: "A background agent that writes the cards owed, from full reads" },
       card_writer_model: { default: "", problem: model, about: "The card writer's model; empty means the session's" },
       backfill: {
-        default: "off",
+        default: "active",
         problem: (v) => v === "off" || v === "active" || v === "all" ? null : "must be off, active (the modules changed in the last 90 days) or all",
         about: "The card writer also cards the existing code, leaves first: off, active (modules changed in the last 90 days) or all"
       },
@@ -5348,6 +5353,18 @@ var init_code_kit = __esm({
           return typeof v === "number" && v > 0 && v <= 100 ? v : 80;
         } catch {
           return void 0;
+        }
+      },
+      // The person paused code-kit's lead loop (its band's Pause): the card writer and curator wait too.
+      backgroundPaused(root) {
+        const bin = codeKitCli();
+        if (!bin) return false;
+        const r = spawnSync(process.execPath, [bin, "loop", "--json"], { cwd: root, encoding: "utf8", timeout: 3e3 });
+        if (r.status !== 0) return false;
+        try {
+          return JSON.parse(r.stdout).paused === true;
+        } catch {
+          return false;
         }
       },
       protectedBranches(root) {
@@ -28849,10 +28866,12 @@ function propose(ctx, p, today3 = (/* @__PURE__ */ new Date()).toISOString().sli
   if (p.id && !ID.test(p.id)) return { error: `${p.id} isn't a usable id: letters, digits, dots, dashes and underscores.` };
   if (p.id && g.constraints.has(p.id)) return { error: `${p.id} is already a rule's id; pick another, or leave --id out.` };
   const id = p.id ?? proposalId(module, text, (x) => g.constraints.has(x));
-  const record2 = { kind: "K", mode: "G?", id, attachedTo: module, text, since: today3, line: 0, file: PROPOSALS_FILE };
+  const applies = ctx.config.harness.agent_guidance;
+  const file = applies ? GRAPH_FILE : PROPOSALS_FILE;
+  const record2 = { kind: "K", mode: applies ? "G" : "G?", id, attachedTo: module, text, since: today3, line: 0, file };
   if (p.test) record2.test = p.test;
   if (p.rule) record2.rule = p.rule;
-  appendRecord(join17(ctx.graphDir, PROPOSALS_FILE), record2);
+  appendRecord(join17(ctx.graphDir, file), record2);
   return { record: record2 };
 }
 var ID;
@@ -28870,7 +28889,7 @@ var init_propose = __esm({
 import { readFileSync as readFileSync16 } from "node:fs";
 import { join as join18 } from "node:path";
 function ctxVersion2() {
-  if (true) return "0.4.0";
+  if (true) return "0.5.0";
   try {
     return JSON.parse(readFileSync16(join18(packageRoot(), "package.json"), "utf8")).version ?? "unknown";
   } catch {
@@ -29036,7 +29055,7 @@ applicable: ${e.applicable.join(", ")}` : ""}`);
   server.registerTool(
     "propose",
     {
-      description: "Propose a rule for a path's module (or a module named as `L:\u2026`): a convention you found the code following, or one a decision keeps serving. It applies as proposed until a person ratifies it; it never changes an agreed rule. `test` is the path of a test that checks it, `rule` a checkable rule such as noimport:L:a:L:b.",
+      description: "Add a rule for a path's module (or a module named as `L:\u2026`): a convention you found the code following, or one a decision keeps serving. It's guidance: it informs every agent that edits there and never blocks an edit, so it applies at once (unless the repository's [harness] agent_guidance is off, when it waits as a proposal for a person). It never changes an existing rule. `test` is the path of a test that checks it, `rule` a checkable rule such as noimport:L:a:L:b.",
       inputSchema: { target: external_exports.string(), text: external_exports.string(), id: external_exports.string().optional(), test: external_exports.string().optional(), rule: external_exports.string().optional() }
     },
     async ({ target, text: rule, id, test, rule: checkable }) => {
@@ -29044,8 +29063,11 @@ applicable: ${e.applicable.join(", ")}` : ""}`);
       need(ctx);
       const r = propose(ctx, { target: target.startsWith("L:") ? target : norm(ctx, target), text: rule, id, test, rule: checkable });
       if ("error" in r) return text(`rejected: ${r.error}`);
-      return text(`proposed ${r.record.id} on ${r.record.attachedTo}: ${r.record.text}
-It applies as proposed until a person ratifies it.`);
+      return text(
+        r.record.mode === "G" ? `added guidance ${r.record.id} on ${r.record.attachedTo}: ${r.record.text}
+It applies now: agents editing ${r.record.attachedTo} see it before they edit.` : `proposed ${r.record.id} on ${r.record.attachedTo}: ${r.record.text}
+It applies as proposed until a person accepts it.`
+      );
     }
   );
   server.registerTool(
@@ -30483,7 +30505,9 @@ function agentCoverage(ctx, session) {
   });
   for (const a of byAgent.values()) {
     const s = new SessionState(ctx.root, session, a.agent === "main" ? void 0 : a.agent);
-    a.cardsOwed = Object.keys(s.data.cardsOwed ?? {});
+    a.cardsOwed = Object.keys(s.data.cardsOwed ?? {}).filter(
+      (path) => readRepoText(ctx.root, path) !== void 0 && !cardState(g, ctx.root, path).fresh
+    );
   }
   return [...byAgent.values()];
 }
@@ -30610,6 +30634,7 @@ var init_present = __esm({
     init_store();
     init_tool_adapters();
     init_git();
+    init_paths();
     init_walk();
     init_main();
     eventsOf = (ctx, session) => session ? new ObservationStore(ctx.root, session).readAll() : [];
@@ -36212,13 +36237,14 @@ function nextStep(ctx, opts = {}) {
   }
   const proposals2 = [...g.constraints.values()].filter((k) => k.mode === "G?").length + [...g.concepts.values()].filter((c) => c.proposed).length;
   const hygiene = hygieneReport(ctx).filter((f) => f.level === "propose");
-  if (proposals2 || hygiene.length) {
+  if (!ctx.config.harness.agent_guidance && (proposals2 || hygiene.length)) {
     return result("curate", [proposals2 ? `${proposals2} proposed rule(s) or concept(s) wait for a person to ratify or drop` : "", hygiene.length ? `${hygiene.length} hygiene finding(s) propose a change` : ""].filter(Boolean).join("; ") + ".", { command: proposals2 ? "ctx check" : "ctx hygiene" });
   }
   const all = cardsReport(ctx);
   summary.push(`${g.logicals.size} modules, ${g.constraints.size} rules, ${g.decisions.size} decisions`);
   summary.push(`cards: ${all.fresh.length} current, ${all.stale.length} stale, ${all.missing.length} missing, of ${all.fresh.length + all.stale.length + all.missing.length} files`);
-  return result("done", "The graph is valid, nothing is owed, this branch's changed files all have current cards, and nothing waits for ratification.");
+  if (proposals2 || hygiene.length) summary.push(`${proposals2 + hygiene.length} suggestion(s) wait in the Context pane, for whenever you want to look`);
+  return result("done", "The graph is valid, nothing is owed, and this branch's changed files all have current cards.");
 }
 async function run7(args, env) {
   const ctx = openFromArgs(args);
@@ -36295,8 +36321,9 @@ async function run8(args, env) {
   }
   const r = result.record;
   console.log(
-    env.json ? JSON.stringify({ proposed: r.id, module: r.attachedTo, text: r.text, test: r.test ?? null, rule: r.rule ?? null }, null, 2) : `proposed ${r.id} on ${r.attachedTo}: ${formatRecord(r)}
-It applies as proposed until a person ratifies it (ctx ratify ${r.id}, or Ratify in the Context pane).`
+    env.json ? JSON.stringify({ [r.mode === "G" ? "added" : "proposed"]: r.id, mode: r.mode, module: r.attachedTo, text: r.text, test: r.test ?? null, rule: r.rule ?? null }, null, 2) : r.mode === "G" ? `added guidance ${r.id} on ${r.attachedTo}: ${formatRecord(r)}
+It applies now: agents editing ${r.attachedTo} see it before they edit.` : `proposed ${r.id} on ${r.attachedTo}: ${formatRecord(r)}
+It applies as proposed until a person accepts it (ctx ratify ${r.id}, or Accept in the Context pane).`
   );
   return 0;
 }
@@ -36432,12 +36459,14 @@ async function run10(args, env) {
   if (sub !== void 0) throw new Error('ctx settings [--json] | ctx settings set <key> <value> --reason "<why>"');
   const inForce = ctx.config.harness;
   const pausedBy = toolAdapters(ctx.root).map((a) => ({ name: a.name, at: a.pauseAtPercent?.(ctx.root) })).find((p) => p.at !== void 0);
+  const heldBy = toolAdapters(ctx.root).find((a) => a.backgroundPaused?.(ctx.root))?.name;
   const rows = HARNESS_KEYS.map((k) => ({
     key: k,
     value: inForce[k],
     default: HARNESS[k].default,
     about: HARNESS[k].about,
-    ...k === "pause_at_percent" && pausedBy ? { inForce: pausedBy.at, from: pausedBy.name } : {}
+    ...k === "pause_at_percent" && pausedBy ? { inForce: pausedBy.at, from: pausedBy.name } : {},
+    ...BACKGROUND.has(k) && heldBy ? { pausedBy: heldBy } : {}
   }));
   const problems = harnessProblems(section);
   if (env.json) {
@@ -36449,6 +36478,7 @@ async function run10(args, env) {
   for (const p of problems) console.log(`problem: ${p}; the default holds`);
   return 0;
 }
+var BACKGROUND;
 var init_settings = __esm({
   "src/cli/settings.ts"() {
     "use strict";
@@ -36456,6 +36486,7 @@ var init_settings = __esm({
     init_tool_adapters();
     init_toml();
     init_main();
+    BACKGROUND = /* @__PURE__ */ new Set(["card_writer", "backfill", "curator"]);
   }
 });
 
@@ -36538,6 +36569,19 @@ function graphMap(ctx, now = Date.now()) {
     if (!parents.length) roots.push(id);
     for (const p of parents) children.set(p, [...children.get(p) ?? [], id]);
   }
+  const index = loadOrBuildImportIndex(ctx.root);
+  const imported = /* @__PURE__ */ new Map();
+  for (const [from, targets] of Object.entries(index.imports)) {
+    const a = g.mapPath(from)?.logical;
+    if (!a) continue;
+    for (const t of targets) {
+      const b = g.mapPath(t)?.logical;
+      if (!b || b === a) continue;
+      const row = imported.get(a) ?? /* @__PURE__ */ new Map();
+      row.set(b, (row.get(b) ?? 0) + 1);
+      imported.set(a, row);
+    }
+  }
   const out = [];
   const seen = /* @__PURE__ */ new Set();
   const visit = (id, depth) => {
@@ -36550,6 +36594,8 @@ function graphMap(ctx, now = Date.now()) {
       depth,
       parents: g.parentsOf(id),
       rules: { agreed: ks.filter((k) => k.mode !== "G?").length, proposed: ks.filter((k) => k.mode === "G?").length },
+      ruleList: ks.map((k) => ({ id: k.id, text: k.text, mode: k.mode })),
+      imports: [...(imported.get(id) ?? /* @__PURE__ */ new Map()).entries()].sort(([a], [b]) => a.localeCompare(b)).map(([to, n]) => ({ to, n })),
       decisions: (decided.get(id) ?? []).sort(),
       files: byModule.get(id) ?? []
     });
@@ -36577,6 +36623,7 @@ var init_map2 = __esm({
     "use strict";
     init_cards();
     init_records();
+    init_imports();
     init_git();
     init_main();
     DAYS = 30;

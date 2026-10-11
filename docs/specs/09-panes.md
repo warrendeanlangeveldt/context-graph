@@ -10,7 +10,7 @@
 - Tabs: File, Proposals, Coverage, Map (08); a fixed header with the graph's health.
 - The file's card as rendered Markdown, its rules as coloured chips, and a small graph of what it imports and what relies on it.
 - Proposals as a queue with their evidence and a sparkline of how often each was served or overridden; ratify, drop and defer on keys.
-- A band line: "☀ 92% carded · 2 owed · 1 proposal", turning amber then red as cards owed or overrides pile up.
+- A header line: "☀ 92% have their why · 2 owed · 1 proposal" (a file's why is its card; the panes don't say "carded"). The band stays quiet unless rules are being worked around.
 - Tags on transcript tool rows for edits the graph refused or that owe a card.
 - A `[harness]` section in `.ctx/config.toml` (card writer, curator, side questions: on, model) edited from a Settings view, as the person's change.
 
@@ -18,7 +18,12 @@
 
 ### VIEW-1 Header and band
 
-The header and the band line show the share of files with current cards, cards owed and proposals waiting, with a health glyph.
+The pane's header shows the share of files with current cards, cards owed and proposals waiting, with a health glyph. The band line is quiet by default: Context Graph runs in the background, cards owed are the agents' work and suggestions wait in the pane, so the band shows a line only when rules are being worked around again and again ("2 rules the agents keep working around"), amber, red from three.
+
+**Acceptance**
+
+- Given cards owed and proposals waiting, and no rule overridden, then the band shows nothing from Context Graph.
+- Given one rule the agents keep overriding, then the band reads "1 rule the agents keep working around", with Context.
 
 ### VIEW-2 The file
 

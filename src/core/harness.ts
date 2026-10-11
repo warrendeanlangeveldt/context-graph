@@ -7,6 +7,7 @@ import type { TomlValue } from '../util/toml.js';
  * `ctx settings` and `ctx doctor` report it.
  */
 export interface HarnessSettings {
+  agent_guidance: boolean;
   card_writer: boolean;
   card_writer_model: string;
   backfill: 'off' | 'active' | 'all';
@@ -31,10 +32,15 @@ const model = (v: TomlValue): string | null =>
   typeof v === 'string' ? null : 'must be a model (haiku, sonnet, opus, or an id), or "" for the session\'s';
 
 export const HARNESS: Record<HarnessKey, Setting> = {
-  card_writer: { default: false, problem: onOff, about: 'A background agent that writes the cards owed, from full reads' },
+  agent_guidance: {
+    default: true,
+    problem: onOff,
+    about: "A rule an agent proposes applies at once as guidance, with no one asked; off, it waits as a proposal for you to accept (rules that block edits always need a person)",
+  },
+  card_writer: { default: true, problem: onOff, about: 'A background agent that writes the cards owed, from full reads' },
   card_writer_model: { default: '', problem: model, about: "The card writer's model; empty means the session's" },
   backfill: {
-    default: 'off',
+    default: 'active',
     problem: (v) => (v === 'off' || v === 'active' || v === 'all' ? null : 'must be off, active (the modules changed in the last 90 days) or all'),
     about: 'The card writer also cards the existing code, leaves first: off, active (modules changed in the last 90 days) or all',
   },

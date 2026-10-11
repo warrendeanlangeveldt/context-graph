@@ -22,7 +22,7 @@ It returns `step`, `why`, a `command` that does it directly when one suffices, `
 | The last session still owes decisions or cards | `cards` |
 | AGENTS.md or CLAUDE.md lacks the Context Graph block | `init` (just `ctx install instructions`) |
 | Files this branch changed have no card matching them | `cards` |
-| Proposed rules wait for ratification, or hygiene proposes changes | `curate` |
+| Proposed rules wait for ratification, or hygiene proposes changes, and the person has chosen to decide each one (`agent_guidance = false`) | `curate` |
 | None of that | done: say so, with the summary |
 
 Tell the person in one or two lines what you found and what you're about to do.
@@ -34,7 +34,7 @@ Run the named skill with the Skill tool (`context-graph:<step>`), and follow it 
 ## 3. Keep going until the person is needed
 
 After a step, run `next --json` again and carry on without asking, as long as nothing needs the person. Stop and hand over when:
-- a skill needs the person's decision: which proposals to ratify, what a rule should say, whether to adopt a linked graph;
+- a skill needs the person's decision: a rule that would block edits, whether to adopt a linked graph;
 - a person has to act: commit with a `Ctx-Ratified-By` trailer, restart Claude Code after an update;
 - the step is done;
 - the same step comes back twice with nothing changed. Report what's stuck instead of looping.

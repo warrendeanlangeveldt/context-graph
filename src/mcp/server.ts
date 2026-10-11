@@ -197,7 +197,7 @@ export function createMcpServer(opts: { agent: string; repo?: string; graph?: st
     'propose',
     {
       description:
-        "Propose a rule for a path's module (or a module named as `L:…`): a convention you found the code following, or one a decision keeps serving. It applies as proposed until a person ratifies it; it never changes an agreed rule. `test` is the path of a test that checks it, `rule` a checkable rule such as noimport:L:a:L:b.",
+        "Add a rule for a path's module (or a module named as `L:…`): a convention you found the code following, or one a decision keeps serving. It's guidance: it informs every agent that edits there and never blocks an edit, so it applies at once (unless the repository's [harness] agent_guidance is off, when it waits as a proposal for a person). It never changes an existing rule. `test` is the path of a test that checks it, `rule` a checkable rule such as noimport:L:a:L:b.",
       inputSchema: { target: z.string(), text: z.string(), id: z.string().optional(), test: z.string().optional(), rule: z.string().optional() },
     },
     async ({ target, text: rule, id, test, rule: checkable }) => {
@@ -205,7 +205,11 @@ export function createMcpServer(opts: { agent: string; repo?: string; graph?: st
       need(ctx);
       const r = propose(ctx, { target: target.startsWith('L:') ? target : norm(ctx, target), text: rule, id, test, rule: checkable });
       if ('error' in r) return text(`rejected: ${r.error}`);
-      return text(`proposed ${r.record.id} on ${r.record.attachedTo}: ${r.record.text}\nIt applies as proposed until a person ratifies it.`);
+      return text(
+        r.record.mode === 'G'
+          ? `added guidance ${r.record.id} on ${r.record.attachedTo}: ${r.record.text}\nIt applies now: agents editing ${r.record.attachedTo} see it before they edit.`
+          : `proposed ${r.record.id} on ${r.record.attachedTo}: ${r.record.text}\nIt applies as proposed until a person accepts it.`,
+      );
     },
   );
 

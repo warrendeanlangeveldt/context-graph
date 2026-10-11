@@ -9,6 +9,7 @@
 import { DROP_ID, NO_GRAPH, PANE_ID, contextPane, dropPane, followedPath, parseJson } from './view.mjs';
 import { SETTINGS_ID, settingsView } from './views/settings.mjs';
 import { DEFAULT_UI, bandHealth, closeGoesBack, healthOf, moved } from './views/frame.mjs';
+import { grewDecisions } from './views/graph.mjs';
 import { assistCard, editTag, readingList, readingMessage } from './views/assist.mjs';
 import { BATCH, backfillLine, batchDescription, cardJobs, cardWriterLine, cardWriterSpec, pausedAt, startCardWriterPrompt } from './card-writer.mjs';
 import { CURATE_DESCRIPTION, curatorDue, curatorLine, curatorSpec, flaggedRules, startCuratorPrompt } from './curator.mjs';
@@ -33,10 +34,10 @@ const KEPT = 200;
 const EDIT_TOOLS = new Set(['Edit', 'MultiEdit', 'Write', 'NotebookEdit']);
 // The card writer (spec 04): its registered agent, the batch it's writing, and what the person asked for.
 // batch: the one asked for: { description, files, turnId (the lead's turn the prompt started), agentId }.
-const cardWriter = { agent: null, model: null, writing: [], batch: null };
-const declined = new Set(); // files whose batch the lead didn't start: not offered again this session
+const cardWriter = { agent: null, model: null, writing: [], batch: null, declined: false };
+const declined = new Set(); // files whose batch the lead didn't start (the card writer then stops offering for the session)
 const asked = []; // paths queued for the card writer from the pane (CARDW-4)
-let backfillPaused = false; // the person paused the backfill for this session, from the band
+let backfillPaused = false; // the person paused the backfill for this session, from the Map tab
 // The curator (spec 05): its agent, whether it's running, and the decision count at its last run.
 const curator = { agent: null, model: null, running: false, baseline: null, asked: false, turnId: null, awaiting: false, declined: false };
 let asking = null; // the side question in its pane (spec 07): { question, sources, answer?, error?, ms?, usage?, pending }
@@ -44,11 +45,15 @@ const editedAt = {}; // path → when an agent last edited it: a file still movi
 let settingRowsNow = []; // ctx settings --json, read on each refresh
 let rateLimits = []; // the session's limits, as session.measure last gave them (CARDW-5)
 let leadTurn = null; // the lead's running turn
+const pulseUntil = new Map(); // MAP-4: module id → when its pulse ends, after a decision is recorded on it
+const PULSE_MS = 8000;
 /** A harness setting in force, from ctx settings --json; the pause point the one a tool sets, if any. */
 const setting = (key, fallback) => {
   const row = settingRowsNow.find((x) => x.key === key);
   return row ? (row.inForce ?? row.value) : fallback;
 };
+/** The tool whose paused loop holds the background agents (code-kit's band's Pause), or null. */
+const heldBy = () => settingRowsNow.find((x) => x.pausedBy)?.pausedBy ?? null;
 let activity = 0; // tool calls seen: coverage changes with them
 let dropping = null; // the open Drop confirmation: { proposal, reason, error }
 let act = null; // the session's actions, made at session start
@@ -122,6 +127,11 @@ export function register(on) {
           : null;
         // MAP-1: the modules, read while the Map tab shows them.
         const map = paneUi.tab === 'map' ? await json('map') : (model.map ?? null);
+        // MAP-4: a module whose decisions grew since the last read pulses for a few seconds.
+        if (map && model.map) {
+          const at = await $.clock.now();
+          for (const id of grewDecisions(model.map, map)) pulseUntil.set(id, at + PULSE_MS);
+        }
         // VIEW-2: what the followed file imports and what imports it.
         const neighbours = followed ? await json('neighbours', followed.path) : null;
         // ASSIST-2: each open reading list's progress, from the agent's own reads as ctx judges them.
@@ -231,7 +241,9 @@ export function register(on) {
       // CUR-1, CUR-4: after 10 new decisions (or when the person asks), with the lead idle and the plan
       // below the pause point, the lead is asked to start the curator. True when it asked.
       curatorStep: async () => {
-        if (!curator.agent || leadTurn || pausedAt(rateLimits, setting('pause_at_percent', 80)).paused) return false;
+        if (!curator.agent || leadTurn) return false;
+        settingRowsNow = (await json('settings')) ?? settingRowsNow;
+        if (heldBy() || pausedAt(rateLimits, setting('pause_at_percent', 80)).paused) return false;
         const due = curatorDue({ on: setting('curator', false), running: curator.running, decisions: model.decisions ?? 0, baseline: curator.baseline ?? 0, asked: curator.asked });
         if (!due) return false;
         const since = (model.decisions ?? 0) - (curator.baseline ?? 0);
@@ -289,7 +301,11 @@ export function register(on) {
       cardWriterStep: async () => {
         const backfilling = setting('backfill', 'off') !== 'off' && !backfillPaused;
         if (!(setting('card_writer', false) || backfilling) || !cardWriter.agent || cardWriter.writing.length || leadTurn) return false;
-        if (pausedAt(rateLimits, setting('pause_at_percent', 80)).paused) return false;
+        // The lead declined a batch: no other batch is offered this session until the person offers it again.
+        if (cardWriter.declined) return false;
+        // Read now, not at the last refresh: a pause the person just made holds this batch.
+        settingRowsNow = (await json('settings')) ?? settingRowsNow;
+        if (heldBy() || pausedAt(rateLimits, setting('pause_at_percent', 80)).paused) return false;
         const jobs = act.cardJobsNow(await $.clock.now()).slice(0, BATCH);
         if (!jobs.length) return false;
         cardWriter.writing = jobs.map((j) => j.path);
@@ -319,6 +335,7 @@ export function register(on) {
       // The person offers the declined files again: the next idle turn asks the lead once more.
       offerAgain: async () => {
         declined.clear();
+        cardWriter.declined = false;
         curator.declined = false;
         $.ui.invalidate('ui.render');
         await act.cardWriterStep();
@@ -333,6 +350,9 @@ export function register(on) {
           const files = scope.startsWith('L:') ? ((await json('cards', '--module', scope)) ?? { stale: [], missing: [] }) : null;
           const paths = files ? [...files.stale, ...files.missing] : [scope];
           for (const p of paths) if (!asked.includes(p)) asked.push(p);
+          // The person asked for these: a decline earlier in the session doesn't hold them back.
+          for (const p of paths) declined.delete(p);
+          cardWriter.declined = false;
           model = { ...model, notice: { ok: true, text: `Queued the ${what} for the card writer.` } };
           $.ui.invalidate('ui.render');
           await act.cardWriterStep();
@@ -472,6 +492,12 @@ export function register(on) {
       if (busy) return;
       busy = true;
       try {
+        // MAP-4: while a module pulses, the pane is drawn each beat, and once more as the pulse ends.
+        const t = await $.clock.now();
+        if (pulseUntil.size) {
+          $.ui.invalidate('ui.render');
+          for (const [id, until] of pulseUntil) if (until <= t) pulseUntil.delete(id);
+        }
         const now = await act.fingerprint();
         quiet += 1;
         if (now === seen && quiet < 30) return;
@@ -571,6 +597,7 @@ export function register(on) {
         if (started) batch.agentId = started.id;
         else {
           for (const f of batch.files) declined.add(f);
+          cardWriter.declined = true;
           cardWriter.writing = [];
           cardWriter.batch = null;
         }
@@ -639,21 +666,27 @@ export function register(on) {
       curatorLine: curatorLine({
         on: setting('curator', false),
         ...plan,
+        heldBy: heldBy(),
         running: curator.running,
         decisions: model.decisions ?? 0,
         baseline: curator.baseline ?? 0,
       }),
       backfillLine: backfillNow(),
-      declined: declined.size,
+      backfillPaused,
+      declined: cardWriter.declined ? declined.size || 1 : 0,
       curatorDeclined: curator.declined,
       cardWriterLine: cardWriterLine({
         on: setting('card_writer', false) || setting('backfill', 'off') !== 'off',
         ...plan,
+        heldBy: heldBy(),
         writing: cardWriter.writing,
         waiting: act ? act.cardJobsNow(now).filter((j) => !cardWriter.writing.includes(j.path)).map((j) => j.path) : [],
       }),
       assists: [...assists.values()].slice(-10),
       now,
+      surface: e.surface,
+      pulsing: new Set([...pulseUntil].filter(([, until]) => until > now).map(([id]) => id)),
+      beat: Math.floor(now / 1000),
       health: healthNow(),
       followed: followed && {
         ...followed,
@@ -731,6 +764,7 @@ export function register(on) {
       onLanes: () => act.lanes(),
       onWriteCard: (path) => act.askForCards(path, `card for ${path}`),
       onModuleCards: (module) => act.askForCards(module, `cards for the files in ${module} without a current one`),
+      onPauseBackfill: () => act.pauseBackfill(),
     });
   });
 
@@ -783,50 +817,32 @@ export function register(on) {
     });
   });
 
-  // RAT-2: one line while proposals wait, above whatever else the band holds (another plugin's, or
-  // Claude Code's own), so the two mods' lines stand together.
+  // VIEW-1: one line, only when something is wrong, above whatever else the band holds (another
+  // plugin's, or Claude Code's own), so the two mods' lines stand together.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    // Context Graph runs in the background: its band line shows only when something is wrong (rules the
+    // agents keep working around). The backfill's progress and its Pause are in the Map tab.
     const line = model.kind === 'graph' ? bandHealth(healthNow()) : null;
-    // The backfill's line while it has files left, with Pause or Resume.
-    const filling = model.kind === 'graph' && model.backfill?.files.length ? backfillNow() : null;
-    if ((!line && !filling) || !act) return next(e);
+    if (!line || !act) return next(e);
     const { Box, Text, Button } = $.ui.resolve(e);
     const below = await next(e);
     return Box({
       flexDirection: 'column',
       children: [
-        ...(line
-          ? [
-              Box({
-                key: 'band-context-graph',
-                flexDirection: 'row',
-                columnGap: 2,
-                children: [
-                  Text({ color: 'cyan', children: ['Context Graph'] }),
-                  Text({ color: line.color, children: [line.text] }),
-                  Button({
-                    key: 'band-context',
-                    label: 'Context',
-                    onPress: () => act.open(),
-                  }),
-                ],
-              }),
-            ]
-          : []),
-        ...(filling
-          ? [
-              Box({
-                key: 'band-backfill',
-                flexDirection: 'row',
-                columnGap: 2,
-                children: [
-                  Text({ color: 'cyan', children: ['Context Graph'] }),
-                  Text({ children: [filling] }),
-                  Button({ key: 'band-backfill-pause', label: backfillPaused ? 'Resume' : 'Pause', onPress: () => act.pauseBackfill() }),
-                ],
-              }),
-            ]
-          : []),
+        Box({
+          key: 'band-context-graph',
+          flexDirection: 'row',
+          columnGap: 2,
+          children: [
+            Text({ color: 'cyan', children: ['Context Graph'] }),
+            Text({ color: line.color, children: [line.text] }),
+            Button({
+              key: 'band-context',
+              label: 'Context',
+              onPress: () => act.open(),
+            }),
+          ],
+        }),
         ...(below ? [below] : []),
       ],
     });

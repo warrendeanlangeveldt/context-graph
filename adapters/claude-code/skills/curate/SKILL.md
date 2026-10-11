@@ -1,11 +1,11 @@
 ---
 name: curate
-description: Keep a Context Graph honest with the person. Lays out rules and concepts waiting to be ratified, with their evidence; the hygiene report's proposals (rules nobody follows, decisions that keep overriding a rule, dormant concepts); and old records to archive. It then applies what the person decides. Use when ctx next says proposals or hygiene findings are waiting, when the person wants to review or tidy the graph, or asks what the graph holds that no one has agreed to.
+description: Review a Context Graph with the person, when they want to. Lays out rules and concepts still only proposed, with their evidence; the hygiene report's proposals (rules nobody follows, decisions that keep overriding a rule, dormant concepts); and old records to archive. It then applies what the person decides. Use when the person asks to review or tidy the graph, or what the graph holds that no one has agreed to, or when ctx next says proposals wait and the person decides each one (agent_guidance off).
 ---
 
 # Curate the graph
 
-The graph is only worth what people have agreed to. Agents propose; a person ratifies, rewords or drops. This skill prepares the decision, and applies it once the person decides.
+Context Graph runs in the background: agents read and write the cards, and the guidance they find applies at once. Only rules that would block an edit, and concepts, need a person's signature. This skill is for when the person wants to look over the graph anyway: it lays out what's there with its evidence, and applies what they decide. It is never a step the person has to take for the plugin to work.
 
 The CLI is `node "${CLAUDE_PLUGIN_ROOT}/ctx.mjs"` (or `ctx`).
 

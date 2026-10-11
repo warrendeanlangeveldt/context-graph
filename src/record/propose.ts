@@ -1,14 +1,16 @@
 import { join } from 'node:path';
 import type { RepoContext } from '../core/context.js';
-import { PROPOSALS_FILE } from '../graph/graph.js';
+import { GRAPH_FILE, PROPOSALS_FILE } from '../graph/graph.js';
 import type { KRecord } from '../graph/records.js';
 import { appendRecord } from '../graph/write.js';
 import { walk } from '../walker/walk.js';
 
 /**
- * Proposing a rule for a path's module (or a module named outright): appended to proposals.ctx as
- * `K G? …`, for the CLI (`ctx propose`) and the MCP tool (`propose`). Any agent may propose; nothing
- * changes until a person ratifies it, and the gate lets a proposal merge as proposed.
+ * Proposing a rule for a path's module (or a module named outright), for the CLI (`ctx propose`) and the
+ * MCP tool (`propose`). Any agent may. A rule proposed this way is guidance: it informs, it never blocks
+ * an edit. So with `[harness] agent_guidance` on (the default) it applies at once, appended to graph.ctx
+ * as `K G …`, and no one is asked: the gate needs a person's signature only for rules that block edits
+ * and for concepts. With it off, it waits in proposals.ctx as `K G? …` until a person accepts it.
  */
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
@@ -49,10 +51,12 @@ export function propose(ctx: RepoContext, p: Proposal, today = new Date().toISOS
   if (p.id && !ID.test(p.id)) return { error: `${p.id} isn't a usable id: letters, digits, dots, dashes and underscores.` };
   if (p.id && g.constraints.has(p.id)) return { error: `${p.id} is already a rule's id; pick another, or leave --id out.` };
   const id = p.id ?? proposalId(module, text, (x) => g.constraints.has(x));
-  const record: KRecord = { kind: 'K', mode: 'G?', id, attachedTo: module, text, since: today, line: 0, file: PROPOSALS_FILE };
+  const applies = ctx.config.harness.agent_guidance;
+  const file = applies ? GRAPH_FILE : PROPOSALS_FILE;
+  const record: KRecord = { kind: 'K', mode: applies ? 'G' : 'G?', id, attachedTo: module, text, since: today, line: 0, file };
   if (p.test) record.test = p.test;
   if (p.rule) record.rule = p.rule;
-  appendRecord(join(ctx.graphDir!, PROPOSALS_FILE), record);
+  appendRecord(join(ctx.graphDir!, file), record);
   return { record };
 }
 

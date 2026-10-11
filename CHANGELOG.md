@@ -2,6 +2,27 @@
 
 What changed in each release of Context Graph, newest first. Versions follow the plugin manifests and the npm package `@warren-dean/context-graph`. Each release is also on [GitHub Releases](https://github.com/warrendeanlangeveldt/context-graph/releases).
 
+## 0.5.0 (2026-10-11)
+
+Context Graph now runs in the background. Agents read a file's card before they change it and write it after; nothing waits on you.
+
+**In the background by default**
+
+- **An agent's rule applies at once.** When an agent spots a convention the code follows, it's added as guidance every agent sees from then on, with no review. Only a rule that would block edits, or a concept, still needs a person to sign it. `agent_guidance = false` in `[harness]` brings back the old behaviour, where an agent's rule waits as a suggestion.
+- **Setup asks nothing.** `/context-graph:init` builds the graph, configures it for the background and commits it. The ratifier is the repository's own git identity.
+- **The card writer and backfill are on by default.** Missing cards are written while the lead is idle, starting with code changed in the last 90 days, leaves first. The Map tab has Pause and Resume for it.
+- **The band speaks only when it matters:** a line appears only when agents keep working around a rule.
+
+**What you see**
+
+- **The module graph** in the Map tab: modules as nodes with their rules and how many files have a card, a pulse when a decision is recorded, and rules that are overridden outlined in red.
+- **Plain words.** A file's "why" instead of "carded".
+
+**Fixes**
+
+- Once you decline a batch, the card writer offers no other batch this session. It and the curator pause while code-kit's loop is paused.
+- `ctx agents` no longer counts a card as owed once a matching card exists, so the card writer isn't offered files that are already done.
+
 ## 0.4.0 (2026-10-10)
 
 The harness, in Context Graph's mod (Claude Code 2.1.287 or later): background agents that keep the graph current, and panes that show it.

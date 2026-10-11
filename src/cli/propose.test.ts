@@ -17,7 +17,7 @@ E L:src in L:repo
 K G src.pure L:src no side effects at import
 `;
 
-describe('ctx propose: a rule for a path, proposed for a person to ratify', () => {
+describe('ctx propose: a rule for a path, applied at once as guidance, or waiting for a person', () => {
   let repo: string;
   const prev = { CTX_HOME: process.env.CTX_HOME, CLAUDE_PROJECT_DIR: process.env.CLAUDE_PROJECT_DIR };
   const git = (...a: string[]) => execFileSync('git', a, { cwd: repo, encoding: 'utf8' }).trim();
@@ -39,7 +39,18 @@ describe('ctx propose: a rule for a path, proposed for a person to ratify', () =
   });
   afterEach(() => { for (const [k, v] of Object.entries(prev)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; } });
 
-  it("proposes a rule on a path's module, which then waits among the proposals", () => {
+  const asProposals = () => writeFileSync(join(repo, '.ctx/config.toml'), '[repo]\nratifiers = ["warren"]\n\n[harness]\nagent_guidance = false\n');
+
+  it("by default an agent's rule applies at once as guidance on the path's module, with no one asked", () => {
+    const res = propose(openRepo({ repo }), { target: 'src/a.ts', text: 'Dates are stored in UTC' }, '2026-10-11');
+    expect(res).toMatchObject({ record: { id: 'src.dates-are-stored', mode: 'G', attachedTo: 'L:src' } });
+    expect(readFileSync(join(repo, '.ctx/graph.ctx'), 'utf8')).toContain('K G src.dates-are-stored L:src Dates are stored in UTC since:2026-10-11');
+    expect(openRepo({ repo }).graph!.constraints.get('src.dates-are-stored')).toMatchObject({ mode: 'G' });
+    expect(proposals(openRepo({ repo })).find((p) => p.id === 'src.dates-are-stored')).toBeUndefined();
+  });
+
+  it("with agent_guidance off, it waits among the proposals for a person", () => {
+    asProposals();
     const res = propose(openRepo({ repo }), { target: 'src/a.ts', text: 'Dates are stored in UTC' }, '2026-10-07');
     expect(res).toMatchObject({ record: { id: 'src.dates-are-stored', mode: 'G?', attachedTo: 'L:src', since: '2026-10-07' } });
     expect(readFileSync(join(repo, '.ctx/proposals.ctx'), 'utf8')).toContain('K G? src.dates-are-stored L:src Dates are stored in UTC since:2026-10-07');
@@ -47,6 +58,7 @@ describe('ctx propose: a rule for a path, proposed for a person to ratify', () =
   });
 
   it('a person ratifies it like any proposal', () => {
+    asProposals();
     propose(openRepo({ repo }), { target: 'L:src', text: 'Dates are stored in UTC', id: 'src.utc' });
     ratify(openRepo({ repo }), ['src.utc']);
     const g = openRepo({ repo }).graph!;
@@ -76,6 +88,6 @@ describe('ctx propose: a rule for a path, proposed for a person to ratify', () =
     } finally {
       console.log = log;
     }
-    expect(JSON.parse(out[0]!)).toMatchObject({ proposed: 'src.money-integer-cents', module: 'L:src' });
+    expect(JSON.parse(out[0]!)).toMatchObject({ added: 'src.money-integer-cents', mode: 'G', module: 'L:src' });
   });
 });

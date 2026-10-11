@@ -70,7 +70,7 @@ describe('ctx next and ctx cards', () => {
     expect(n.command).toBe('ctx install instructions');
   });
 
-  it('asks for cards for files this branch changed, then for curation of proposals, then says done', () => {
+  it('asks for cards for files this branch changed, mentions suggestions without asking (unless the person decides each), then says done', () => {
     withGraph(GRAPH + 'K G? src.maybe L:src a proposal\n');
     git('checkout', '-q', '-b', 'feature');
     writeFileSync(join(repo, 'src/b.ts'), 'export const b = 2;\n');
@@ -79,6 +79,12 @@ describe('ctx next and ctx cards', () => {
     expect(n.why).toContain('src/b.ts');
     const ctx = openRepo({ repo });
     writeCard(ctx.graph!, repo, { path: 'src/b.ts', text: 'holds b', who: 't', date: '2026-09-30' });
+    // In the background (the default), a suggestion waits quietly: it's mentioned, not asked about.
+    n = next();
+    expect(n.step).toBe('done');
+    expect(n.summary.join(' ')).toContain('1 suggestion(s) wait in the Context pane');
+    // A person who chose to decide each one is sent to them.
+    writeFileSync(join(repo, '.ctx/config.toml'), '[harness]\nagent_guidance = false\n');
     n = next();
     expect(n.step).toBe('curate');
     expect(n.why).toContain('1 proposed rule(s)');

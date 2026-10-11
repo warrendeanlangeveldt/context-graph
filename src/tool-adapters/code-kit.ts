@@ -95,6 +95,18 @@ export const codeKitAdapter: ToolAdapter = {
       return undefined;
     }
   },
+  // The person paused code-kit's lead loop (its band's Pause): the card writer and curator wait too.
+  backgroundPaused(root) {
+    const bin = codeKitCli();
+    if (!bin) return false;
+    const r = spawnSync(process.execPath, [bin, 'loop', '--json'], { cwd: root, encoding: 'utf8', timeout: 3000 });
+    if (r.status !== 0) return false;
+    try {
+      return (JSON.parse(r.stdout) as { paused?: unknown }).paused === true;
+    } catch {
+      return false;
+    }
+  },
   protectedBranches(root) {
     try {
       const c = JSON.parse(readFileSync(join(root, '.claude', 'code-kit.json'), 'utf8')) as { branches?: { protected?: string[] } };

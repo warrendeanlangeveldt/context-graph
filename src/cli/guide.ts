@@ -111,14 +111,17 @@ export function nextStep(ctx: RepoContext, opts: { doctor?: boolean } = {}): Nex
 
   const proposals = [...g.constraints.values()].filter((k) => k.mode === 'G?').length + [...g.concepts.values()].filter((c) => c.proposed).length;
   const hygiene = hygieneReport(ctx).filter((f) => f.level === 'propose');
-  if (proposals || hygiene.length) {
+  // In the background (agent_guidance, the default), suggestions wait quietly in the Context pane: the
+  // person is sent to them only when they've chosen to decide each one.
+  if (!ctx.config.harness.agent_guidance && (proposals || hygiene.length)) {
     return result('curate', [proposals ? `${proposals} proposed rule(s) or concept(s) wait for a person to ratify or drop` : '', hygiene.length ? `${hygiene.length} hygiene finding(s) propose a change` : ''].filter(Boolean).join('; ') + '.', { command: proposals ? 'ctx check' : 'ctx hygiene' });
   }
 
   const all = cardsReport(ctx);
   summary.push(`${g.logicals.size} modules, ${g.constraints.size} rules, ${g.decisions.size} decisions`);
   summary.push(`cards: ${all.fresh.length} current, ${all.stale.length} stale, ${all.missing.length} missing, of ${all.fresh.length + all.stale.length + all.missing.length} files`);
-  return result('done', 'The graph is valid, nothing is owed, this branch\'s changed files all have current cards, and nothing waits for ratification.');
+  if (proposals || hygiene.length) summary.push(`${proposals + hygiene.length} suggestion(s) wait in the Context pane, for whenever you want to look`);
+  return result('done', 'The graph is valid, nothing is owed, and this branch\'s changed files all have current cards.');
 }
 
 export async function run(args: Args, env: { json: boolean }): Promise<number> {

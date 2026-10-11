@@ -6,7 +6,8 @@
 import { DEFAULT_UI, frame, healthOf } from './views/frame.mjs';
 import { proposalsQueue, queueKeys } from './views/proposals.mjs';
 import { progressText } from './views/assist.mjs';
-import { heatMap, mapTree } from './views/map.mjs';
+import { heatMap } from './views/map.mjs';
+import { moduleGraph } from './views/graph.mjs';
 
 export const PANE_ID = 'context-graph';
 export const DROP_ID = 'context-graph-drop';
@@ -285,7 +286,22 @@ export function contextPane(model, els, handlers) {
     tab === 'map'
       ? inMap(tab)
         ? heatMap(inMap(tab), owed, els, { selected: ui.selected }, handlers)
-        : mapTree(model.map ?? [], els, { selected: ui.selected, now: model.now, backfill: model.backfillLine ?? null })
+        : moduleGraph(
+            model.map ?? [],
+            els,
+            {
+              surface: model.surface ?? 'terminal',
+              selected: ui.selected,
+              flagged: model.flagged ?? [],
+              pulsing: model.pulsing ?? new Set(),
+              beat: model.beat ?? 0,
+              proposals: model.proposals ?? [],
+              now: model.now,
+              backfill: model.backfillLine ?? null,
+              backfillPaused: model.backfillPaused ?? false,
+            },
+            handlers,
+          )
       : tab === 'proposals'
       ? [
           ...proposalsQueue(model.proposals, els, handlers, { selected: ui.selected, deferred: model.deferred ?? new Set(), now: model.now }),
@@ -309,7 +325,7 @@ export function contextPane(model, els, handlers) {
       : tab === 'coverage'
         ? [
             ...(model.cardWriterLine ? [els.Text({ key: 'card-writer', dimColor: true, children: [model.cardWriterLine] })] : []),
-            // The lead declined a batch: those files wait until the person offers them again.
+            // The lead declined a batch: the card writer waits until the person offers it again.
             ...(model.declined
               ? [
                   els.Box({
@@ -317,8 +333,8 @@ export function contextPane(model, els, handlers) {
                     flexDirection: 'row',
                     columnGap: 2,
                     children: [
-                      els.Text({ color: 'yellow', children: [`The lead didn't start the card writer on ${model.declined} file${model.declined === 1 ? '' : 's'}; they aren't offered again this session.`] }),
-                      ...(handlers.onOfferAgain ? [els.Button({ key: 'offer-again', label: 'Offer them again', plain: true, onPress: handlers.onOfferAgain })] : []),
+                      els.Text({ color: 'yellow', children: ["The lead declined the card writer; it isn't offered again this session."] }),
+                      ...(handlers.onOfferAgain ? [els.Button({ key: 'offer-again', label: 'Offer it again', plain: true, onPress: handlers.onOfferAgain })] : []),
                     ],
                   }),
                 ]

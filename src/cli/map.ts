@@ -1,6 +1,7 @@
 import { cardState, exemptFromCards } from '../cards/cards.js';
 import type { RepoContext } from '../core/context.js';
 import { isLogicalId } from '../graph/records.js';
+import { loadOrBuildImportIndex } from '../index/imports.js';
 import { git } from '../util/git.js';
 import { needGraph, openFromArgs, type Args } from './main.js';
 
@@ -14,6 +15,10 @@ export interface MapModule {
   depth: number;
   parents: string[];
   rules: { agreed: number; proposed: number };
+  /** Its rules, agreed (mode E or G) and proposed (G?), so a rule hygiene flags can be found on its module. */
+  ruleList: { id: string; text: string; mode: string }[];
+  /** The modules its files import, with how many imports each (MAP-4). */
+  imports: { to: string; n: number }[];
   /** The dates of the decisions on it, or on its files, in the last 30 days. */
   decisions: string[];
   files: { path: string; card: MapCard }[];
@@ -54,6 +59,20 @@ export function graphMap(ctx: RepoContext, now = Date.now()): MapModule[] {
     if (!parents.length) roots.push(id);
     for (const p of parents) children.set(p, [...(children.get(p) ?? []), id]);
   }
+  // MAP-4: which modules a module's files import, counted, from the import index.
+  const index = loadOrBuildImportIndex(ctx.root);
+  const imported = new Map<string, Map<string, number>>();
+  for (const [from, targets] of Object.entries(index.imports)) {
+    const a = g.mapPath(from)?.logical;
+    if (!a) continue;
+    for (const t of targets) {
+      const b = g.mapPath(t)?.logical;
+      if (!b || b === a) continue;
+      const row = imported.get(a) ?? new Map<string, number>();
+      row.set(b, (row.get(b) ?? 0) + 1);
+      imported.set(a, row);
+    }
+  }
   const out: MapModule[] = [];
   const seen = new Set<string>();
   const visit = (id: string, depth: number): void => {
@@ -66,6 +85,8 @@ export function graphMap(ctx: RepoContext, now = Date.now()): MapModule[] {
       depth,
       parents: g.parentsOf(id),
       rules: { agreed: ks.filter((k) => k.mode !== 'G?').length, proposed: ks.filter((k) => k.mode === 'G?').length },
+      ruleList: ks.map((k) => ({ id: k.id, text: k.text, mode: k.mode })),
+      imports: [...(imported.get(id) ?? new Map<string, number>()).entries()].sort(([a], [b]) => a.localeCompare(b)).map(([to, n]) => ({ to, n })),
       decisions: (decided.get(id) ?? []).sort(),
       files: byModule.get(id) ?? [],
     });

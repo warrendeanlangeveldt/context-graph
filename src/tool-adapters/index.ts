@@ -30,6 +30,8 @@ export interface ToolAdapter {
   recordPersonsChange?(root: string, change: { file: string; reason: string; via: 'pane' | 'terminal' }): string[];
   /** The plan use at which the tool pauses background agents, when it sets one: it wins over Context Graph's own. */
   pauseAtPercent?(root: string): number | undefined;
+  /** Whether the person has paused the tool's own background loop: Context Graph's pauses with it. */
+  backgroundPaused?(root: string): boolean;
 }
 
 export const TOOL_ADAPTERS: ToolAdapter[] = [codeKitAdapter];
