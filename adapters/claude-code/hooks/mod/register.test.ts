@@ -320,13 +320,19 @@ test('RAT-1 and RAT-2 the proposals show their evidence in the pane, and never c
 
 test('RAT-3 Ratify confirms, then ratifies and commits as the person', async ($, on) => {
   const w = project();
-  await start($, on, w);
+  const clock = await start($, on, w);
   await ctx($);
   const ui = await mountPane($, PANE);
   await press($, 'tab-proposals', PANE);
   await press($, 'ratify-src.small', PANE);
   expect(w.acts).toEqual([['ratify', 'src.small', '--commit']]);
-  expect(await ui.find({ type: 'Text', text: /Accepted src.small: committed abc1234 with Ctx-Ratified-By: warren/ })).toBeDefined();
+  const accepted = 'Accepted: keep modules small. Agents are held to it from now on; committed on this branch (abc1234).';
+  expect(await ui.find({ type: 'Text', text: accepted })).toBeDefined();
+  // Said in words, without the trailer's address, and only for a few seconds.
+  expect(await ui.find({ type: 'Text', text: /Ctx-Ratified-By/ })).toBeUndefined();
+  await clock.advance(16_000);
+  await clock.advance(2000);
+  expect(await ui.find({ type: 'Text', text: accepted })).toBeUndefined();
   await ui.unmount();
 });
 
@@ -370,7 +376,7 @@ test('RAT-4 Drop asks why, needs a reason, and drops it with that reason', async
   expect(w.acts).toEqual([['drop', 'src.small', '--reason', 'not how we work', '--commit']]);
   expect(w.open.has(DROP)).toBe(false);
   await dialog.unmount();
-  expect(await ui.find({ type: 'Text', text: 'Rejected src.small: not how we work' })).toBeDefined();
+  expect(await ui.find({ type: 'Text', text: 'Rejected: keep modules small. The graph keeps your reason: not how we work' })).toBeDefined();
   await ui.unmount();
 });
 
@@ -475,7 +481,7 @@ test("VIEW-1 the header and the band sum up the graph's health: carded share, ca
   await start($, on, w);
   await ctx($);
   const ui = await mountPane($, PANE);
-  expect(await ui.find({ type: 'Text', text: 'CONTEXT GRAPH' })).toBeDefined();
+  expect(await ui.find({ type: 'Text', text: 'Context Graph' })).toBeDefined();
   const header = await ui.find({ type: 'Text', text: '90% of files explained · 1 file to explain from this session' });
   expect(header?.props.color).toBe('yellow');
   await ui.unmount();
@@ -683,7 +689,7 @@ test('CARDW-1 and CARDW-2 with the lead idle, the lead starts the card writer on
   expect(w.registered[0].prompt).toMatch(/Read it in full, with what it imports/);
   await leadTurn($, clock);
   expect(w.prompts).toEqual([
-    'Start Context Graph\'s card writer in the background: use the Agent tool with subagent_type "context-graph:card-writer", run_in_background true, description "Write 2 cards (Context Graph)", and the prompt "Write the cards for: src/a.ts, src/b.ts." Then carry on; it only writes cards. If the person has asked you not to card these now, say so and don\'t start it: Context Graph won\'t offer the card writer again this session.',
+    'Start Context Graph\'s card writer in the background: use the Agent tool with subagent_type "context-graph:card-writer", run_in_background true, description "Write 2 cards (Context Graph)", and the prompt "Write the cards for: src/a.ts, src/b.ts." Then carry on; it only writes cards. If these files shouldn\'t be carded (they aren\'t code, or the person has asked you not to now), say so and don\'t start it: Context Graph skips them this session.',
   ]);
   // The lead starts it, as asked; one batch at a time, so the next turn starts no second one.
   w.running = [{ id: 'cw1', type: 'context-graph:card-writer', description: 'Write 2 cards (Context Graph)', status: 'running' }];
@@ -691,7 +697,7 @@ test('CARDW-1 and CARDW-2 with the lead idle, the lead starts the card writer on
   expect(w.prompts).toHaveLength(1);
   await ctx($);
   const ui = await mountPane($, PANE);
-  expect(await ui.find({ type: 'Text', text: 'Card writer: explaining 2 files (src/a.ts, src/b.ts)' })).toBeDefined();
+  expect(await ui.find({ type: 'Text', text: 'Explaining 2 files now: src/a.ts, src/b.ts' })).toBeDefined();
   await ui.unmount();
 });
 
@@ -727,7 +733,7 @@ test("CARDW-3 a batch's cards are done once current, and the writer's own end fr
   await clock.advance(2000);
   await ctx($);
   const ui = await mountPane($, PANE);
-  expect(await ui.find({ type: 'Text', text: 'Card writer: nothing to explain right now' })).toBeDefined();
+  expect(await ui.find({ type: 'Text', text: 'Every file is explained.' })).toBeDefined();
   await ui.unmount();
 });
 
@@ -756,7 +762,7 @@ test("CARDW-5 past the pause point (code-kit's, when it sets one) no batch start
   expect(w.prompts).toEqual([]);
   await ctx($);
   const ui = await mountPane($, PANE);
-  expect(await ui.find({ type: 'Text', text: "Card writer: paused, the plan's 5-hour use at 75%" })).toBeDefined();
+  expect(await ui.find({ type: 'Text', text: "Paused: the plan's 5-hour use is at 75%; it carries on below the pause point." })).toBeDefined();
   await ui.unmount();
 });
 
@@ -919,8 +925,9 @@ test('MAP-4 the Overview is the first tab: what Context Graph is for, then a row
   await ctx($);
   const ui = await mountPane($, PANE);
   expect((await ui.find({ key: 'tab-map' }))?.props).toMatchObject({ hotkey: '1', label: 'Overview', variant: 'primary' });
-  expect((await ui.find({ key: 'purpose' }))?.text).toMatch(/^CONTEXT GRAPH\s*keeps the why of your code/);
-  expect(await ui.find({ type: 'Text', text: 'WHAT IT KNOWS' })).toBeDefined();
+  expect((await ui.find({ key: 'purpose' }))?.text).toMatch(/^The why of your code/);
+  expect((await ui.find({ key: 'explain-count' }))?.text).toBe('FILES EXPLAINED9 of 10█████████░ 90%');
+  expect(await ui.find({ type: 'Text', text: 'MODULES' })).toBeDefined();
   expect(shownIn(await ui.find({ key: 'module-L:src' }))).toEqual(['  src', '  1 of 1   █████', '2', '0', 'none']);
   expect(shownIn(await ui.find({ key: 'module-L:billing' }))).toEqual(['    billing', '  6 of 10  ███░░', '1 + 1 proposed', '2', expect.any(String)]);
   await press($, 'move-next', PANE);
@@ -930,7 +937,7 @@ test('MAP-4 the Overview is the first tab: what Context Graph is for, then a row
   await ui.unmount();
 });
 
-test('MAP-4 a module whose rule is overridden is outlined red, and selecting it shows the rule and the proposals on it to accept', async ($, on) => {
+test('MAP-4 a module whose rule is overridden is outlined red, and selecting it shows the rule, and counts the proposals on it for Rules to review', async ($, on) => {
   const w = project();
   w.map[1].ruleList = [{ id: 'billing.cents', text: 'Money is held in cents', mode: 'G' }];
   w.hygiene = [{ signal: 'overridden-since-ratified', target: 'billing.cents', evidence: ['d-1 …', 'd-2 …', 'd-3 …'], proposal: 'reword billing.cents to match how the team works', level: 'propose' }];
@@ -945,8 +952,8 @@ test('MAP-4 a module whose rule is overridden is outlined red, and selecting it 
   expect(await ui.find({ type: 'Text', text: 'billing.cents overridden 3×' })).toBeDefined();
   expect(await ui.find({ type: 'Text', text: 'Money is held in cents' })).toBeDefined();
   expect(await ui.find({ type: 'Text', text: 'reword billing.cents to match how the team works' })).toBeDefined();
-  await press($, 'graph-accept-billing.minor', PANE);
-  expect(w.acts).toEqual([['ratify', 'billing.minor', '--commit']]);
+  expect(await ui.find({ type: 'Text', text: '1 proposed rule on it, in Rules to review (3)' })).toBeDefined();
+  expect(await ui.find({ key: 'graph-accept-billing.minor' })).toBeUndefined();
   await ui.unmount();
 });
 
@@ -1057,29 +1064,30 @@ test('backfill: it runs in the background, out of the band; the Overview shows i
   await ctx($);
   let ui = await mountPane($, PANE);
   await press($, 'tab-map', PANE);
-  expect(await ui.find({ type: 'Text', text: 'Explaining the existing code: 2 of 12 files done (modules changed in the last 90 days)' })).toBeDefined();
-  await press($, 'map-backfill-pause', PANE);
+  expect(await ui.find({ type: 'Text', text: '10 files queued; the next batch starts when the lead finishes its turn.' })).toBeDefined();
+  await press($, 'explain-pause', PANE);
   await ui.unmount();
   await leadTurn($, clock);
   expect(w.prompts).toEqual([]);
   ui = await mountPane($, PANE);
-  expect(await ui.find({ type: 'Text', text: /^Explaining the existing code \(paused\): 2 of 12/ })).toBeDefined();
-  expect((await ui.find({ key: 'map-backfill-pause' }))?.props.label).toBe('Resume');
-  await press($, 'map-backfill-pause', PANE);
+  expect(await ui.find({ type: 'Text', text: 'Paused by you.' })).toBeDefined();
+  expect((await ui.find({ key: 'explain-resume' }))?.props.label).toBe('Resume');
+  await press($, 'explain-resume', PANE);
   await ui.unmount();
   await leadTurn($, clock, 't-2');
   expect(w.prompts).toHaveLength(1);
 });
 
-test("MAP-4 the Overview shows the backfill's progress under the table, a module's files explained counted", async ($, on) => {
+test("MAP-4 the Overview opens on the backfill's progress, and with one module says so in a line instead of a table", async ($, on) => {
   const w = backfilling();
   w.map = [{ id: 'L:src', name: 'Source', depth: 0, parents: [], rules: { agreed: 1, proposed: 0 }, decisions: [], files: [{ path: 'src/f00.ts', card: 'missing' }] }];
   await start($, on, w);
   await ctx($);
   const ui = await mountPane($, PANE);
   await press($, 'tab-map', PANE);
-  expect(await ui.find({ type: 'Text', text: /^Explaining the existing code: 2 of 12 files done/ })).toBeDefined();
-  expect(shownIn(await ui.find({ key: 'module-L:src' }))).toEqual(['  src', '  0 of 1   ░░░░░', '1', '0', 'none']);
+  expect(await ui.find({ type: 'Text', text: '10 files queued; the next batch starts when the lead finishes its turn.' })).toBeDefined();
+  expect(await ui.find({ key: 'module-L:src' })).toBeUndefined();
+  expect(await ui.find({ type: 'Text', text: /^The graph treats the whole repository as one module/ })).toBeDefined();
   await ui.unmount();
 });
 
@@ -1107,7 +1115,7 @@ test("with code-kit's loop paused by the person, the card writer isn't started, 
   expect(w.prompts).toEqual([]);
   await ctx($);
   const ui = await mountPane($, PANE);
-  expect(await ui.find({ type: 'Text', text: "Card writer: paused with code-kit's loop" })).toBeDefined();
+  expect(await ui.find({ type: 'Text', text: "Paused while code-kit's loop is paused; it carries on when that resumes." })).toBeDefined();
   await ui.unmount();
   // Resumed: the next idle turn starts it.
   w.settings = w.settings.map((r: any) => ({ ...r, pausedBy: undefined }));
@@ -1115,22 +1123,31 @@ test("with code-kit's loop paused by the person, the card writer isn't started, 
   expect(w.prompts).toHaveLength(1);
 });
 
-test("once the lead declines a batch, no other batch is offered this session, until the person offers it again", async ($, on) => {
+test("CARDW-6 a batch the lead turns down is skipped and the next offered; two in a row stop it, until the person asks again", async ($, on) => {
   const w = writing();
-  // More files than one batch: declining the first mustn't bring the next ten.
-  w.changed = { fresh: [], stale: Array.from({ length: 25 }, (_, i) => `src/f${i}.ts`), missing: [] };
+  w.agents = [];
+  w.changed = { fresh: [], stale: Array.from({ length: 25 }, (_, i) => `src/f${String(i).padStart(2, '0')}.ts`), missing: [] };
   const clock = await start($, on, w);
   await leadTurn($, clock);
   expect(w.prompts).toHaveLength(1);
-  // The prompt's turn ends with no card writer started: declined.
+  // The prompt's turn ends with no card writer started: those ten are skipped, and the next ten offered.
   await leadTurn($, clock, 't-2');
-  await leadTurn($, clock, 't-3');
-  expect(w.prompts).toHaveLength(1);
-  await ctx($);
-  const ui = await mountPane($, PANE);
-  expect(await ui.find({ type: 'Text', text: "The lead turned down the card writer's last batch, so it won't ask again this session." })).toBeDefined();
-  await press($, 'offer-again', PANE);
   expect(w.prompts).toHaveLength(2);
+  expect(w.prompts[1]).toMatch(/"Write the cards for: src\/f10\.ts, .*src\/f19\.ts\."/);
+  await ctx($);
+  let ui = await mountPane($, PANE);
+  expect(await ui.find({ type: 'Text', text: 'Skipped 10 files the lead turned down this session.' })).toBeDefined();
+  await ui.unmount();
+  // Turned down again: two in a row, so nothing more is offered.
+  await leadTurn($, clock, 't-3');
+  await leadTurn($, clock, 't-4');
+  expect(w.prompts).toHaveLength(2);
+  ui = await mountPane($, PANE);
+  expect(await ui.find({ type: 'Text', text: 'Stopped: the lead turned down 2 batches in a row, so nothing more is offered this session.' })).toBeDefined();
+  expect(await ui.find({ type: 'Text', text: /^Skipped/ })).toBeUndefined();
+  await press($, 'explain-askAgain', PANE);
+  expect(w.prompts).toHaveLength(3);
+  expect(w.prompts[2]).toMatch(/"Write the cards for: src\/f00\.ts, /);
   await ui.unmount();
 });
 
@@ -1143,7 +1160,7 @@ test("another prompt's turn (code-kit's loop) before the card writer's own isn't
   await leadTurn($, clock, 't-2', 'Dispatch ST-7: run /code-kit:dispatch ST-7.');
   await ctx($);
   const ui = await mountPane($, PANE);
-  expect(await ui.find({ type: 'Text', text: "The lead turned down the card writer's last batch, so it won't ask again this session." })).toBeUndefined();
+  expect(await ui.find({ type: 'Text', text: /^Skipped|^Stopped/ })).toBeUndefined();
   await ui.unmount();
   // Its own turn, with the agent started: no decline either.
   w.running = [{ id: 'cw1', type: 'context-graph:card-writer', description: 'Write 2 cards (Context Graph)', status: 'running' }];

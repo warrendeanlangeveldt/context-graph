@@ -10,7 +10,7 @@
 - What Context Graph is for, at the top, then tabs: Overview (08), This file, Rules to review, Agents; a fixed header with the graph's state in words.
 - The file's card as rendered Markdown, its rules as coloured chips, and a small graph of what it imports and what relies on it.
 - Proposals as a queue with their evidence and a sparkline of how often each was served or overridden; ratify, drop and defer on keys.
-- A header: "CONTEXT GRAPH keeps the why of your code: …", then "92% of files explained · 2 files to explain from this session · 1 rule to review" (a file is explained when it has a current card; the panes don't say "carded" or use symbols that need a legend). The band stays quiet unless rules are being worked around.
+- A header: "Context Graph", "92% of files explained · 2 files to explain from this session · 1 rule to review" and Settings on one line, then what it's for on its own ("The why of your code: …"); the person's last act ("Accepted: <the rule>. Agents are held to it from now on; committed on this branch (abc1234).") is said in words for 15 seconds, then goes (a file is explained when it has a current card; the panes don't say "carded" or use symbols that need a legend). The band stays quiet unless rules are being worked around.
 - Tags on transcript tool rows for edits the graph refused or that owe a card.
 - A `[harness]` section in `.ctx/config.toml` (card writer, curator, side questions: on, model) edited from a Settings view, as the person's change.
 
@@ -18,7 +18,7 @@
 
 ### VIEW-1 Header and band
 
-The pane's header says what Context Graph is for in one sentence, then, in words, the share of files explained (with a current card), files this session left to explain, rules to review and rules overridden, amber or red when something is owed or overridden. The band line is quiet by default: Context Graph runs in the background, cards owed are the agents' work and suggestions wait in the pane, so the band shows a line only when rules are being worked around again and again ("2 rules the agents keep working around"), amber, red from three.
+The pane's header names Context Graph with, on the same line and in words, the share of files explained (with a current card), files this session left to explain, rules to review and rules overridden, amber or red when something is owed or overridden; what it's for follows in one sentence on its own line. The person's last act is said once, in words (the rule, not its id; a short commit hash, not the trailer), and goes after 15 seconds. The band line is quiet by default: Context Graph runs in the background, cards owed are the agents' work and suggestions wait in the pane, so the band shows a line only when rules are being worked around again and again ("2 rules the agents keep working around"), amber, red from three.
 
 **Acceptance**
 

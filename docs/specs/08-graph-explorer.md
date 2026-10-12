@@ -27,12 +27,13 @@ Within a selected module, one cell per file, coloured current, stale, missing or
 
 ### MAP-4 Overview
 
-The Overview is where the pane opens: what the graph knows, a row per module, indented under its parent, with how many of its files are explained (a current card) and a bar, its rules (agreed, and how many proposed), its decisions and when the last one was. A module where a decision was just recorded is drawn blue for a few seconds; one with a rule hygiene flags as overridden, red. The selected module's detail shows its rules in words, its decisions as a sparkline, what it uses and what uses it, an overridden rule's text with what to reword, and the proposals on it with Accept, Reject… and Later. Under the table, Working now: the card writer and the backfill.
+The Overview is where the pane opens: first how much of the code is explained and what the card writer is doing about the rest (CARDW-8), then the modules. With more than one module, a row per module, indented under its parent, with how many of its files are explained (a current card) and a bar, its rules (agreed, and how many proposed), its decisions and when the last one was. A module where a decision was just recorded is drawn blue for a few seconds; one with a rule hygiene flags as overridden, red. The selected module's detail shows its rules in words, its decisions as a sparkline, what it uses and what uses it, an overridden rule's text with what to reword, and how many proposals wait on it in Rules to review (they're accepted there, not here as well). With only the whole repository as a module there's no table to read: one line says the graph treats the whole repository as one module, with its rules and decisions.
 
 **Acceptance**
 
 - Given `L:src` containing `L:billing`, then the graph draws a node for each with its counts (`2r 1/1`, `1r +1? 6/10`), and an edge from `L:src` to `L:billing`.
-- Given hygiene flagging `billing.cents` as overridden three times, then `L:billing` is outlined red, and selecting it shows "billing.cents overridden 3×", the rule's text and the proposals on `L:billing` with Accept.
+- Given hygiene flagging `billing.cents` as overridden three times, then `L:billing` is outlined red, and selecting it shows "billing.cents overridden 3×", the rule's text and "1 proposed rule on it, in Rules to review (3)".
+- Given a graph with only `L:repo`, then the Overview has no module table, and says the graph treats the whole repository as one module.
 - Given a decision recorded on `L:billing`, then at the next read of the map its node pulses, and stops a few seconds later.
 
 ### MAP-3 Navigate
@@ -41,7 +42,7 @@ j/k and arrows move; Enter opens; Esc goes back; the pointer selects on Desktop 
 
 ### MAP-6 Code the graph doesn't map yet
 
-A graph made before there was code, or before the code grew, maps whole folders to the repository's one module: rules and decisions can't be scoped to them, and the Map shows one box. `ctx next` and `ctx info` name the folders with code that look like modules and are mapped only to the whole repository; `ctx next` gives `init` with `ctx init --write`. The Map says which they are, with Add them as modules, which runs it: the modules are added and their edges proposed, nothing is ratified.
+A graph made before there was code, or before the code grew, maps whole folders to the repository's one module: rules and decisions can't be scoped to them, and the Map shows one box. `ctx next` and `ctx info` name the folders with code that look like modules and are mapped only to the whole repository; `ctx next` gives `init` with `ctx init --write`. The Overview names them ("Folders with code that could be modules: services, packages."), with Add them as modules, which runs it: the modules are added and their edges proposed, nothing is ratified.
 
 **Acceptance**
 

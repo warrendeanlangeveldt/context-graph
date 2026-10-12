@@ -11,7 +11,7 @@ import { SETTINGS_ID, settingsView } from './views/settings.mjs';
 import { DEFAULT_UI, bandHealth, closeGoesBack, healthOf, moved } from './views/frame.mjs';
 import { grewDecisions } from './views/overview.mjs';
 import { assistCard, editTag, readingList, readingMessage } from './views/assist.mjs';
-import { BATCH, backfillLine, batchDescription, cardJobs, cardWriterLine, cardWriterSpec, pausedAt, startCardWriterPrompt } from './card-writer.mjs';
+import { BATCH, STOP_AFTER, batchDescription, cardJobs, cardWriterSpec, explainStatus, pausedAt, startCardWriterPrompt } from './card-writer.mjs';
 import { CURATE_DESCRIPTION, curatorDue, curatorLine, curatorSpec, flaggedRules, startCuratorPrompt } from './curator.mjs';
 import { WHY_ID, sourcesOf, targetsOf, whyPane, whyPrompt } from './why.mjs';
 
@@ -34,8 +34,8 @@ const KEPT = 200;
 const EDIT_TOOLS = new Set(['Edit', 'MultiEdit', 'Write', 'NotebookEdit']);
 // The card writer (spec 04): its registered agent, the batch it's writing, and what the person asked for.
 // batch: the one asked for: { description, files, turnId (the lead's turn the prompt started), agentId }.
-const cardWriter = { agent: null, model: null, writing: [], batch: null, declined: false };
-const declined = new Set(); // files whose batch the lead didn't start (the card writer then stops offering for the session)
+const cardWriter = { agent: null, model: null, writing: [], batch: null, declines: 0 }; // declines: batches turned down in a row (CARDW-6)
+const declined = new Set(); // files whose batch the lead didn't start: skipped this session, until the person offers them again
 const asked = []; // paths queued for the card writer from the pane (CARDW-4)
 let backfillPaused = false; // the person paused the backfill for this session, from the Map tab
 // The curator (spec 05): its agent, whether it's running, and the decision count at its last run.
@@ -47,6 +47,8 @@ let rateLimits = []; // the session's limits, as session.measure last gave them 
 let leadTurn = null; // the lead's running turn
 const pulseUntil = new Map(); // MAP-4: module id → when its pulse ends, after a decision is recorded on it
 const PULSE_MS = 8000;
+/** How long the person's last act is said at the top of the pane. */
+const NOTICE_MS = 15000;
 /** A harness setting in force, from ctx settings --json; the pause point the one a tool sets, if any. */
 const setting = (key, fallback) => {
   const row = settingRowsNow.find((x) => x.key === key);
@@ -91,6 +93,11 @@ export function register(on) {
     };
     rateLimits = (await $.session.usage().catch(() => null))?.rateLimits ?? [];
     const firstLine = (ran) => `${ran.stdout}\n${ran.stderr}`.trim().split('\n').filter(Boolean).at(-1) ?? '';
+    // A ratify's commit, in words: the short hash, without the trailer's address.
+    const committed = (ran) => {
+      const hash = /committed ([0-9a-f]{7,})/.exec(ran.stdout)?.[1];
+      return hash ? `; committed on this branch (${hash})` : '';
+    };
 
     act = {
       // Everything the pane and the band show, read again.
@@ -307,8 +314,8 @@ export function register(on) {
       cardWriterStep: async () => {
         const backfilling = setting('backfill', 'off') !== 'off' && !backfillPaused;
         if (!(setting('card_writer', false) || backfilling) || !cardWriter.agent || cardWriter.writing.length || leadTurn) return false;
-        // The lead declined a batch: no other batch is offered this session until the person offers it again.
-        if (cardWriter.declined) return false;
+        // CARDW-6: two batches turned down in a row mean stop: nothing more is offered until the person asks again.
+        if (cardWriter.declines >= STOP_AFTER) return false;
         // Read now, not at the last refresh: a pause the person just made holds this batch.
         settingRowsNow = (await json('settings')) ?? settingRowsNow;
         if (heldBy() || pausedAt(rateLimits, setting('pause_at_percent', 80)).paused) return false;
@@ -354,7 +361,7 @@ export function register(on) {
       // The person offers the declined files again: the next idle turn asks the lead once more.
       offerAgain: async () => {
         declined.clear();
-        cardWriter.declined = false;
+        cardWriter.declines = 0;
         curator.declined = false;
         $.ui.invalidate('ui.render');
         await act.cardWriterStep();
@@ -371,7 +378,7 @@ export function register(on) {
           for (const p of paths) if (!asked.includes(p)) asked.push(p);
           // The person asked for these: a decline earlier in the session doesn't hold them back.
           for (const p of paths) declined.delete(p);
-          cardWriter.declined = false;
+          cardWriter.declines = 0;
           model = { ...model, notice: { ok: true, text: `Queued the ${what} for the card writer.` } };
           $.ui.invalidate('ui.render');
           await act.cardWriterStep();
@@ -397,7 +404,7 @@ export function register(on) {
           ...model,
           notice: {
             ok: ran.exitCode === 0,
-            text: ran.exitCode === 0 ? `Accepted ${proposal.id}: ${firstLine(ran)}` : `Nothing accepted: ${firstLine(ran)}`,
+            text: ran.exitCode === 0 ? `Accepted: ${proposal.text}. Agents are held to it from now on${committed(ran)}.` : `Nothing accepted: ${firstLine(ran)}`,
           },
         };
         await act.reload();
@@ -411,7 +418,7 @@ export function register(on) {
         const ran = await $.process.run(['node', cli, 'ratify', ...list.map((p) => p.id), '--commit'], { cwd });
         model = {
           ...model,
-          notice: { ok: ran.exitCode === 0, text: ran.exitCode === 0 ? `Accepted ${list.length} rules on ${module}: ${firstLine(ran)}` : `Nothing accepted: ${firstLine(ran)}` },
+          notice: { ok: ran.exitCode === 0, text: ran.exitCode === 0 ? `Accepted ${list.length} rules on ${module}. Agents are held to them from now on${committed(ran)}.` : `Nothing accepted: ${firstLine(ran)}` },
         };
         await act.reload();
       },
@@ -451,7 +458,7 @@ export function register(on) {
           ...model,
           notice: {
             ok: true,
-            text: `Rejected ${proposal.id}: ${reason.trim()}`,
+            text: `Rejected: ${proposal.text}. The graph keeps your reason: ${reason.trim()}`,
           },
         };
         await $.ui.close({ id: DROP_ID });
@@ -513,6 +520,11 @@ export function register(on) {
       try {
         // MAP-4: while a module pulses, the pane is drawn each beat, and once more as the pulse ends.
         const t = await $.clock.now();
+        // VIEW-1: the person's last act is said once, then goes.
+        if (model.notice?.at !== undefined && t - model.notice.at > NOTICE_MS) {
+          model = { ...model, notice: null };
+          $.ui.invalidate('ui.render');
+        }
         if (pulseUntil.size) {
           $.ui.invalidate('ui.render');
           for (const [id, until] of pulseUntil) if (until <= t) pulseUntil.delete(id);
@@ -615,10 +627,12 @@ export function register(on) {
       const batch = cardWriter.batch;
       if (batch && batch.turnId === e.turnId) {
         const started = running.find((a) => a.type === cardWriter.agent && a.description === batch.description);
-        if (started) batch.agentId = started.id;
-        else {
+        if (started) {
+          batch.agentId = started.id;
+          cardWriter.declines = 0;
+        } else {
           for (const f of batch.files) declined.add(f);
-          cardWriter.declined = true;
+          cardWriter.declines += 1;
           cardWriter.writing = [];
           cardWriter.batch = null;
         }
@@ -654,10 +668,6 @@ export function register(on) {
     return assistCard({ ...assist, agentType: assist.agentId ? (model.types?.[assist.agentId] ?? null) : null }, $.ui.resolve(e));
   });
 
-  // The backfill's progress, for the band and the Map tab.
-  const backfillNow = () =>
-    backfillLine({ scope: setting('backfill', 'off'), left: model.backfill?.files.length ?? 0, inScope: model.backfill?.inScope ?? 0, paused: backfillPaused });
-
   // VIEW-1: the graph's health from what the mod last read.
   const healthNow = () =>
     healthOf({
@@ -680,6 +690,8 @@ export function register(on) {
   on('ui.render', { component: 'Pane', requestId: PANE_ID }, async ($, e) => {
     const now = await $.clock.now();
     const plan = pausedAt(rateLimits, setting('pause_at_percent', 80));
+    // VIEW-1: a notice's clock starts when it's first drawn; the clock loop takes it away.
+    if (model.notice && model.notice.at === undefined) model = { ...model, notice: { ...model.notice, at: now } };
     const view = {
       ...model,
       ui: paneUi,
@@ -692,16 +704,18 @@ export function register(on) {
         decisions: model.decisions ?? 0,
         baseline: curator.baseline ?? 0,
       }),
-      backfillLine: backfillNow(),
-      backfillPaused,
-      declined: cardWriter.declined ? declined.size || 1 : 0,
-      curatorDeclined: curator.declined,
-      cardWriterLine: cardWriterLine({
+      // CARDW-8: how much is explained, and the one thing the card writer is doing about the rest.
+      explain: explainStatus({
+        cards: model.cards,
         on: setting('card_writer', false) || setting('backfill', 'off') !== 'off',
+        backfill: setting('backfill', 'off') !== 'off',
         ...plan,
         heldBy: heldBy(),
+        backfillPaused,
+        stopped: cardWriter.declines >= STOP_AFTER,
         writing: cardWriter.writing,
         waiting: act ? act.cardJobsNow(now).filter((j) => !cardWriter.writing.includes(j.path)).map((j) => j.path) : [],
+        skipped: declined.size,
       }),
       assists: [...assists.values()].slice(-10),
       now,
