@@ -3351,7 +3351,11 @@ function defaultConfig() {
       "**/*.txt",
       // Data and tool configuration: fixtures, CSVs, and a tool's config file (eslint.config.mjs, vite.config.ts).
       "**/*.{jsonl,ndjson,csv,tsv}",
-      "**/*.config.{js,cjs,mjs,ts,cts,mts}"
+      "**/*.config.{js,cjs,mjs,ts,cts,mts}",
+      // Documents, archives and media: a person's files, never code (and often personal data).
+      "**/*.{doc,docx,xls,xlsx,ppt,pptx,odt,ods,odp,rtf,pages,numbers,key,eml,msg}",
+      "**/*.{zip,gz,tgz,tar,7z,rar,bz2,xz}",
+      "**/*.{mp3,mp4,mov,wav,m4a,webm,avi}"
     ]
   };
 }
@@ -3736,9 +3740,13 @@ import { createHash as createHash2 } from "node:crypto";
 function contentHash(text) {
   return createHash2("sha1").update(text).digest("hex").slice(0, 12);
 }
+function cardText(root, path) {
+  const text = readRepoText(root, path);
+  return text === void 0 || text.slice(0, 8e3).includes("\0") ? void 0 : text;
+}
 function cardState(graph, root, path) {
   const card = graph.cards.get(path);
-  const text = readRepoText(root, path);
+  const text = cardText(root, path);
   const hash = text === void 0 ? void 0 : contentHash(text);
   const out = { fresh: Boolean(card && hash && card.hash === hash) };
   if (card) out.card = card;
@@ -3750,8 +3758,9 @@ function exemptFromCards(path, exclude) {
   return (0, import_picomatch2.default)(exclude, { dot: true })(path);
 }
 function writeCard(graph, root, input) {
-  const text = readRepoText(root, input.path);
-  if (text === void 0) throw new Error(`${input.path} does not exist; a card describes a file as it is`);
+  const text = cardText(root, input.path);
+  if (text === void 0)
+    throw new Error(readRepoText(root, input.path) === void 0 ? `${input.path} does not exist; a card describes a file as it is` : `${input.path} isn't text (a document, an archive or an image); cards are for code`);
   const body = input.text.replace(/\s+/g, " ").trim();
   if (!body) throw new Error("card text is required: what the file is for, what it relies on, who relies on it, what it must keep true");
   const card = { kind: "F", path: input.path, hash: contentHash(text), date: input.date, who: input.who, text: body, line: 0 };
@@ -4195,7 +4204,6 @@ var init_recorder = __esm({
     init_cards();
     init_records();
     init_write();
-    init_paths();
     init_walk();
     RecordError = class extends Error {
       constructor(message, applicable = []) {
@@ -4293,14 +4301,13 @@ var init_recorder = __esm({
         owed[path] = { path, since: (/* @__PURE__ */ new Date()).toISOString() };
         this.state.save();
       }
-      /** Files whose card is still owed. A card matching the file settles it, whoever wrote it; a deleted file owes nothing. */
+      /** Files whose card is still owed. A card matching the file settles it, whoever wrote it; a deleted file, or one that isn't text, owes nothing. */
       cardsOwed() {
         const owed = this.state.data.cardsOwed ?? {};
         let changed = false;
         for (const path of Object.keys(owed)) {
-          const gone = this.root !== void 0 && readRepoText(this.root, path) === void 0;
-          const settled = this.root !== void 0 && cardState(this.graph, this.root, path).fresh;
-          if (gone || settled) {
+          const state = this.root === void 0 ? void 0 : cardState(this.graph, this.root, path);
+          if (state && (state.hash === void 0 || state.fresh)) {
             delete owed[path];
             changed = true;
           }
@@ -5472,10 +5479,10 @@ async function hydrate(ctx, scopeIn, opts = {}) {
   if (lastCompact) sessionLines.push(`context compacted at ${lastCompact.ts.slice(11, 16)}; ${lastCompact.p.paths.length} files survive only as summaries`);
   const live2 = [...new Set((await Promise.all(walks.map((w) => liveLinesFor(ctx, w, meta)))).flat())];
   const hints = ctx.config.embed.enabled ? await hintsFor2(ctx, scopeIn, files) : [];
-  const cardText = {};
+  const cardText2 = {};
   for (const f of files) {
     const c = renderFileCard(f, cardState(g, ctx.root, f), factsFor(ctx.root, f).lines);
-    if (c) cardText[f] = c.text;
+    if (c) cardText2[f] = c.text;
   }
   const dropped = [];
   const render = (callerCap2, lineCap2, withHints2, withLive2, withCallees2, decisionCap2, fileCap2, sliceTokens2) => {
@@ -5484,7 +5491,7 @@ async function hydrate(ctx, scopeIn, opts = {}) {
     const out = [`hydrate ${scopeIn}${files.length > 1 || files[0] !== scopeIn ? `  (${count}: ${reason})` : ""}`];
     out.push(...sliceBlocks(fileCap2, sliceTokens2));
     for (const f of shown) {
-      if (cardText[f]) out.push(cardText[f]);
+      if (cardText2[f]) out.push(cardText2[f]);
       const cs = callerRefs[f] ?? [];
       const dark = cs.filter((c) => !c.loaded).length;
       out.push(`${cs.length} caller${cs.length === 1 ? "" : "s"} of ${short(f)}${cs.length ? dark === cs.length ? ", none in context this session" : dark ? `, ${dark} not in context this session` : ", all in context this session" : ""}`);

@@ -243,7 +243,7 @@ cards            = "background"   # background (the card writer writes it after 
 max_importers    = 5
 
 [cards]
-exclude = ["src/generated/**"]   # adds to the defaults: lockfiles, docs, config, dotfiles, build output, the graph itself
+exclude = ["src/generated/**"]   # adds to the defaults: lockfiles, docs, config, dotfiles, build output, office documents, archives, media, the graph itself; a file that isn't text never owes a card
 ```
 
 ## Working alongside code-kit

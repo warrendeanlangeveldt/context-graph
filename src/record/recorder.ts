@@ -3,7 +3,6 @@ import type { Graph } from '../graph/graph.js';
 import { isActiveMode, isPathId, type DRecord, type ERecord } from '../graph/records.js';
 import { appendRecord } from '../graph/write.js';
 import type { PendingEntry, SessionState } from '../observe/store.js';
-import { readRepoText } from '../util/paths.js';
 import { walk, demandsDecision, type WalkResult } from '../walker/walk.js';
 
 export interface RecordInput {
@@ -119,14 +118,13 @@ export class Recorder {
     this.state.save();
   }
 
-  /** Files whose card is still owed. A card matching the file settles it, whoever wrote it; a deleted file owes nothing. */
+  /** Files whose card is still owed. A card matching the file settles it, whoever wrote it; a deleted file, or one that isn't text, owes nothing. */
   cardsOwed(): string[] {
     const owed = this.state.data.cardsOwed ?? {};
     let changed = false;
     for (const path of Object.keys(owed)) {
-      const gone = this.root !== undefined && readRepoText(this.root, path) === undefined;
-      const settled = this.root !== undefined && cardState(this.graph, this.root, path).fresh;
-      if (gone || settled) { delete owed[path]; changed = true; }
+      const state = this.root === undefined ? undefined : cardState(this.graph, this.root, path);
+      if (state && (state.hash === undefined || state.fresh)) { delete owed[path]; changed = true; }
     }
     if (changed) this.state.save();
     return Object.keys(owed).sort();
