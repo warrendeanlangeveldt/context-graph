@@ -2,6 +2,16 @@
 
 What changed in each release of Context Graph, newest first. Versions follow the plugin manifests and the npm package `@warren-dean/context-graph`. Each release is also on [GitHub Releases](https://github.com/warrendeanlangeveldt/context-graph/releases).
 
+## 0.8.0 (2026-10-13)
+
+A clearer Overview, and cards are never offered for documents.
+
+- **Documents, archives and media never owe a card.** A branch's untracked `.docx`, `.zip` or exports were offered to the card writer. Office documents, archives and media are now excluded by default, and any file that isn't text has no card: it's left out of every card list, and `ctx card` refuses it.
+- **The Overview opens on one status.** How many files are explained ("38 of 595", with a bar), and one line saying the one thing the card writer is doing about the rest, with its button: Pause, Resume, Ask again or Settings. Lines that contradicted each other are gone.
+- **Modules, plainly.** With only the whole repository as a module, one line says so, and the folders that could be modules are named with **Add them as modules**. A selected module counts its proposed rules for Rules to review instead of offering Accept a second time.
+- **One turned-down batch no longer stops the card writer.** Its files are skipped for the session and the next batch is offered; two in a row stop it until **Ask again**.
+- **A tidier header.** The name and the state share one line. What you just did is said in words ("Accepted: <the rule> … committed on this branch (abc1234)") for 15 seconds, then goes.
+
 ## 0.7.0 (2026-10-12)
 
 The Context pane says what Context Graph is for, and shows what it knows about your code.
