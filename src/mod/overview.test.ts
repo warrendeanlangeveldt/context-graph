@@ -45,13 +45,12 @@ describe('the Overview (MAP-4): what the graph knows, a row per module', () => {
   it('a row per module, indented under its parent: files explained, rules, decisions and the last one', () => {
     const map = MAP.map((m) => (m.id === 'L:domain' ? { ...m, decisions: ['2026-10-10', '2026-10-12'] } : m));
     const shown = overview(map, els, { now: NOW }).flatMap(texts);
-    expect(shown).toEqual(expect.arrayContaining(['WHAT IT KNOWS', '7 modules · 14 files', 'module', 'files explained', 'rules', 'decisions', 'last decision']));
+    expect(shown).toEqual(expect.arrayContaining(['MODULES', '7 modules · 2 decisions; j/k choose one, o opens its files', 'module', 'files explained', 'rules', 'decisions', 'last decision']));
     expect(shown).toContain('    domain');
     expect(shown).toContain('      parsers');
     expect(shown).toContain('  1 of 2   ███░░');
     expect(shown).toContain('3 + 1 proposed');
     expect(shown).toContain('today');
-    expect(shown).toContain('j/k choose a module; Enter lists its files.');
   });
 
   it('says in words how much is explained, the rules, and when the last decision was', () => {
@@ -64,9 +63,26 @@ describe('the Overview (MAP-4): what the graph knows, a row per module', () => {
     expect(lastDecision(['2026-10-01', '2026-10-09'], NOW)).toBe('3 days ago');
   });
 
-  it("shows what's being written now, under the table", () => {
-    const shown = overview(MAP, els, { working: [els.Text({ children: ['Card writer: explaining 2 files (a.ts, b.ts)'] })] }).flatMap(texts);
-    expect(shown).toEqual(expect.arrayContaining(['WORKING NOW', 'Card writer: explaining 2 files (a.ts, b.ts)']));
+  it('CARDW-8 opens on how much is explained and the one thing being done about it, with its button', () => {
+    const pressed: string[] = [];
+    const explain = { explained: 38, total: 595, line: '550 files queued; the next batch starts when the lead finishes its turn.', tone: 'waiting', act: 'pause', skipped: 10 };
+    const tab = overview(MAP, els, { explain }, { onPauseBackfill: () => pressed.push('pause'), onOfferAgain: () => pressed.push('again') });
+    const shown = tab.flatMap(texts);
+    expect(shown.slice(0, 4)).toEqual(['FILES EXPLAINED', '38 of 595', '█░░░░░░░░░ 6%', explain.line]);
+    expect(shown).toContain('Skipped 10 files the lead turned down this session.');
+    expect(tab.flatMap(keys)).toEqual(expect.arrayContaining(['explain-pause', 'offer-again']));
+    // Only one line says what the card writer is doing: no second, contradicting one.
+    expect(shown.filter((t: string) => /queued|Explaining|turned down .* won't ask/.test(t))).toEqual([explain.line]);
+  });
+
+  it('MAP-4 with only the whole repository as a module, a line in words instead of a one-row table', () => {
+    const repo = [{ ...mod('L:repo', 0, []), rules: { agreed: 0, proposed: 1 }, decisions: ['2026-10-12', '2026-10-01'] }];
+    const tab = overview(repo, els, { now: NOW, unmapped: ['services', 'packages'] }, { onAddModules: () => {} });
+    const shown = tab.flatMap(texts);
+    expect(shown).toContain('The graph treats the whole repository as one module, so every rule and decision applies everywhere. Rules: 0 + 1 proposed · 2 decisions, the last today.');
+    expect(shown).toContain('Folders with code that could be modules: services, packages.');
+    expect(shown).not.toContain('module');
+    expect(tab.flatMap(keys)).toContain('add-modules');
   });
 
   it('finds the modules whose decisions grew between two reads, and the import edges within the map', () => {
@@ -78,8 +94,7 @@ describe('the Overview (MAP-4): what the graph knows, a row per module', () => {
       { from: 'L:parsers', to: 'L:application', n: 2 },
     ]);
   });
-  it("shows the selected module's detail: its rules, imports, an overridden rule's text and proposal, and its proposals' acts", () => {
-    const acted: string[] = [];
+  it("shows the selected module's detail: its rules, imports, an overridden rule's text and proposal, and counts its proposals for their tab", () => {
     const tab = overview(
       MAP,
       els,
@@ -88,12 +103,11 @@ describe('the Overview (MAP-4): what the graph knows, a row per module', () => {
         flagged: [{ rule: 'parsers.no-io', evidence: ['d-1', 'd-2'], proposal: 'Reword: a parser reads the bytes it is given.' }],
         proposals: [{ id: 'parsers.bytes', module: 'L:parsers', text: 'A parser reads only the bytes it is given' }, { id: 'other', module: 'L:db', text: 'x' }],
       },
-      { onRatify: (p: { id: string }) => acted.push(`accept ${p.id}`), onDrop: () => {}, onDefer: () => {} },
     );
     const shown = tab.flatMap(texts);
     expect(shown).toEqual(expect.arrayContaining(['parsers (L:parsers)', 'uses application', 'rule: A parser never touches the file system', 'parsers.no-io overridden 2×', 'A parser never touches the file system', 'Reword: a parser reads the bytes it is given.']));
-    const k = tab.flatMap(keys);
-    expect(k).toEqual(expect.arrayContaining(['graph-accept-parsers.bytes', 'graph-reject-parsers.bytes', 'graph-later-parsers.bytes']));
-    expect(k).not.toContain('graph-accept-other');
+    expect(shown).toContain('1 proposed rule on it, in Rules to review (3)');
+    // Accepting is done in Rules to review, not here too.
+    expect(tab.flatMap(keys).filter((k: string) => k.startsWith('graph-accept'))).toEqual([]);
   });
 });

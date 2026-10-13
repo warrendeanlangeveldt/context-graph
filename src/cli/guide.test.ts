@@ -123,6 +123,20 @@ describe('ctx next and ctx cards', () => {
     expect(r.missing).toEqual(['src/a.ts']);
   });
 
+  it("a branch's untracked documents and archives owe no card, by name or because they aren't text", () => {
+    withGraph();
+    git('checkout', '-q', '-b', 'feature');
+    mkdirSync(join(repo, 'docs/cvs'), { recursive: true });
+    writeFileSync(join(repo, 'docs/cvs/Candidate.docx'), Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x14, 0, 0x06, 0]));
+    writeFileSync(join(repo, 'docs/cvs/CVs.zip'), Buffer.from([0x50, 0x4b, 0x05, 0x06, 0, 0]));
+    // An unknown extension that isn't text is caught by its content.
+    writeFileSync(join(repo, 'docs/cvs/export.dat'), Buffer.from([0x01, 0x00, 0x02, 0x00]));
+    writeFileSync(join(repo, 'src/b.ts'), 'export const b = 2;\n');
+    expect(cardsReport(openRepo({ repo }), { changed: true }).missing).toEqual(['src/b.ts']);
+    expect(cardsReport(openRepo({ repo })).missing).toEqual(['src/a.ts', 'src/b.ts']);
+    expect(() => writeCard(openRepo({ repo }).graph!, repo, { path: 'docs/cvs/export.dat', text: 'x', who: 't', date: '2026-10-13' })).toThrow(/isn't text/);
+  });
+
   it('CARDW-7 --recent: files the commits of the last 14 days changed, merged from a lane, without a current card', () => {
     withGraph();
     writeFileSync(join(repo, 'src/b.ts'), 'export const b = 1;\n');

@@ -121,6 +121,8 @@ export function defaultConfig(): Config {
       '**/.*', '**/*.json', '**/*.{yml,yaml,toml,ini,cfg}', '**/*.snap', '**/LICENSE*', '**/*.txt',
       // Data and tool configuration: fixtures, CSVs, and a tool's config file (eslint.config.mjs, vite.config.ts).
       '**/*.{jsonl,ndjson,csv,tsv}', '**/*.config.{js,cjs,mjs,ts,cts,mts}',
+      // Documents, archives and media: a person's files, never code (and often personal data).
+      '**/*.{doc,docx,xls,xlsx,ppt,pptx,odt,ods,odp,rtf,pages,numbers,key,eml,msg}', '**/*.{zip,gz,tgz,tar,7z,rar,bz2,xz}', '**/*.{mp3,mp4,mov,wav,m4a,webm,avi}',
     ],
   };
 }

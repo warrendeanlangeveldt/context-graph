@@ -418,7 +418,7 @@ The loop, for every edit:
 2. **After.** The file owes its card until a card matches its new content: asked on the next tool call, and held at turn end like a decision. An unwritten card is never invented to end a turn; it becomes a finding, and the next agent to edit the file reads it in full because no fresh card exists.
 3. **On read.** The first time an agent reads a file, it is shown the card and what tool adapters know of the file, before its decision history; or told there is no card and that it must read the file in full before editing it.
 
-Each step is `off`, `nudge`, or `block` under `[enforce]` (§17). Generated, vendored and non-code files are exempt (`[cards] exclude`). The gate reports files a branch changed without a card matching them (§11), so the loop holds for changes made outside a session too.
+Each step is `off`, `nudge`, or `block` under `[enforce]` (§17). Generated, vendored and non-code files are exempt (`[cards] exclude`, whose defaults include documents, archives and media), and so is any file that isn't text (a NUL in its first 8000 bytes, as git decides): a branch's untracked CVs or exports never owe a card, and the card writer is never offered them. The gate reports files a branch changed without a card matching them (§11), so the loop holds for changes made outside a session too.
 
 ## 10. Embeddings (optional, standalone)
 

@@ -23,13 +23,22 @@ export interface CardState {
   card?: FRecord;
   /** The card matches the file as it is now. */
   fresh: boolean;
-  /** The file's current hash; undefined when it does not exist. */
+  /** The file's current hash; undefined when it does not exist or isn't text. */
   hash?: string;
+}
+
+/**
+ * A file's text as a card describes it; undefined when it doesn't exist or isn't text. A document, an
+ * archive or an image (a NUL in its first 8000 bytes, as git decides) is never code, so it owes no card.
+ */
+function cardText(root: string, path: string): string | undefined {
+  const text = readRepoText(root, path);
+  return text === undefined || text.slice(0, 8000).includes('\0') ? undefined : text;
 }
 
 export function cardState(graph: Graph, root: string, path: string): CardState {
   const card = graph.cards.get(path);
-  const text = readRepoText(root, path);
+  const text = cardText(root, path);
   const hash = text === undefined ? undefined : contentHash(text);
   const out: CardState = { fresh: Boolean(card && hash && card.hash === hash) };
   if (card) out.card = card;
@@ -47,8 +56,9 @@ export interface CardInput { path: string; text: string; who: string; date: stri
 
 /** Write a card for the file as it is now. Throws when the file does not exist. */
 export function writeCard(graph: Graph, root: string, input: CardInput): FRecord {
-  const text = readRepoText(root, input.path);
-  if (text === undefined) throw new Error(`${input.path} does not exist; a card describes a file as it is`);
+  const text = cardText(root, input.path);
+  if (text === undefined)
+    throw new Error(readRepoText(root, input.path) === undefined ? `${input.path} does not exist; a card describes a file as it is` : `${input.path} isn't text (a document, an archive or an image); cards are for code`);
   const body = input.text.replace(/\s+/g, ' ').trim();
   if (!body) throw new Error('card text is required: what the file is for, what it relies on, who relies on it, what it must keep true');
   const card: FRecord = { kind: 'F', path: input.path, hash: contentHash(text), date: input.date, who: input.who, text: body, line: 0 };

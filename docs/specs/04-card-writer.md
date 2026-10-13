@@ -48,11 +48,11 @@ It starts no new job while the plan's 5-hour use is past the harness's pause poi
 
 ### CARDW-6 Declined, and paused with the person
 
-The lead may decline a batch: the turn the mod's prompt runs in ends with no card writer started. Only that turn counts; another prompt the lead takes first (code-kit's loop) isn't a decline. Once it does, no other batch is offered this session (not the next ten files either), until the person asks again from the Overview or asks for cards. And while the person has paused code-kit's lead loop (its band's Pause), the card writer and the curator start nothing; they carry on when it resumes.
+The lead may decline a batch: the turn the mod's prompt runs in ends with no card writer started. Only that turn counts; another prompt the lead takes first (code-kit's loop) isn't a decline. The prompt tells the lead to decline files that shouldn't be carded (they aren't code, or the person said not now). A declined batch's files are skipped for the session and the next batch is offered, so one batch of documents doesn't stop the rest. Two batches declined in a row mean stop: nothing more is offered this session until the person presses Ask again on the Overview, or asks for cards; Offer them again brings back the skipped files. And while the person has paused code-kit's lead loop (its band's Pause), the card writer and the curator start nothing; they carry on when it resumes.
 
 **Acceptance**
 
-- Given 25 files owed and the lead declining the first batch, then no further batch is offered until the person presses Ask again.
+- Given 25 files owed and the lead declining the first batch, then those ten are skipped and the next ten offered; declining that too, no further batch is offered until the person presses Ask again, which offers the first ten again.
 - Given code-kit's loop prompt running before the card writer's, and it starting no card writer, then that isn't a decline.
 - Given code-kit's loop paused, when the lead goes idle, then the card writer isn't started and the Overview reads "Card writer: paused with code-kit's loop".
 
@@ -71,6 +71,15 @@ With `[enforce] cards = "background"` (the default), an edit owes no card: the a
 - Given the default config and an agent editing a file, then nothing asks it for a card on its next call, and its turn ends.
 - Given a commit merged from a lane changing `src/b.ts` without a card, then `ctx cards --recent` lists it missing, and the card writer's batch has it after the branch's own changed files.
 - Given a CLAUDE.md with the older block, then `ctx next` gives `ctx install instructions`, which replaces the block in place and keeps the sections after it.
+
+### CARDW-8 One status on the Overview
+
+The Overview opens on how much of the code is explained ("38 of 595", a bar and the share, counted from `ctx cards` like the header) and one line saying the one thing the card writer is doing about the rest, with its button: explaining files now (Pause, with the backfill on), queued for when the lead finishes its turn (Pause), paused by the person (Resume), paused with code-kit's loop or at the plan's pause point, stopped after two declines (Ask again), off (Settings), nothing queued with the backfill off or the rest outside its scope (Settings), or every file explained. Files the lead turned down are counted beneath, with Offer them again. No two lines contradict each other.
+
+**Acceptance**
+
+- Given 38 of 595 files explained and 550 queued, then the Overview shows "38 of 595" and "550 files queued; the next batch starts when the lead finishes its turn.", and no other line about the card writer.
+- Given two batches declined in a row, then the one line reads "Stopped: …" with Ask again, and the skipped count isn't shown beside it.
 
 ### GATE-5 Shell edits are checked like the edit tools
 

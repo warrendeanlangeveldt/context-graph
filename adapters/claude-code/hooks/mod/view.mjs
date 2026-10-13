@@ -270,39 +270,9 @@ function agentsSection(agents, types, els, selected = -1, assists = []) {
   ];
 }
 
-/** The background work, for the Overview: the card writer, the backfill (with Pause), and a decline to offer again. */
-function workingNow(model, els, handlers) {
-  const { Box, Text, Button } = els;
-  const line = (key, value, style, button) => Box({ key, flexDirection: 'row', columnGap: 2, children: [Text({ ...style, children: [value] }), ...(button ? [button] : [])] });
-  return [
-    ...(model.cardWriterLine ? [line('card-writer', model.cardWriterLine, { dimColor: true })] : []),
-    ...(model.backfillLine
-      ? [
-          line(
-            'map-backfill-row',
-            model.backfillLine,
-            { color: 'yellow' },
-            handlers.onPauseBackfill ? Button({ key: 'map-backfill-pause', label: model.backfillPaused ? 'Resume' : 'Pause', plain: true, onPress: () => handlers.onPauseBackfill() }) : null,
-          ),
-        ]
-      : []),
-    // The lead declined a batch: the card writer waits until the person offers it again.
-    ...(model.declined
-      ? [
-          line(
-            'card-writer-declined',
-            "The lead turned down the card writer's last batch, so it won't ask again this session.",
-            { color: 'yellow' },
-            handlers.onOfferAgain ? Button({ key: 'offer-again', label: 'Ask again', plain: true, onPress: handlers.onOfferAgain }) : null,
-          ),
-        ]
-      : []),
-  ];
-}
-
 /**
- * The Context pane (spec 09): what Context Graph is for, then its tabs: the Overview (what the graph
- * knows, module by module, and what's being written now), This file, Rules to review, and Agents.
+ * The Context pane (spec 09): what Context Graph is for, then its tabs: the Overview (how much is
+ * explained and what's being done about the rest, then the modules), This file, Rules to review, and Agents.
  * `model.ui` is the pane's own state; `model.health` is healthOf's.
  */
 export function contextPane(model, els, handlers) {
@@ -311,46 +281,24 @@ export function contextPane(model, els, handlers) {
   const ui = model.ui ?? DEFAULT_UI;
   const owed = new Set((model.agents ?? []).flatMap((a) => a.cardsOwed ?? []));
   const inMap = (tab) => (tab === 'map' && ui.mapModule ? (model.map ?? []).find((m) => m.id === ui.mapModule) : null);
-  // MAP-6: the code has outgrown the graph: folders with code are mapped only to the whole repository.
-  const unmapped = model.unmapped ?? [];
-  const one = unmapped.length === 1;
-  const outgrown = unmapped.length
-    ? [
-        els.Box({
-          key: 'unmapped',
-          flexDirection: 'column',
-          children: [
-            els.Text({
-              color: 'yellow',
-              children: [
-                `${unmapped.length} folder${one ? '' : 's'} with code ${one ? 'is' : 'are'} not ${one ? 'a module' : 'modules'} yet (${unmapped.slice(0, 3).join(', ')}${unmapped.length > 3 ? ', …' : ''}): the graph sees ${one ? 'it' : 'them'} only as part of the whole repository, so rules and decisions can't be scoped to ${one ? 'it' : 'them'}.`,
-              ],
-            }),
-            ...(handlers.onAddModules ? [els.Button({ key: 'add-modules', label: one ? 'Add it as a module' : 'Add them as modules', onPress: handlers.onAddModules })] : []),
-          ],
-        }),
-      ]
-    : [];
   const body = (tab) =>
     tab === 'map'
-      ? [
-          ...outgrown,
-          ...(inMap(tab)
-            ? heatMap(inMap(tab), owed, els, { selected: ui.selected }, handlers)
-            : overview(
-                model.map ?? [],
-                els,
-                {
-                  selected: ui.selected,
-                  flagged: model.flagged ?? [],
-                  pulsing: model.pulsing ?? new Set(),
-                  proposals: model.proposals ?? [],
-                  now: model.now,
-                  working: workingNow(model, els, handlers),
-                },
-                handlers,
-              )),
-        ]
+      ? inMap(tab)
+        ? heatMap(inMap(tab), owed, els, { selected: ui.selected }, handlers)
+        : overview(
+            model.map ?? [],
+            els,
+            {
+              selected: ui.selected,
+              flagged: model.flagged ?? [],
+              pulsing: model.pulsing ?? new Set(),
+              proposals: model.proposals ?? [],
+              now: model.now,
+              explain: model.explain ?? null,
+              unmapped: model.unmapped ?? [],
+            },
+            handlers,
+          )
       : tab === 'proposals'
         ? [
             ...proposalsQueue(model.proposals, els, handlers, { selected: ui.selected, deferred: model.deferred ?? new Set(), now: model.now }),

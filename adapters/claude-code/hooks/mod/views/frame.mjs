@@ -11,8 +11,7 @@ export const TABS = [
 ];
 
 /** What Context Graph is for, at the top of the pane. */
-export const PURPOSE =
-  'keeps the why of your code: what each file is for, the rules each module keeps, and the decisions behind them. Agents read it before they change anything.';
+export const PURPOSE = 'The why of your code: what each file is for, the rules each module keeps and the decisions behind them, read by agents before they change anything.';
 
 /** The pane's own state, kept by the mod between draws: the tab, the selection in it (none until j or k), and where Esc goes. */
 export const DEFAULT_UI = { tab: 'map', selected: -1, back: [], mapModule: null };
@@ -58,26 +57,28 @@ export function bandHealth(health) {
 }
 
 /**
- * The frame: the header, the person's last act, the tabs and the tab's body. `body(tab)` draws a tab's
+ * The frame: the header, the person's last act (said once, for a few seconds), the tabs and the tab's body. `body(tab)` draws a tab's
  * content (an array of nodes); `keys` are the tab's own keys, drawn under it. `on`: onTab(id), onMove(step),
  * onOpen(), onSettings().
  */
 export function frame({ health, notice, ui, body, keys = [] }, { Box, Text, Button }, on) {
   const text = (value, style = {}) => Text({ ...style, children: [value] });
+  // The name and the graph's health on one line, then what it's for, on its own line so neither wraps.
   const header = Box({
     key: 'header',
     flexDirection: 'column',
     children: [
-      Box({ key: 'purpose', flexDirection: 'row', columnGap: 1, children: [text('CONTEXT GRAPH', { bold: true, color: 'cyan' }), text(PURPOSE, { dimColor: true })] }),
       Box({
         key: 'status',
         flexDirection: 'row',
         columnGap: 2,
         children: [
+          text('Context Graph', { bold: true, color: 'cyan' }),
           text(health.text, { color: LEVEL_COLOR[health.level] }),
           Button({ key: 'open-settings', label: 'Settings', plain: true, dimColor: true, onPress: on.onSettings }),
         ],
       }),
+      Box({ key: 'purpose', children: [text(PURPOSE, { dimColor: true })] }),
     ],
   });
   const tabs = Box({

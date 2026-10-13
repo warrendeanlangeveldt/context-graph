@@ -9,7 +9,7 @@ import { queueOrder, spark } from '../../adapters/claude-code/hooks/mod/views/pr
 import { progressText, readingList, readingMessage } from '../../adapters/claude-code/hooks/mod/views/assist.mjs';
 import { describeMissing } from '../enforce/read-before-edit.js';
 // @ts-expect-error: the mod is plain JavaScript beside the bundled CLI, outside the TypeScript build
-import { cardJobs, cardWriterLine, pausedAt } from '../../adapters/claude-code/hooks/mod/card-writer.mjs';
+import { STOP_AFTER, cardJobs, explainStatus, pausedAt } from '../../adapters/claude-code/hooks/mod/card-writer.mjs';
 // @ts-expect-error: the mod is plain JavaScript beside the bundled CLI, outside the TypeScript build
 import { curatorDue, curatorLine, flaggedRules } from '../../adapters/claude-code/hooks/mod/curator.mjs';
 // @ts-expect-error: the mod is plain JavaScript beside the bundled CLI, outside the TypeScript build
@@ -73,10 +73,10 @@ describe('the Context Graph mod: what it draws', () => {
     expect(keys(contextPane({ kind: 'graph', ...onFile, followed: { path: 'src/a.ts', agentType: null }, file, proposals: [], agents: [] }, els, none))).not.toContain('open-lanes');
   });
 
-  it('MAP-6 the Map says which folders with code are not modules yet, and offers to add them', () => {
+  it('MAP-6 the Overview says which folders with code could be modules, and offers to add them', () => {
     const model = { kind: 'graph', ui: { ...DEFAULT_UI, tab: 'map' }, proposals: [], agents: [], map: [], unmapped: ['packages', 'services/data-plane'] };
     const shown = texts(contextPane(model, els, { ...none, onAddModules: () => {} })).join(' ');
-    expect(shown).toContain('2 folders with code are not modules yet (packages, services/data-plane)');
+    expect(shown).toContain('Folders with code that could be modules: packages, services/data-plane.');
     expect(keys(contextPane(model, els, { ...none, onAddModules: () => {} }))).toContain('add-modules');
     expect(keys(contextPane({ ...model, unmapped: [] }, els, { ...none, onAddModules: () => {} }))).not.toContain('add-modules');
   });
@@ -210,10 +210,23 @@ describe('the Context Graph mod: what it draws', () => {
     expect(pausedAt([{ kind: 'five_hour', percentUsed: 81 }], 80)).toEqual({ percent: 81, paused: true });
     expect(pausedAt([{ kind: 'five_hour', percentUsed: 80 }], 80).paused).toBe(false);
     expect(pausedAt([], 80)).toEqual({ percent: null, paused: false });
-    expect(cardWriterLine({ on: false })).toMatch(/^Card writer: off/);
-    expect(cardWriterLine({ on: true, paused: true, percent: 82 })).toBe("Card writer: paused, the plan's 5-hour use at 82%");
-    expect(cardWriterLine({ on: true, writing: ['a', 'b', 'c', 'd'], waiting: ['e'] })).toBe('Card writer: explaining 4 files (a, b, c, …); 1 more queued');
-    expect(cardWriterLine({ on: true, waiting: ['e'] })).toBe('Card writer: 1 file queued; it starts when the lead is next idle');
+  });
+
+  it('CARDW-8 one status for explaining the code: the count, and the one thing the card writer is doing, with its button', () => {
+    const cards = { fresh: ['a', 'b'], stale: ['c'], missing: ['d', 'e'] };
+    const at = (o: Record<string, unknown>) => explainStatus({ cards, on: true, backfill: true, ...o });
+    expect(at({})).toMatchObject({ explained: 2, total: 5, act: 'settings', tone: 'quiet' });
+    expect(explainStatus({ cards, on: false })).toMatchObject({ line: 'The card writer is off: a file is explained only when an agent writes its card.', act: 'settings' });
+    expect(at({ writing: ['a', 'b', 'c', 'd'], waiting: ['e'] })).toMatchObject({ line: 'Explaining 4 files now: a, b, c, …; 1 more queued', tone: 'busy', act: 'pause' });
+    expect(at({ waiting: ['e', 'f'] })).toMatchObject({ line: '2 files queued; the next batch starts when the lead finishes its turn.', act: 'pause' });
+    expect(at({ waiting: ['e'], backfillPaused: true })).toMatchObject({ line: 'Paused by you; 1 still queued.', act: 'resume' });
+    expect(at({ waiting: ['e'], paused: true, percent: 82 }).line).toBe("Paused: the plan's 5-hour use is at 82%; it carries on below the pause point.");
+    expect(at({ waiting: ['e'], heldBy: 'code-kit' }).line).toBe("Paused while code-kit's loop is paused; it carries on when that resumes.");
+    // One batch turned down skips its files; two in a row stop it, and the stop is the one thing said.
+    expect(at({ waiting: ['e'], skipped: 10 })).toMatchObject({ skipped: 10, act: 'pause' });
+    expect(at({ waiting: ['e'], skipped: 20, stopped: true })).toMatchObject({ line: `Stopped: the lead turned down ${STOP_AFTER} batches in a row, so nothing more is offered this session.`, act: 'askAgain', skipped: 0 });
+    expect(explainStatus({ cards: { fresh: ['a'], stale: [], missing: [] }, on: true }).line).toBe('Every file is explained.');
+    expect(explainStatus({ cards, on: true }).line).toMatch(/^Nothing queued\. The existing code is explained only with the backfill on/);
   });
 
   it('CUR-1 and CUR-2 when the curator is due, its line, and the rules hygiene flags', () => {

@@ -1,8 +1,9 @@
-// The Overview tab (docs/specs/08-graph-explorer.md, MAP-4): what the graph knows about the codebase, a
-// row per module: how many of its files are explained (have a current card), its rules, and its
-// decisions. The selected module's detail sits under the table; a module where a decision was just
-// recorded is drawn blue, and one whose rule the team keeps overriding red. Pure: the mod passes
-// `ctx map --json`, the flagged rules, the waiting proposals and the selection.
+// The Overview tab (docs/specs/08-graph-explorer.md, MAP-4): how much of the code is explained and what
+// the card writer is doing about the rest (CARDW-8), then the modules: a row per module with how many of
+// its files are explained, its rules and its decisions, or one line when the graph has only the whole
+// repository. A module where a decision was just recorded is drawn blue, and one whose rule the team
+// keeps overriding red. Pure: the mod passes `ctx map --json`, the flagged rules, the waiting proposals,
+// the explain status and the selection.
 import { spark } from './proposals.mjs';
 
 const DAY = 24 * 3600000;
@@ -14,10 +15,10 @@ export const coverageOf = (m) => ({ carded: m.files.filter((f) => f.card === 'cu
 /** A module's name as the table shows it: its id without `L:` and any parent's prefix ("L:adapters.parsers" → "parsers"). */
 export const shortName = (m) => m.id.replace(/^L:/, '').split(/[./]/).at(-1);
 
-/** The share explained as a bar of five cells. */
-export const bar = (carded, total) => {
-  const full = total ? Math.round((carded / total) * 5) : 0;
-  return '█'.repeat(full) + '░'.repeat(5 - full);
+/** The share explained as a bar of `cells` cells (five in the table). */
+export const bar = (carded, total, cells = 5) => {
+  const full = total ? Math.round((carded / total) * cells) : 0;
+  return '█'.repeat(full) + '░'.repeat(cells - full);
 };
 
 /** When a module's last decision was, in words: "today", "yesterday", "3 days ago", or "none". */
@@ -62,56 +63,127 @@ const COLS = [
   { title: 'last decision', width: 14 },
 ];
 
+const TONE = { busy: { color: 'cyan' }, waiting: {}, held: { color: 'yellow' }, quiet: { dimColor: true } };
+const ACT_LABEL = { pause: 'Pause', resume: 'Resume', askAgain: 'Ask again', settings: 'Settings' };
+
 /**
- * MAP-4: the Overview: what the graph knows, a row per module (indented under its parent), the
- * selected one's detail, and the background work (the card writer and the backfill). `view`:
- * { selected, flagged (hygiene's), pulsing (Set), proposals, now, working: [nodes] }.
- * Handlers: onRatify(p), onDrop(p), onDefer(p).
+ * CARDW-8: the Overview's first section: how much of the code is explained, as one count and a bar, and
+ * the one thing the card writer is doing about the rest, with its button; files the lead turned down
+ * are counted beneath, with Offer them again. `status` is explainStatus's. Handlers: onPauseBackfill,
+ * onOfferAgain, onSettings.
+ */
+export function explainSection(status, els, handlers = {}) {
+  const { Box, Text, Button } = els;
+  const text = (value, style = {}) => Text({ ...style, children: [value] });
+  if (!status) return [];
+  const { explained, total } = status;
+  const share = total ? Math.round((explained / total) * 100) : 0;
+  const press = {
+    pause: handlers.onPauseBackfill,
+    resume: handlers.onPauseBackfill,
+    askAgain: handlers.onOfferAgain,
+    settings: handlers.onSettings,
+  }[status.act];
+  const row = (key, children) => Box({ key, flexDirection: 'row', columnGap: 2, children });
+  return [
+    row('explain-count', [
+      text('FILES EXPLAINED', { bold: true, color: 'cyan' }),
+      text(`${explained} of ${total}`, { bold: true }),
+      text(`${bar(explained, total, 10)} ${share}%`, { dimColor: true }),
+    ]),
+    row('explain-now', [
+      text(status.line, TONE[status.tone] ?? {}),
+      ...(press ? [Button({ key: `explain-${status.act}`, label: ACT_LABEL[status.act], plain: true, onPress: press })] : []),
+    ]),
+    ...(status.skipped
+      ? [
+          row('explain-skipped', [
+            text(`Skipped ${plural(status.skipped, 'file', 'files')} the lead turned down this session.`, { dimColor: true }),
+            ...(handlers.onOfferAgain ? [Button({ key: 'offer-again', label: 'Offer them again', plain: true, onPress: handlers.onOfferAgain })] : []),
+          ]),
+        ]
+      : []),
+  ];
+}
+
+/**
+ * MAP-6: folders with code the graph maps only to the whole repository, with Add them as modules.
+ */
+function unmappedLine(unmapped, { Box, Text, Button }, onAddModules) {
+  if (!unmapped.length) return [];
+  const one = unmapped.length === 1;
+  const names = `${unmapped.slice(0, 3).join(', ')}${unmapped.length > 3 ? ', …' : ''}`;
+  return [
+    Box({
+      key: 'unmapped',
+      flexDirection: 'row',
+      columnGap: 2,
+      children: [
+        Text({ color: 'yellow', children: [`${one ? 'A folder' : 'Folders'} with code that could be ${one ? 'a module' : 'modules'}: ${names}.`] }),
+        ...(onAddModules ? [Button({ key: 'add-modules', label: one ? 'Add it as a module' : 'Add them as modules', plain: true, onPress: onAddModules })] : []),
+      ],
+    }),
+  ];
+}
+
+/**
+ * MAP-4: the Overview: how much is explained and what's being done about it (CARDW-8), then the
+ * modules. With one module (the whole repository) there's no table to read, so it says so in a line,
+ * with the folders that could be modules (MAP-6); with more, a row per module, indented under its
+ * parent, and the selected one's detail. `view`: { selected, flagged (hygiene's), pulsing (Set),
+ * proposals, now, explain (explainStatus's), unmapped }. Handlers: onAddModules, onTab, and
+ * explainSection's.
  */
 export function overview(map, els, view = {}, handlers = {}) {
   const { Box, Text } = els;
   const text = (value, style = {}) => Text({ ...style, children: [value] });
-  const { selected = -1, pulsing = new Set(), proposals = [], now = Date.now(), working = [] } = view;
+  const { selected = -1, pulsing = new Set(), proposals = [], now = Date.now(), explain = null, unmapped = [] } = view;
   const heading = (title, aside) =>
     Box({ key: `h-${title}`, flexDirection: 'row', columnGap: 2, children: [text(title, { bold: true, color: 'cyan' }), ...(aside ? [text(aside, { dimColor: true })] : [])] });
+  const decisions = map.reduce((n, m) => n + m.decisions.length, 0);
+  const lastAny = lastDecision(map.flatMap((m) => m.decisions), now);
+  const flagged = flaggedByModule(map, view.flagged ?? []);
   const cells = (values, style = {}, key) =>
     Box({ key, flexDirection: 'row', children: values.map((v, i) => Box({ key: `c${i}`, width: COLS[i].width, children: [text(String(v), { ...style, wrap: 'truncate-end' })] })) });
-  const files = map.reduce((n, m) => n + m.files.length, 0);
-  const flagged = flaggedByModule(map, view.flagged ?? []);
-  const table = map.length
-    ? [
-        cells(COLS.map((c) => c.title), { dimColor: true }, 'overview-head'),
-        ...map.map((m, i) => {
-          const { carded, total } = coverageOf(m);
-          const style = i === selected ? { color: 'cyan', bold: true } : pulsing.has(m.id) ? { color: 'blue', bold: true } : flagged.has(m.id) ? { color: 'red' } : {};
-          return cells(
-            [
-              `${i === selected ? '› ' : '  '}${'  '.repeat(m.depth)}${shortName(m)}`,
-              total ? `${String(carded).padStart(3)} of ${String(total).padEnd(4)}${bar(carded, total)}` : 'no files',
-              rulesWords(m),
-              m.decisions.length,
-              lastDecision(m.decisions, now),
-            ],
-            style,
-            `module-${m.id}`,
-          );
-        }),
-      ]
-    : [text('No modules in the graph yet.', { dimColor: true })];
-  const m = map[selected] ?? null;
-  const detail = m ? moduleDetail(m, map, { flagged: flagged.get(m.id) ?? [], proposals: proposals.filter((p) => p.module === m.id), now }, els, handlers) : [];
+  const modules =
+    map.length <= 1
+      ? [
+          text(
+            map.length
+              ? `The graph treats the whole repository as one module, so every rule and decision applies everywhere. ${rulesWords(map[0]) === 'none' ? 'No rules' : `Rules: ${rulesWords(map[0])}`} · ${plural(decisions, 'decision', 'decisions')}${decisions ? `, the last ${lastAny}` : ''}.`
+              : 'No modules in the graph yet.',
+            { dimColor: true },
+          ),
+        ]
+      : [
+          cells(COLS.map((c) => c.title), { dimColor: true }, 'overview-head'),
+          ...map.map((m, i) => {
+            const { carded, total } = coverageOf(m);
+            const style = i === selected ? { color: 'cyan', bold: true } : pulsing.has(m.id) ? { color: 'blue', bold: true } : flagged.has(m.id) ? { color: 'red' } : {};
+            return cells(
+              [
+                `${i === selected ? '› ' : '  '}${'  '.repeat(m.depth)}${shortName(m)}`,
+                total ? `${String(carded).padStart(3)} of ${String(total).padEnd(4)}${bar(carded, total)}` : 'no files',
+                rulesWords(m),
+                m.decisions.length,
+                lastDecision(m.decisions, now),
+              ],
+              style,
+              `module-${m.id}`,
+            );
+          }),
+          ...(map[selected] ? moduleDetail(map[selected], map, { flagged: flagged.get(map[selected].id) ?? [], proposals: proposals.filter((p) => p.module === map[selected].id), now }, els) : []),
+        ];
   return [
-    heading('WHAT IT KNOWS', `${plural(map.length, 'module', 'modules')} · ${plural(files, 'file', 'files')}`),
-    text("A file is explained when it has a current card: what it's for, what it relies on and what must stay true.", { dimColor: true }),
-    ...table,
-    ...detail,
-    text(m ? 'Enter lists its files.' : 'j/k choose a module; Enter lists its files.', { dimColor: true }),
-    ...(working.length ? [heading('WORKING NOW'), ...working] : []),
+    ...explainSection(explain, els, handlers),
+    heading('MODULES', map.length > 1 ? `${plural(map.length, 'module', 'modules')} · ${plural(decisions, 'decision', 'decisions')}; j/k choose one, o opens its files` : null),
+    ...modules,
+    ...unmappedLine(unmapped, els, handlers.onAddModules),
   ];
 }
 
-/** The selected module's detail under the table. */
-function moduleDetail(m, map, { flagged, proposals, now }, { Box, Text, Button }, { onRatify, onDrop, onDefer }) {
+/** The selected module's detail under the table: its rules in words, its decisions, its neighbours, an overridden rule; proposals are counted, and reviewed in their tab. */
+function moduleDetail(m, map, { flagged, proposals, now }, { Box, Text }) {
   const text = (value, style = {}) => Text({ ...style, children: [value] });
   const { carded, total } = coverageOf(m);
   const name = (id) => shortName(map.find((x) => x.id === id) ?? { id });
@@ -144,19 +216,7 @@ function moduleDetail(m, map, { flagged, proposals, now }, { Box, Text, Button }
           text((m.ruleList ?? []).find((r) => r.id === f.rule)?.text ?? '', { dimColor: true }),
           text(f.proposal, { color: 'yellow' }),
         ]),
-        ...proposals.map((p) =>
-          Box({
-            key: `module-proposal-${p.id}`,
-            flexDirection: 'row',
-            columnGap: 2,
-            children: [
-              text(`proposed: ${p.text}`, { wrap: 'truncate-end' }),
-              ...(onRatify ? [Button({ key: `graph-accept-${p.id}`, label: 'Accept', plain: true, onPress: () => onRatify(p) })] : []),
-              ...(onDrop ? [Button({ key: `graph-reject-${p.id}`, label: 'Reject…', plain: true, onPress: () => onDrop(p) })] : []),
-              ...(onDefer ? [Button({ key: `graph-later-${p.id}`, label: 'Later', plain: true, onPress: () => onDefer(p) })] : []),
-            ],
-          }),
-        ),
+        ...(proposals.length ? [text(`${plural(proposals.length, 'proposed rule', 'proposed rules')} on it, in Rules to review (3)`, { color: 'yellow' })] : []),
       ],
     }),
   ];
