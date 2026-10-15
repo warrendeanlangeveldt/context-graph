@@ -48,7 +48,7 @@ function project() {
     commands: [] as string[],
     prompts: [] as string[],
     settings: [
-      { key: 'card_writer', value: false, default: false, about: 'A background agent that writes the cards owed' },
+      { key: 'card_writer', value: false, default: false, about: 'Writes the cards owed in the background' },
       { key: 'card_writer_model', value: '', default: '', about: "The card writer's model" },
       { key: 'pause_at_percent', value: 80, default: 80, about: 'The pause point' },
     ] as any[],
@@ -92,6 +92,12 @@ function project() {
     asked: [] as any[],
     reply: { isAnswered: true, text: 'Because of [src.pure]: a stays pure.', usage: { input_tokens: 100, output_tokens: 20, cache_read_input_tokens: 900, cache_creation_input_tokens: 0 } } as any,
     sent: [] as { to: any; text: string }[],
+    // The card writer's and the curator's own requests (spec 04 and 05), and what they read.
+    sources: { 'src/a.ts': 'export const a = b + 1;\n', 'src/b.ts': 'export const b = 1;\n' } as Record<string, string>,
+    cardReplies: {} as Record<string, any>, // path → the model's reply for its card; a card by default
+    curation: { isAnswered: true, text: '{"rules": []}', usage: null } as any,
+    history: {} as Record<string, any>, // `ctx history <module> --json`
+    cardExit: 0,
     neighbours: {
       'src/a.ts': { path: 'src/a.ts', card: 'current', breaks: [], imports: [{ path: 'src/b.ts', card: 'missing', breaks: [] }], importers: [] },
       'src/b.ts': { path: 'src/b.ts', card: 'missing', breaks: [], imports: [], importers: [{ path: 'src/a.ts', card: 'current', breaks: [] }] },
@@ -105,7 +111,14 @@ function stub(on: any, w: World) {
     const argv: readonly string[] = e.argv;
     const ran = (exitCode: number, stdout: string, stderr = '') => ({ value: { exitCode, stdout, stderr } });
     const sub = argv[2];
+    if (argv[0] === 'git' && argv[1] === 'log' && argv.includes('-3')) return ran(0, `ST-4 ${argv.at(-1)} for the booking form\n`);
+    if (argv[0] === 'git') return ran(0, '');
     if (sub === 'info') return ran(0, JSON.stringify(w.info));
+    if (sub === 'card' || sub === 'propose') {
+      w.acts.push([...argv.slice(2)]);
+      return sub === 'card' && w.cardExit ? ran(1, '', `${argv[3]} isn't code`) : ran(0, '');
+    }
+    if (sub === 'history') return w.history[argv[3]] ? ran(0, JSON.stringify(w.history[argv[3]])) : ran(1, '', 'ctx history <node>');
     if (sub === 'hygiene') return ran(0, JSON.stringify(w.hygiene));
     if (sub === 'map') return ran(0, JSON.stringify(w.map));
     if (sub === 'why') return w.whys[argv[3]] ? ran(0, JSON.stringify(w.whys[argv[3]])) : ran(1, '', `ctx why <node>`);
@@ -153,7 +166,16 @@ function stub(on: any, w: World) {
   });
   on('model.complete', ($: any, e: any) => {
     w.asked.push({ model: e.model, prompt: e.prompt });
+    const card = /^Write the Context Graph card for (\S+):/.exec(e.prompt)?.[1];
+    if (card)
+      return { value: w.cardReplies[card] ?? { isAnswered: true, text: `Card for ${card}: what it is for and what it keeps true.`, usage: null } };
+    if (e.prompt.startsWith("You are Context Graph's curator")) return { value: w.curation };
     return { value: w.reply };
+  });
+  on('fs.read', ($: any, e: any) => {
+    const path = String(e.path).replace(/^\/work\//, '');
+    if (w.sources[path] === undefined) throw new Error(`ENOENT: ${path}`);
+    return { value: w.sources[path] };
   });
   on('agent.register', ($: any, e: any) => {
     w.registered.push(e);
@@ -676,59 +698,59 @@ function writing() {
   w.changed = { fresh: [], stale: ['src/b.ts'], missing: [] };
   return w;
 }
-const leadTurn = async ($: any, clock: any, id = 't-1', text = '') => {
-  await $.turn.start({ turnId: id, text } as any);
-  await $.turn.complete({ turnId: id, answer: '', durationMs: 1, isAborted: false } as any);
-  for (let i = 0; i < 3; i++) await clock.advance(1);
-};
+/** The cards the mod wrote: `ctx card <path> --text … --agent card-writer`, by path. */
+const cardsWritten = (w: any) => w.acts.filter((a: string[]) => a[0] === 'card').map((a: string[]) => a[1]);
+/** The model requests the card writer made, by path. */
+const cardAsks = (w: any) =>
+  w.asked.map((a: any) => /^Write the Context Graph card for (\S+):/.exec(a.prompt)?.[1]).filter(Boolean);
 
-test('CARDW-1 and CARDW-2 with the lead idle, the lead starts the card writer on the cards owed and missing', async ($, on) => {
+test('CARDW-1 and CARDW-2 the mod writes the cards owed and missing itself, in the background, a file at a time, and never prompts the lead', async ($, on) => {
   const w = writing();
   const clock = await start($, on, w);
-  expect(w.registered[0]).toMatchObject({ name: 'card-writer', model: 'haiku', disallowedTools: ['Edit', 'MultiEdit', 'Write', 'NotebookEdit'] });
-  expect(w.registered[0].prompt).toMatch(/Read it in full, with what it imports/);
-  await leadTurn($, clock);
-  expect(w.prompts).toEqual([
-    'Start Context Graph\'s card writer in the background: use the Agent tool with subagent_type "context-graph:card-writer", run_in_background true, description "Write 2 cards (Context Graph)", and the prompt "Write the cards for: src/a.ts, src/b.ts." Then carry on; it only writes cards. If these files shouldn\'t be carded (they aren\'t code, or the person has asked you not to now), say so and don\'t start it: Context Graph skips them this session.',
-  ]);
-  // The lead starts it, as asked; one batch at a time, so the next turn starts no second one.
-  w.running = [{ id: 'cw1', type: 'context-graph:card-writer', description: 'Write 2 cards (Context Graph)', status: 'running' }];
-  await leadTurn($, clock, 't-2');
-  expect(w.prompts).toHaveLength(1);
-  await ctx($);
-  const ui = await mountPane($, PANE);
-  expect(await ui.find({ type: 'Text', text: 'Explaining 2 files now: src/a.ts, src/b.ts' })).toBeDefined();
-  await ui.unmount();
+  await clock.advance(6000);
+  expect(cardsWritten(w)).toEqual(['src/a.ts', 'src/b.ts']);
+  expect(w.prompts).toEqual([]);
+  expect(w.registered).toEqual([]);
+  const a = w.acts.find((x: string[]) => x[0] === 'card' && x[1] === 'src/a.ts');
+  expect(a).toEqual(['card', 'src/a.ts', '--text', 'Card for src/a.ts: what it is for and what it keeps true.', '--agent', 'card-writer']);
+  // Its request: the setting's model, the file in full, what it imports, its last commits.
+  const asked = w.asked.find((x: any) => x.prompt.startsWith('Write the Context Graph card for src/a.ts'));
+  expect(asked.model).toBe('haiku');
+  expect(asked.prompt).toContain('export const a = b + 1;');
+  expect(asked.prompt).toContain('- src/b.ts:');
+  expect(asked.prompt).toContain('ST-4 src/a.ts for the booking form');
+  // Written, a card isn't asked for again while its file stands still.
+  await clock.advance(10000);
+  expect(cardAsks(w)).toEqual(['src/a.ts', 'src/b.ts']);
 });
 
-test('CARDW-7 files merged in lately from the lanes come after the branch\'s own, and the writer looks for why they changed', async ($, on) => {
+test("CARDW-7 files merged in lately from the lanes come after the branch's own", async ($, on) => {
   const w = writing();
   w.recent = { fresh: [], stale: ['packages/design/src/contrast.ts'], missing: ['apps/web/src/form.ts'] };
+  w.sources['packages/design/src/contrast.ts'] = 'export const contrast = 4.5;\n';
+  w.sources['apps/web/src/form.ts'] = 'export const form = 1;\n';
   const clock = await start($, on, w);
-  expect(w.registered[0].prompt).toMatch(/its last commits \(`git log -3/);
-  await leadTurn($, clock);
-  expect(w.prompts[0]).toMatch(
-    /"Write the cards for: src\/a\.ts, src\/b\.ts, packages\/design\/src\/contrast\.ts, apps\/web\/src\/form\.ts\."/,
-  );
+  await clock.advance(10000);
+  expect(cardsWritten(w)).toEqual(['src/a.ts', 'src/b.ts', 'packages/design/src/contrast.ts', 'apps/web/src/form.ts']);
 });
 
 test('CARDW-1 a file an agent edited in the last 2 minutes waits', async ($, on) => {
   const w = writing();
   const clock = await start($, on, w);
   await $.tool.call({ tool: 'Edit', tool_use_id: 'e1', file_path: '/work/src/a.ts', agentId: 'agent-web' } as any);
-  await leadTurn($, clock);
-  expect(w.prompts[0]).toMatch(/"Write the cards for: src\/b\.ts\."/);
+  await clock.advance(6000);
+  expect(cardsWritten(w)).toEqual(['src/b.ts']);
+  await clock.advance(2 * 60000);
+  expect(cardsWritten(w)).toEqual(['src/b.ts', 'src/a.ts']);
 });
 
-test("CARDW-3 a batch's cards are done once current, and the writer's own end frees it for the next", async ($, on) => {
+test('CARDW-3 once the cards are current, the Overview says every file is explained', async ($, on) => {
   const w = writing();
   const clock = await start($, on, w);
-  await leadTurn($, clock);
+  await clock.advance(6000);
   w.cards = { fresh: ['src/a.ts', 'src/b.ts'], stale: [], missing: [] };
   w.agents = [{ ...w.agents[0], cardsOwed: [] }];
   w.changed = { fresh: ['src/b.ts'], stale: [], missing: [] };
-  w.running = [{ id: 'cw1', type: 'context-graph:card-writer', description: 'Write 2 cards (Context Graph)', status: 'completed' }];
-  await $.turn.complete({ turnId: 't-cw', agentId: 'cw1', answer: 'written', durationMs: 1, isAborted: false } as any);
   await $.tool.call({ tool: 'Read', tool_use_id: 'r1', file_path: '/work/src/a.ts' } as any);
   await clock.advance(2000);
   await ctx($);
@@ -742,6 +764,7 @@ test('CARDW-4 with the card writer on, Cards for this module queue its files for
   w.agents = [];
   w.changed = { fresh: [], stale: [], missing: [] };
   w.moduleCards = { fresh: ['src/a.ts'], stale: ['src/b.ts'], missing: ['src/c.ts'] };
+  w.sources['src/c.ts'] = 'export const c = 3;\n';
   const clock = await start($, on, w);
   await $.tool.call({ tool: 'Read', tool_use_id: 'r1', file_path: '/work/src/a.ts' } as any);
   await clock.advance(2000);
@@ -749,21 +772,68 @@ test('CARDW-4 with the card writer on, Cards for this module queue its files for
   const ui = await mountPane($, PANE);
   await press($, 'tab-file', PANE);
   await press($, 'module-cards', PANE);
-  expect(w.prompts).toEqual([expect.stringMatching(/"Write the cards for: src\/b\.ts, src\/c\.ts\."/)]);
   expect(await ui.find({ type: 'Text', text: /Queued the cards for the files in L:src/ })).toBeDefined();
   await ui.unmount();
+  await clock.advance(4000);
+  expect(cardsWritten(w)).toEqual(['src/b.ts', 'src/c.ts']);
+  expect(w.prompts).toEqual([]);
 });
 
-test("CARDW-5 past the pause point (code-kit's, when it sets one) no batch starts", async ($, on) => {
+test("CARDW-5 past the pause point (code-kit's, when it sets one) no card is written", async ($, on) => {
   const w = writing();
   w.limits = [{ kind: 'five_hour', percentUsed: 75 }];
   const clock = await start($, on, w);
-  await leadTurn($, clock);
-  expect(w.prompts).toEqual([]);
+  await clock.advance(6000);
+  expect(cardsWritten(w)).toEqual([]);
   await ctx($);
   const ui = await mountPane($, PANE);
   expect(await ui.find({ type: 'Text', text: "Paused: the plan's 5-hour use is at 75%; it carries on below the pause point." })).toBeDefined();
   await ui.unmount();
+});
+
+test("CARDW-6 a file the model finds isn't code is skipped for the session, never put to the lead; Offer them again looks once more", async ($, on) => {
+  const w = writing();
+  w.agents = [];
+  w.changed = { fresh: [], stale: [], missing: ['out/clips/s02/take-1-1.mpx', 'src/b.ts'] };
+  w.sources['out/clips/s02/take-1-1.mpx'] = 'ftypisom encoded take';
+  w.cardReplies['out/clips/s02/take-1-1.mpx'] = { isAnswered: true, text: 'SKIP: an encoded video take', usage: null };
+  const clock = await start($, on, w);
+  await clock.advance(8000);
+  expect(cardsWritten(w)).toEqual(['src/b.ts']);
+  expect(w.prompts).toEqual([]);
+  await ctx($);
+  const ui = await mountPane($, PANE);
+  expect(await ui.find({ type: 'Text', text: "Skipped 1 file that isn't code this session." })).toBeDefined();
+  await press($, 'offer-again', PANE);
+  await ui.unmount();
+  await clock.advance(2000);
+  expect(cardAsks(w).filter((p: string) => p.startsWith('out/'))).toHaveLength(2);
+});
+
+test("CARDW-6 a file that isn't text isn't sent to the model at all", async ($, on) => {
+  const w = writing();
+  w.agents = [];
+  w.changed = { fresh: [], stale: [], missing: ['out/take.raw', 'src/b.ts'] };
+  w.sources['out/take.raw'] = 'RIFF\u0000\u0000WAVE';
+  const clock = await start($, on, w);
+  await clock.advance(8000);
+  expect(cardAsks(w)).toEqual(['src/b.ts']);
+});
+
+test('CARDW-8 a failed request is said on the Overview, and tried again a minute later', async ($, on) => {
+  const w = writing();
+  w.agents = [];
+  w.cardReplies['src/b.ts'] = { isAnswered: false, reason: 'api-error', status: 529 };
+  const clock = await start($, on, w);
+  await clock.advance(6000);
+  expect(cardAsks(w)).toEqual(['src/b.ts']);
+  await ctx($);
+  const ui = await mountPane($, PANE);
+  expect(await ui.find({ type: 'Text', text: "The last card couldn't be written (api-error 529); it tries again in a minute." })).toBeDefined();
+  await ui.unmount();
+  delete w.cardReplies['src/b.ts'];
+  await clock.advance(60000);
+  expect(cardsWritten(w)).toEqual(['src/b.ts']);
 });
 
 // --- the curator ------------------------------------------------------------------------------------
@@ -784,37 +854,42 @@ const moreDecisions = async ($: any, w: any, clock: any, n: number) => {
   await clock.advance(2000);
 };
 
-test('CUR-1 and CUR-3 after 10 new decisions, the lead starts the curator, which only adds guidance', async ($, on) => {
-  const w = curating(5);
-  const clock = await start($, on, w);
-  expect(w.registered.find((s) => s.name === 'curator')).toMatchObject({ disallowedTools: ['Edit', 'MultiEdit', 'Write', 'NotebookEdit'] });
-  expect(w.registered.find((s) => s.name === 'curator').prompt).toMatch(/never edit files, ratify, drop, retire or change settings/);
-  await moreDecisions($, w, clock, 14);
-  await leadTurn($, clock);
-  expect(w.prompts).toEqual([]);
-  await moreDecisions($, w, clock, 15);
-  await leadTurn($, clock, 't-2');
-  expect(w.prompts).toEqual([
-    'Start Context Graph\'s curator in the background: use the Agent tool with subagent_type "context-graph:curator", run_in_background true, description "Curate the graph (Context Graph)", and the prompt "Review the 10 decisions recorded since you last ran and the graph\'s evidence; add the rules they show as guidance." Then carry on; it only adds guidance, never a rule that blocks edits. If the person has asked you not to run it now, say so and don\'t start it: Context Graph won\'t ask again until ten more decisions are recorded.',
-  ]);
-  // Its report ends its run; the next counts from there.
-  w.running = [{ id: 'cu1', type: 'context-graph:curator', description: 'Curate the graph (Context Graph)', status: 'completed' }];
-  await $.turn.complete({ turnId: 't-cu', agentId: 'cu1', answer: 'proposed one', durationMs: 1, isAborted: false } as any);
-  await leadTurn($, clock, 't-3');
-  expect(w.prompts).toHaveLength(1);
-});
+/** A module with four decisions on money, for the curator to read. */
+const billingHistory = {
+  node: 'L:billing',
+  card: null,
+  constraints: [{ id: 'billing.cents', mode: 'K', text: 'Money is stored as integer cents' }],
+  decisions: ['d-1', 'd-2', 'd-3', 'd-4'].map((id) => ({ id, date: '2026-10-09', who: 'w/claude', text: `totals rounded once ${id}` })),
+};
+const curatorAsks = (w: any) => w.asked.filter((a: any) => a.prompt.startsWith("You are Context Graph's curator"));
 
-test('CUR-1 the card writer goes first when both are due; the curator the turn after', async ($, on) => {
+test('CUR-1 and CUR-3 after 10 new decisions the mod runs the curator itself, which adds only guidance citing three decisions, and never prompts the lead', async ($, on) => {
   const w = curating(5);
-  w.settings.push({ key: 'card_writer', value: true, default: false, about: '' });
-  w.agents = [{ agent: 'agent-web', agentType: 'web-engineer', read: [], searched: [], edited: [], cardsOwed: ['src/a.ts'] }];
+  w.history['L:billing'] = billingHistory;
+  w.map = w.map.map((m: any) => (m.id === 'L:billing' ? { ...m, decisions: ['2026-10-09', '2026-10-09', '2026-10-09', '2026-10-09'] } : m));
+  w.curation = {
+    isAnswered: true,
+    text: JSON.stringify({ rules: [{ module: 'L:billing', rule: 'Totals are rounded once, at the end.', cites: ['d-1', 'd-2', 'd-3'] }] }),
+    usage: null,
+  };
   const clock = await start($, on, w);
-  await moreDecisions($, w, clock, 20);
-  await leadTurn($, clock);
-  expect(w.prompts).toHaveLength(1);
-  expect(w.prompts[0]).toMatch(/card writer/);
-  await leadTurn($, clock, 't-2');
-  expect(w.prompts[1]).toMatch(/curator/);
+  await moreDecisions($, w, clock, 14);
+  expect(curatorAsks(w)).toEqual([]);
+  await moreDecisions($, w, clock, 15);
+  await clock.advance(2000);
+  expect(curatorAsks(w)).toHaveLength(1);
+  expect(curatorAsks(w)[0].model).toBe('sonnet');
+  expect(curatorAsks(w)[0].prompt).toContain('- d-3: totals rounded once d-3');
+  expect(curatorAsks(w)[0].prompt).toContain('- Money is stored as integer cents');
+  expect(w.acts).toContainEqual(['propose', 'L:billing', 'Totals are rounded once, at the end.']);
+  expect(w.prompts).toEqual([]);
+  // Its run done, the next counts from here.
+  await clock.advance(6000);
+  expect(curatorAsks(w)).toHaveLength(1);
+  await ctx($);
+  const ui = await mountPane($, PANE);
+  expect(await ui.find({ type: 'Text', text: /The curator added a rule as guidance: Totals are rounded once/ })).toBeDefined();
+  await ui.unmount();
 });
 
 test('CUR-2 a rule overridden again and again is flagged in the pane and the health line, never retired', async ($, on) => {
@@ -834,22 +909,25 @@ test('CUR-2 a rule overridden again and again is flagged in the pane and the hea
   expect(w.acts).toEqual([]);
 });
 
-test('CUR-1 Curate now runs it at the next idle turn; CUR-4 not past the pause point', async ($, on) => {
+test('CUR-1 Curate now runs it at once, in the background; CUR-4 not past the pause point', async ($, on) => {
   const w = curating(5);
+  w.history['L:billing'] = billingHistory;
+  w.map = w.map.map((m: any) => (m.id === 'L:billing' ? { ...m, decisions: ['a', 'b', 'c', 'd'] } : m));
   const clock = await start($, on, w);
   await ctx($);
   const ui = await mountPane($, PANE);
   await press($, 'tab-proposals', PANE);
   expect(await ui.find({ type: 'Text', text: 'Curator: runs after 10 more decisions' })).toBeDefined();
-  await press($, 'curate-now', PANE);
-  await ui.unmount();
   w.limits = [{ kind: 'five_hour', percentUsed: 90 }];
   await $.session.measure({ context: {} as any, rateLimits: w.limits, changed: ['rateLimits'] });
-  await leadTurn($, clock);
-  expect(w.prompts).toEqual([]);
+  await press($, 'curate-now', PANE);
+  await ui.unmount();
+  await clock.advance(4000);
+  expect(curatorAsks(w)).toEqual([]);
   await $.session.measure({ context: {} as any, rateLimits: [{ kind: 'five_hour', percentUsed: 40 }], changed: ['rateLimits'] });
-  await leadTurn($, clock, 't-2');
-  expect(w.prompts[0]).toMatch(/curator.*Review the latest decisions/);
+  await clock.advance(2000);
+  expect(curatorAsks(w)).toHaveLength(1);
+  expect(w.prompts).toEqual([]);
 });
 
 // --- side questions ---------------------------------------------------------------------------------
@@ -1046,36 +1124,39 @@ function backfilling() {
   return w;
 }
 
-test('backfill: the card writer takes the existing code, leaves first, ten at a time, even with the card writer itself off', async ($, on) => {
+test('backfill: the card writer takes the existing code, leaves first, even with the card writer itself off', async ($, on) => {
   const w = backfilling();
+  for (const f of w.backfill.files) w.sources[f] = `export const x = '${f}';\n`;
   const clock = await start($, on, w);
-  await leadTurn($, clock);
-  expect(w.prompts).toHaveLength(1);
-  expect(w.prompts[0]).toMatch(/"Write the cards for: src\/f02\.ts, src\/f03\.ts, .*src\/f11\.ts\."/);
-  expect(w.prompts[0]).toMatch(/Write 10 cards/);
+  await clock.advance(4000);
+  expect(cardsWritten(w)).toEqual(['src/f02.ts', 'src/f03.ts']);
+  expect(w.prompts).toEqual([]);
 });
 
-test('backfill: it runs in the background, out of the band; the Overview shows its progress with Pause, and paused no batch starts until Resume', async ($, on) => {
+test('backfill: it runs in the background, out of the band; the Overview shows its progress with Pause, and paused nothing is written until Resume', async ($, on) => {
   const w = backfilling();
+  for (const f of w.backfill.files) w.sources[f] = `export const x = '${f}';\n`;
+  w.limits = [{ kind: 'five_hour', percentUsed: 95 }];
   const clock = await start($, on, w);
   const band = await bandUi($);
   expect(await band.find({ type: 'Text', text: /existing code/ })).toBeUndefined();
   await band.unmount();
+  await $.session.measure({ context: {} as any, rateLimits: [], changed: ['rateLimits'] });
   await ctx($);
   let ui = await mountPane($, PANE);
   await press($, 'tab-map', PANE);
-  expect(await ui.find({ type: 'Text', text: '10 files queued; the next batch starts when the lead finishes its turn.' })).toBeDefined();
+  expect(await ui.find({ type: 'Text', text: '10 files queued, written in the background one at a time.' })).toBeDefined();
   await press($, 'explain-pause', PANE);
   await ui.unmount();
-  await leadTurn($, clock);
-  expect(w.prompts).toEqual([]);
+  await clock.advance(6000);
+  expect(cardsWritten(w)).toEqual([]);
   ui = await mountPane($, PANE);
   expect(await ui.find({ type: 'Text', text: 'Paused by you.' })).toBeDefined();
   expect((await ui.find({ key: 'explain-resume' }))?.props.label).toBe('Resume');
   await press($, 'explain-resume', PANE);
   await ui.unmount();
-  await leadTurn($, clock, 't-2');
-  expect(w.prompts).toHaveLength(1);
+  await clock.advance(2000);
+  expect(cardsWritten(w).length).toBeGreaterThan(0);
 });
 
 test("MAP-4 the Overview opens on the backfill's progress, and with one module says so in a line instead of a table", async ($, on) => {
@@ -1085,7 +1166,7 @@ test("MAP-4 the Overview opens on the backfill's progress, and with one module s
   await ctx($);
   const ui = await mountPane($, PANE);
   await press($, 'tab-map', PANE);
-  expect(await ui.find({ type: 'Text', text: '10 files queued; the next batch starts when the lead finishes its turn.' })).toBeDefined();
+  expect(await ui.find({ key: 'explain-now' })).toBeDefined();
   expect(await ui.find({ key: 'module-L:src' })).toBeUndefined();
   expect(await ui.find({ type: 'Text', text: /^The graph treats the whole repository as one module/ })).toBeDefined();
   await ui.unmount();
@@ -1106,78 +1187,29 @@ test('MAP-2 the heat map has Explain the ones not explained on c', async ($, on)
   await ui.unmount();
 });
 
-test("with code-kit's loop paused by the person, the card writer isn't started, and the pane says why", async ($, on) => {
+test("with code-kit's loop paused by the person, no card is written, and the pane says why", async ($, on) => {
   const w = writing();
   w.settings = w.settings.map((r: any) => (r.key === 'card_writer' ? { ...r, pausedBy: 'code-kit' } : r));
   const clock = await start($, on, w);
-  await leadTurn($, clock);
-  await leadTurn($, clock, 't-2');
-  expect(w.prompts).toEqual([]);
+  await clock.advance(6000);
+  expect(cardsWritten(w)).toEqual([]);
   await ctx($);
   const ui = await mountPane($, PANE);
   expect(await ui.find({ type: 'Text', text: "Paused while code-kit's loop is paused; it carries on when that resumes." })).toBeDefined();
   await ui.unmount();
-  // Resumed: the next idle turn starts it.
+  // Resumed: it carries on.
   w.settings = w.settings.map((r: any) => ({ ...r, pausedBy: undefined }));
-  await leadTurn($, clock, 't-3');
-  expect(w.prompts).toHaveLength(1);
+  await $.tool.call({ tool: 'Read', tool_use_id: 'r9', file_path: '/work/src/a.ts' } as any);
+  await clock.advance(6000);
+  expect(cardsWritten(w)).toEqual(['src/a.ts', 'src/b.ts']);
 });
 
-test("CARDW-6 a batch the lead turns down is skipped and the next offered; two in a row stop it, until the person asks again", async ($, on) => {
-  const w = writing();
-  w.agents = [];
-  w.changed = { fresh: [], stale: Array.from({ length: 25 }, (_, i) => `src/f${String(i).padStart(2, '0')}.ts`), missing: [] };
-  const clock = await start($, on, w);
-  await leadTurn($, clock);
-  expect(w.prompts).toHaveLength(1);
-  // The prompt's turn ends with no card writer started: those ten are skipped, and the next ten offered.
-  await leadTurn($, clock, 't-2');
-  expect(w.prompts).toHaveLength(2);
-  expect(w.prompts[1]).toMatch(/"Write the cards for: src\/f10\.ts, .*src\/f19\.ts\."/);
-  await ctx($);
-  let ui = await mountPane($, PANE);
-  expect(await ui.find({ type: 'Text', text: 'Skipped 10 files the lead turned down this session.' })).toBeDefined();
-  await ui.unmount();
-  // Turned down again: two in a row, so nothing more is offered.
-  await leadTurn($, clock, 't-3');
-  await leadTurn($, clock, 't-4');
-  expect(w.prompts).toHaveLength(2);
-  ui = await mountPane($, PANE);
-  expect(await ui.find({ type: 'Text', text: 'Stopped: the lead turned down 2 batches in a row, so nothing more is offered this session.' })).toBeDefined();
-  expect(await ui.find({ type: 'Text', text: /^Skipped/ })).toBeUndefined();
-  await press($, 'explain-askAgain', PANE);
-  expect(w.prompts).toHaveLength(3);
-  expect(w.prompts[2]).toMatch(/"Write the cards for: src\/f00\.ts, /);
-  await ui.unmount();
-});
-
-test("another prompt's turn (code-kit's loop) before the card writer's own isn't a decline", async ($, on) => {
+test("the lead's turns don't hold the card writer up, and nothing it does reaches the lead", async ($, on) => {
   const w = writing();
   const clock = await start($, on, w);
-  await leadTurn($, clock);
-  expect(w.prompts).toHaveLength(1);
-  // code-kit's loop prompt runs first and starts no card writer: the batch still waits for its own turn.
-  await leadTurn($, clock, 't-2', 'Dispatch ST-7: run /code-kit:dispatch ST-7.');
-  await ctx($);
-  const ui = await mountPane($, PANE);
-  expect(await ui.find({ type: 'Text', text: /^Skipped|^Stopped/ })).toBeUndefined();
-  await ui.unmount();
-  // Its own turn, with the agent started: no decline either.
-  w.running = [{ id: 'cw1', type: 'context-graph:card-writer', description: 'Write 2 cards (Context Graph)', status: 'running' }];
-  await leadTurn($, clock, 't-3', w.prompts[0]);
-  expect(w.prompts).toHaveLength(1);
-});
-
-test("the lead's own card writers finishing don't end the batch the mod asked for", async ($, on) => {
-  const w = writing();
-  const clock = await start($, on, w);
-  await leadTurn($, clock);
-  w.running = [
-    { id: 'cw1', type: 'context-graph:card-writer', description: 'Write 2 cards (Context Graph)', status: 'running' },
-    { id: 'own', type: 'context-graph:card-writer', description: 'Card field domain files', status: 'completed' },
-  ];
-  await leadTurn($, clock, 't-2');
-  await $.turn.complete({ turnId: 't-own', agentId: 'own', answer: 'done', durationMs: 1, isAborted: false } as any);
-  await leadTurn($, clock, 't-3');
-  expect(w.prompts).toHaveLength(1);
+  await $.turn.start({ turnId: 't-1', text: '' } as any);
+  await clock.advance(6000);
+  expect(cardsWritten(w)).toEqual(['src/a.ts', 'src/b.ts']);
+  await $.turn.complete({ turnId: 't-1', answer: '', durationMs: 1, isAborted: false } as any);
+  expect(w.prompts).toEqual([]);
 });

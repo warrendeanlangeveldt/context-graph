@@ -64,11 +64,11 @@ const COLS = [
 ];
 
 const TONE = { busy: { color: 'cyan' }, waiting: {}, held: { color: 'yellow' }, quiet: { dimColor: true } };
-const ACT_LABEL = { pause: 'Pause', resume: 'Resume', askAgain: 'Ask again', settings: 'Settings' };
+const ACT_LABEL = { pause: 'Pause', resume: 'Resume', settings: 'Settings' };
 
 /**
  * CARDW-8: the Overview's first section: how much of the code is explained, as one count and a bar, and
- * the one thing the card writer is doing about the rest, with its button; files the lead turned down
+ * the one thing the card writer is doing about the rest, with its button; files it skipped as not code
  * are counted beneath, with Offer them again. `status` is explainStatus's. Handlers: onPauseBackfill,
  * onOfferAgain, onSettings.
  */
@@ -81,7 +81,6 @@ export function explainSection(status, els, handlers = {}) {
   const press = {
     pause: handlers.onPauseBackfill,
     resume: handlers.onPauseBackfill,
-    askAgain: handlers.onOfferAgain,
     settings: handlers.onSettings,
   }[status.act];
   const row = (key, children) => Box({ key, flexDirection: 'row', columnGap: 2, children });
@@ -98,7 +97,7 @@ export function explainSection(status, els, handlers = {}) {
     ...(status.skipped
       ? [
           row('explain-skipped', [
-            text(`Skipped ${plural(status.skipped, 'file', 'files')} the lead turned down this session.`, { dimColor: true }),
+            text(`Skipped ${status.skipped === 1 ? "1 file that isn't code" : `${status.skipped} files that aren't code`} this session.`, { dimColor: true }),
             ...(handlers.onOfferAgain ? [Button({ key: 'offer-again', label: 'Offer them again', plain: true, onPress: handlers.onOfferAgain })] : []),
           ]),
         ]

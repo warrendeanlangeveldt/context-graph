@@ -3276,15 +3276,15 @@ var init_harness = __esm({
         problem: onOff,
         about: "A rule an agent proposes applies at once as guidance, with no one asked; off, it waits as a proposal for you to accept (rules that block edits always need a person)"
       },
-      card_writer: { default: true, problem: onOff, about: "A background agent that writes the cards owed, from full reads" },
-      card_writer_model: { default: "", problem: model, about: "The card writer's model; empty means the session's" },
+      card_writer: { default: true, problem: onOff, about: "Writes the cards owed in the background, each from a full read of the file, with its own model requests" },
+      card_writer_model: { default: "", problem: model, about: "The card writer's model; empty means Sonnet" },
       backfill: {
         default: "active",
         problem: (v) => v === "off" || v === "active" || v === "all" ? null : "must be off, active (the modules changed in the last 90 days) or all",
         about: "The card writer also cards the existing code, leaves first: off, active (modules changed in the last 90 days) or all"
       },
-      curator: { default: false, problem: onOff, about: "A background agent that proposes rules from the decisions and flags overridden ones" },
-      curator_model: { default: "", problem: model, about: "The curator's model; empty means the session's" },
+      curator: { default: false, problem: onOff, about: "Adds, in the background, the conventions the decisions show as guidance" },
+      curator_model: { default: "", problem: model, about: "The curator's model; empty means Sonnet" },
       side_questions: { default: true, problem: onOff, about: "/why answers questions from the graph, beside the conversation" },
       side_questions_model: { default: "", problem: model, about: "The side questions' model; empty means the session's" },
       pause_at_percent: {
@@ -3355,7 +3355,13 @@ function defaultConfig() {
       // Documents, archives and media: a person's files, never code (and often personal data).
       "**/*.{doc,docx,xls,xlsx,ppt,pptx,odt,ods,odp,rtf,pages,numbers,key,eml,msg}",
       "**/*.{zip,gz,tgz,tar,7z,rar,bz2,xz}",
-      "**/*.{mp3,mp4,mov,wav,m4a,webm,avi}"
+      "**/*.{mp3,mp4,mov,wav,m4a,webm,avi}",
+      // More media, images and fonts, 3D models, colour lookup tables, compiled output and data stores: assets, never code.
+      "**/*.{mkv,m4v,mpg,mpeg,flac,ogg,aac,aiff,avif,bmp,tif,tiff,heic,psd,ai,eps,otf,eot}",
+      "**/*.{glb,gltf,fbx,obj,stl,3mf,usdz,blend,ply}",
+      "**/*.{cube,3dl,lut,icc}",
+      "**/*.{bin,dat,wasm,exe,dll,so,dylib,o,a,class,jar,pyc}",
+      "**/*.{sqlite,sqlite3,db,parquet,npy,npz,pkl,h5,onnx,safetensors}"
     ]
   };
 }
@@ -3740,9 +3746,15 @@ import { createHash as createHash2 } from "node:crypto";
 function contentHash(text) {
   return createHash2("sha1").update(text).digest("hex").slice(0, 12);
 }
+function isCardText(text) {
+  const head = text.slice(0, 8e3);
+  if (head.includes("\0")) return false;
+  if ((head.match(REPLACED)?.length ?? 0) > Math.max(8, head.length / 100)) return false;
+  return !head.startsWith("version https://git-lfs.github.com/spec/");
+}
 function cardText(root, path) {
   const text = readRepoText(root, path);
-  return text === void 0 || text.slice(0, 8e3).includes("\0") ? void 0 : text;
+  return text === void 0 || !isCardText(text) ? void 0 : text;
 }
 function cardState(graph, root, path) {
   const card = graph.cards.get(path);
@@ -3760,7 +3772,7 @@ function exemptFromCards(path, exclude) {
 function writeCard(graph, root, input) {
   const text = cardText(root, input.path);
   if (text === void 0)
-    throw new Error(readRepoText(root, input.path) === void 0 ? `${input.path} does not exist; a card describes a file as it is` : `${input.path} isn't text (a document, an archive or an image); cards are for code`);
+    throw new Error(readRepoText(root, input.path) === void 0 ? `${input.path} does not exist; a card describes a file as it is` : `${input.path} isn't code (a document, an archive, media or a binary); cards are for code`);
   const body = input.text.replace(/\s+/g, " ").trim();
   if (!body) throw new Error("card text is required: what the file is for, what it relies on, who relies on it, what it must keep true");
   const card = { kind: "F", path: input.path, hash: contentHash(text), date: input.date, who: input.who, text: body, line: 0 };
@@ -3780,7 +3792,7 @@ function renderFileCard(path, state, facts = []) {
   const text = lines.join("\n");
   return { text, tokens: estimateTokens(text) };
 }
-var import_picomatch2;
+var import_picomatch2, REPLACED;
 var init_cards = __esm({
   "src/cards/cards.ts"() {
     "use strict";
@@ -3788,6 +3800,7 @@ var init_cards = __esm({
     init_write();
     init_paths();
     init_tokens();
+    REPLACED = /\uFFFD/g;
   }
 });
 

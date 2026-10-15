@@ -2,13 +2,13 @@
 
 **Status:** draft
 **Outcome:** The graph keeps up with how the team actually works: conventions the code follows get proposed as rules, and rules that keep getting overridden get flagged.
-**Actors:** the mod (starts it); the curator agent (proposes, never ratifies); the person or delegated ratifier (decides)
+**Actors:** the mod (runs it, with its own model request); the person or delegated ratifier (decides)
 **Depends on:** 09-panes, 02-ratify-and-drop
 
 ## In scope
 
-- A background agent, off until turned on, that reviews the session's decisions and the graph's evidence after every 10 new decisions, and when the person asks (Curate now). (Not at the session's end: a mod can't start an agent once the session is ending.)
-- It proposes rules with `ctx propose` and modules with `ctx module` (proposed edge), and flags rules overridden three or more times since they were ratified.
+- Off until turned on: after every 10 new decisions, and when the person asks (Curate now), the mod reads the decisions on each module with three or more, with the rules stated and proposed there, in one model request (`curator_model`, Sonnet when empty), and adds the conventions they show with `ctx propose`. It never prompts the lead: a mod can't start an agent in auto mode, and asking the lead to start one put Context Graph's request in front of the person.
+- Rules overridden three or more times since they were ratified are flagged from the hygiene report. Folders that could be modules are offered by Add them as modules (MAP-6), not by the curator.
 
 ## Requirements
 
@@ -18,7 +18,8 @@ When three or more decisions on one module serve or describe the same convention
 
 **Acceptance**
 
-- Given three decisions on `L:billing` saying money is stored in cents, then a proposal "Money is stored as integer cents" appears on `L:billing`, citing them.
+- Given three decisions on `L:billing` saying money is stored in cents, then a proposal "Money is stored as integer cents" appears on `L:billing`, the notice cites them, and the lead receives no prompt.
+- Given a reply naming a rule that cites fewer than three of the module's decisions, or a module it wasn't shown, then nothing is proposed for it.
 
 ### CUR-2 Flags overridden rules
 
@@ -36,4 +37,4 @@ As CARDW-5.
 
 | Question                     | Owner  | Blocks   |
 | ---------------------------- | ------ | -------- |
-| The curator's default model. | Warren | 09-panes |
+| The curator's default model: Sonnet. | Warren | settled |

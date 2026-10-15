@@ -1,9 +1,16 @@
-// The curator (docs/specs/05-curator.md), the pure parts: when it's due, its definition for
-// $.agent.register, the lead's prompt that starts it, and the rules hygiene flags as overridden. The
-// lead starts it, in the background (a mod can't, in auto mode). It adds only guidance: ratifying, dropping
-// and retiring stay the person's or the delegated ratifier's, and the hooks keep it so.
+// The curator (docs/specs/05-curator.md), the pure parts: when it's due, the request that reads the
+// decisions recorded for the conventions nobody wrote down, how its reply is read, and the rules hygiene
+// flags as overridden. The mod runs it itself, with its own model request (a mod can't start an agent in
+// auto mode, and asking the lead to start one put Context Graph's request in the person's conversation).
+// It adds only guidance, through `ctx propose`: ratifying, dropping and retiring stay the person's or the
+// delegated ratifier's.
 
-export const CURATOR = 'curator';
+/** The curator's model when the setting names none. */
+export const DEFAULT_MODEL = 'sonnet';
+/** CUR-1: a convention is proposed from at least this many decisions. */
+export const CITES = 3;
+/** The most rules one run adds. */
+export const MOST = 3;
 /** It runs after this many new decisions (CUR-1). */
 export const EVERY = 10;
 const FLAGS = new Set(['overridden-in-practice', 'overridden-since-ratified']);
@@ -22,36 +29,47 @@ export function flaggedRules(findings) {
   return (findings ?? []).filter((f) => FLAGS.has(f.signal)).map((f) => ({ rule: f.target, evidence: f.evidence, proposal: f.proposal }));
 }
 
-/** The curator's definition (CUR-3): it reads and adds guidance; it never edits, ratifies, drops or retires. */
-export function curatorSpec({ ctx, model }) {
-  return {
-    name: CURATOR,
-    description:
-      "Context Graph's curator: reviews the decisions recorded and the graph's evidence, and adds as guidance the rules the code follows that nobody wrote down. Started by the lead when Context Graph's mod asks for it.",
-    disallowedTools: ['Edit', 'MultiEdit', 'Write', 'NotebookEdit'],
-    ...(model ? { model } : {}),
-    prompt: [
-      "You are Context Graph's curator. You keep the graph in step with how the team works. A rule you add is guidance: it informs agents and applies at once, so add only what the decisions clearly show. You never add a rule that blocks edits, and never ratify, drop or retire: those are a person's.",
+/**
+ * CUR-1, CUR-3: the one request that reads the decisions on each module, with the rules already stated
+ * there and those proposed, for a convention three or more decisions serve or describe that no rule
+ * states. `modules`: [{ id, rules: [text], decisions: [{ id, text }] }].
+ */
+export function curatorPrompt({ modules, proposed = [] }) {
+  return [
+    "You are Context Graph's curator. Below are the decisions recorded on each module of a codebase, with the rules already stated there. Find conventions the decisions show that no rule states yet: where at least three decisions on one module serve or describe the same convention. Each becomes guidance agents see before they edit, so add only what the decisions clearly show, in one plain sentence. Never restate a rule that's there or proposed.",
+    'Answer with one JSON object and nothing else: {"rules": [{"module": "L:…", "rule": "…", "cites": ["decision id", …]}]}, with at most ' + MOST + ' rules, or {"rules": []} when the decisions show none.',
+    ...modules.flatMap((m) => [
       '',
-      `1. Read the decisions recorded (\`node "${ctx}" history <module or path>\`, the MCP tools \`why\` and \`history\`) and the rules in force (\`node "${ctx}" proposals\`, \`node "${ctx}" file <path>\`).`,
-      `2. Where three or more decisions on one module serve or describe the same convention and no rule states it, add it as guidance: \`node "${ctx}" propose <L:module> "<the rule, in one sentence>"\` (or the MCP tool \`propose\`). Cite the decisions in your report.`,
-      `3. Where files that belong together have no module of their own, propose one: \`node "${ctx}" module <L:id> --paths "<glob>…" --name "…"\` (without --delegated).`,
-      '4. Read `node "' + ctx + '" hygiene` for rules overridden again and again: name them in your report with what you would reword. Never retire one.',
-      '',
-      'You never edit files, ratify, drop, retire or change settings: those are refused to you, and they are not yours to do. End with a short report: the guidance you added and why, citing decision ids, and which rules look overridden.',
-    ].join('\n'),
-  };
+      `## ${m.id}`,
+      ...(m.rules.length ? ['Rules stated:', ...m.rules.map((r) => `- ${r}`)] : ['No rules stated.']),
+      'Decisions:',
+      ...m.decisions.map((d) => `- ${d.id}: ${d.text}`),
+    ]),
+    ...(proposed.length ? ['', 'Rules already proposed:', ...proposed.map((p) => `- ${p.module ?? ''} ${p.text}`)] : []),
+  ].join('\n');
 }
 
-/** The description the curator is started with: how the mod knows its agent. */
-export const CURATE_DESCRIPTION = 'Curate the graph (Context Graph)';
-
 /**
- * The lead's prompt that starts the curator in the background (CUR-1). It says the lead may decline,
- * and that it isn't asked again until ten more decisions are recorded.
+ * CUR-1: the curator's reply as rules to propose: [{ module, rule, cites }], each on a module it was
+ * shown, citing at least three of that module's decisions; anything else is left out.
  */
-export function startCuratorPrompt({ agent, since }) {
-  return `Start Context Graph's curator in the background: use the Agent tool with subagent_type "${agent}", run_in_background true, description "${CURATE_DESCRIPTION}", and the prompt "Review the ${since} decisions recorded since you last ran and the graph's evidence; add the rules they show as guidance." Then carry on; it only adds guidance, never a rule that blocks edits. If the person has asked you not to run it now, say so and don't start it: Context Graph won't ask again until ten more decisions are recorded.`;
+export function readCuration(text, modules) {
+  const raw = String(text ?? '');
+  let parsed;
+  try {
+    parsed = JSON.parse(raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1));
+  } catch {
+    return [];
+  }
+  const byId = new Map(modules.map((m) => [m.id, new Set(m.decisions.map((d) => d.id))]));
+  return (Array.isArray(parsed?.rules) ? parsed.rules : [])
+    .map((r) => ({
+      module: String(r?.module ?? ''),
+      rule: String(r?.rule ?? '').replace(/\s+/g, ' ').trim(),
+      cites: (Array.isArray(r?.cites) ? r.cites : []).map(String).filter((id) => byId.get(String(r?.module ?? ''))?.has(id)),
+    }))
+    .filter((r) => byId.has(r.module) && r.rule && new Set(r.cites).size >= CITES)
+    .slice(0, MOST);
 }
 
 /** The pane's line for the curator: off, paused, running, or how many decisions until its next run. */
@@ -61,5 +79,5 @@ export function curatorLine({ on, paused, percent, heldBy = null, running, decis
   if (paused) return `Curator: paused, the plan at ${percent}%`;
   if (running) return 'Curator: reviewing the decisions';
   const left = Math.max(0, EVERY - (decisions - baseline));
-  return left ? `Curator: runs after ${left} more decision${left === 1 ? '' : 's'}` : 'Curator: due when the lead is idle';
+  return left ? `Curator: runs after ${left} more decision${left === 1 ? '' : 's'}` : 'Curator: due; it runs in the background next';
 }

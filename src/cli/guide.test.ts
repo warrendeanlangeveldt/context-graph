@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { writeCard } from '../cards/cards.js';
+import { isCardText, writeCard } from '../cards/cards.js';
 import { openRepo } from '../core/context.js';
 import { unmappedFolders } from '../init/bootstrap.js';
 import { INSTRUCTION_BLOCK } from '../init/instructions.js';
@@ -134,7 +134,29 @@ describe('ctx next and ctx cards', () => {
     writeFileSync(join(repo, 'src/b.ts'), 'export const b = 2;\n');
     expect(cardsReport(openRepo({ repo }), { changed: true }).missing).toEqual(['src/b.ts']);
     expect(cardsReport(openRepo({ repo })).missing).toEqual(['src/a.ts', 'src/b.ts']);
-    expect(() => writeCard(openRepo({ repo }).graph!, repo, { path: 'docs/cvs/export.dat', text: 'x', who: 't', date: '2026-10-13' })).toThrow(/isn't text/);
+    expect(() => writeCard(openRepo({ repo }).graph!, repo, { path: 'docs/cvs/export.dat', text: 'x', who: 't', date: '2026-10-13' })).toThrow(/isn't code/);
+  });
+
+  it("video takes, colour lookup tables and Git LFS pointers owe no card: by name, or because their bytes aren't text", () => {
+    withGraph();
+    git('checkout', '-q', '-b', 'feature');
+    mkdirSync(join(repo, 'out/clips'), { recursive: true });
+    mkdirSync(join(repo, 'out/media'), { recursive: true });
+    // An encoded video with no NUL early on: bytes that aren't UTF-8.
+    const take = Buffer.alloc(9000);
+    for (let i = 0; i < take.length; i++) take[i] = 0x80 + (i % 0x7f);
+    writeFileSync(join(repo, 'out/clips/take-1-1.bin'), take);
+    writeFileSync(join(repo, 'out/clips/take-1-1.mpx'), take);
+    // A colour lookup table is text, and caught by its name.
+    writeFileSync(join(repo, 'out/media/clips_s02.cube'), 'TITLE "s02"\nLUT_3D_SIZE 2\n0 0 0\n1 1 1\n');
+    // A file Git LFS stands in for, whatever its name.
+    writeFileSync(join(repo, 'out/media/hero.mpx'), 'version https://git-lfs.github.com/spec/v1\noid sha256:4d7a\nsize 12345\n');
+    // Code with a stray replacement character is still code.
+    writeFileSync(join(repo, 'src/b.ts'), "export const b = '\uFFFD';\n");
+    expect(cardsReport(openRepo({ repo }), { changed: true }).missing).toEqual(['src/b.ts']);
+    expect(() => writeCard(openRepo({ repo }).graph!, repo, { path: 'out/clips/take-1-1.mpx', text: 'x', who: 't', date: '2026-10-16' })).toThrow(/isn't code/);
+    expect(isCardText('version https://git-lfs.github.com/spec/v1\noid sha256:1\n')).toBe(false);
+    expect(isCardText('export const a = 1;\n')).toBe(true);
   });
 
   it('CARDW-7 --recent: files the commits of the last 14 days changed, merged from a lane, without a current card', () => {

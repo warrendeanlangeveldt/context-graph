@@ -9,9 +9,9 @@ import { queueOrder, spark } from '../../adapters/claude-code/hooks/mod/views/pr
 import { progressText, readingList, readingMessage } from '../../adapters/claude-code/hooks/mod/views/assist.mjs';
 import { describeMissing } from '../enforce/read-before-edit.js';
 // @ts-expect-error: the mod is plain JavaScript beside the bundled CLI, outside the TypeScript build
-import { STOP_AFTER, cardJobs, explainStatus, pausedAt } from '../../adapters/claude-code/hooks/mod/card-writer.mjs';
+import { cardJobs, cardPrompt, explainStatus, pausedAt, readCardReply } from '../../adapters/claude-code/hooks/mod/card-writer.mjs';
 // @ts-expect-error: the mod is plain JavaScript beside the bundled CLI, outside the TypeScript build
-import { curatorDue, curatorLine, flaggedRules } from '../../adapters/claude-code/hooks/mod/curator.mjs';
+import { curatorDue, curatorLine, curatorPrompt, flaggedRules, readCuration } from '../../adapters/claude-code/hooks/mod/curator.mjs';
 // @ts-expect-error: the mod is plain JavaScript beside the bundled CLI, outside the TypeScript build
 import { costText, sourcesOf, targetsOf } from '../../adapters/claude-code/hooks/mod/why.mjs';
 // @ts-expect-error: the mod is plain JavaScript beside the bundled CLI, outside the TypeScript build
@@ -217,14 +217,14 @@ describe('the Context Graph mod: what it draws', () => {
     const at = (o: Record<string, unknown>) => explainStatus({ cards, on: true, backfill: true, ...o });
     expect(at({})).toMatchObject({ explained: 2, total: 5, act: 'settings', tone: 'quiet' });
     expect(explainStatus({ cards, on: false })).toMatchObject({ line: 'The card writer is off: a file is explained only when an agent writes its card.', act: 'settings' });
-    expect(at({ writing: ['a', 'b', 'c', 'd'], waiting: ['e'] })).toMatchObject({ line: 'Explaining 4 files now: a, b, c, …; 1 more queued', tone: 'busy', act: 'pause' });
-    expect(at({ waiting: ['e', 'f'] })).toMatchObject({ line: '2 files queued; the next batch starts when the lead finishes its turn.', act: 'pause' });
+    expect(at({ writing: ['a'], waiting: ['e'] })).toMatchObject({ line: 'Explaining a now; 1 more queued', tone: 'busy', act: 'pause' });
+    expect(at({ waiting: ['e', 'f'] })).toMatchObject({ line: '2 files queued, written in the background one at a time.', act: 'pause' });
+    expect(at({ waiting: ['e'], error: 'api-error 529' })).toMatchObject({ line: "The last card couldn't be written (api-error 529); it tries again in a minute.", tone: 'held' });
     expect(at({ waiting: ['e'], backfillPaused: true })).toMatchObject({ line: 'Paused by you; 1 still queued.', act: 'resume' });
     expect(at({ waiting: ['e'], paused: true, percent: 82 }).line).toBe("Paused: the plan's 5-hour use is at 82%; it carries on below the pause point.");
     expect(at({ waiting: ['e'], heldBy: 'code-kit' }).line).toBe("Paused while code-kit's loop is paused; it carries on when that resumes.");
-    // One batch turned down skips its files; two in a row stop it, and the stop is the one thing said.
+    // Files it found aren't code are counted beneath, with Offer them again.
     expect(at({ waiting: ['e'], skipped: 10 })).toMatchObject({ skipped: 10, act: 'pause' });
-    expect(at({ waiting: ['e'], skipped: 20, stopped: true })).toMatchObject({ line: `Stopped: the lead turned down ${STOP_AFTER} batches in a row, so nothing more is offered this session.`, act: 'askAgain', skipped: 0 });
     expect(explainStatus({ cards: { fresh: ['a'], stale: [], missing: [] }, on: true }).line).toBe('Every file is explained.');
     expect(explainStatus({ cards, on: true }).line).toMatch(/^Nothing queued\. The existing code is explained only with the backfill on/);
   });
@@ -236,9 +236,53 @@ describe('the Context Graph mod: what it draws', () => {
     expect(curatorDue({ on: false, running: false, decisions: 40, baseline: 0, asked: true })).toBe(false);
     expect(curatorDue({ on: true, running: false, decisions: 0, baseline: 0, asked: true })).toBe(true);
     expect(curatorLine({ on: true, decisions: 13, baseline: 10 })).toBe('Curator: runs after 7 more decisions');
-    expect(curatorLine({ on: true, decisions: 20, baseline: 10 })).toBe('Curator: due when the lead is idle');
+    expect(curatorLine({ on: true, decisions: 20, baseline: 10 })).toBe('Curator: due; it runs in the background next');
     expect(curatorLine({ on: true, running: true })).toBe('Curator: reviewing the decisions');
     expect(flaggedRules([{ signal: 'overridden-in-practice', target: 'a', evidence: ['d'], proposal: 'p' }, { signal: 'dormant', target: 'b', evidence: [], proposal: '' }])).toEqual([{ rule: 'a', evidence: ['d'], proposal: 'p' }]);
+  });
+
+  it("CARDW-2 and CARDW-6 one card's request: the file, its imports by card or source, its importers and last change; a reply that isn't code is a skip", () => {
+    const prompt = cardPrompt({
+      path: 'src/a.ts',
+      text: 'export const a = b + 1;',
+      imports: [{ path: 'src/b.ts', card: 'Holds b.' }, { path: 'src/c.ts', text: 'export const c = 3;' }],
+      importers: ['src/d.ts'],
+      commits: 'ST-4 a counts from b',
+      diff: '+export const a = b + 1;',
+    });
+    expect(prompt).toMatch(/^Write the Context Graph card for src\/a\.ts/);
+    expect(prompt).toMatch(/answer `SKIP: <why, in a few words>`/);
+    expect(prompt).toContain('export const a = b + 1;');
+    expect(prompt).toContain('- src/b.ts: Holds b.');
+    expect(prompt).toContain('export const c = 3;');
+    expect(prompt).toContain('- src/d.ts');
+    expect(prompt).toContain('ST-4 a counts from b');
+    expect(cardPrompt({ path: 'x.ts', text: 'y'.repeat(70000) })).toMatch(/\[… cut at 60000 characters\]/);
+    expect(readCardReply('Counts a from b for the booking form; relies on b; d imports it.')).toEqual({ card: 'Counts a from b for the booking form; relies on b; d imports it.' });
+    expect(readCardReply('```\nCounts a from b, for the booking form.\n```')).toEqual({ card: 'Counts a from b, for the booking form.' });
+    expect(readCardReply('SKIP: a binary video take')).toEqual({ skip: 'a binary video take' });
+    expect(readCardReply('skip')).toEqual({ skip: "it isn't code" });
+    expect(readCardReply('')).toBeNull();
+    expect(readCardReply('ok')).toBeNull();
+  });
+
+  it('CUR-1 and CUR-3 the curator reads the decisions on each module, and only rules citing three of them are added', () => {
+    const modules = [{ id: 'L:billing', rules: ['Prices are in cents'], decisions: ['d-1', 'd-2', 'd-3', 'd-4'].map((id) => ({ id, text: `money ${id}` })) }];
+    const prompt = curatorPrompt({ modules, proposed: [{ module: 'L:billing', text: 'Invoices are immutable' }] });
+    expect(prompt).toMatch(/at least three decisions on one module/);
+    expect(prompt).toContain('## L:billing');
+    expect(prompt).toContain('- Prices are in cents');
+    expect(prompt).toContain('- d-2: money d-2');
+    expect(prompt).toContain('L:billing Invoices are immutable');
+    const reply = JSON.stringify({
+      rules: [
+        { module: 'L:billing', rule: 'Totals are  rounded once, at the end.', cites: ['d-1', 'd-2', 'd-3'] },
+        { module: 'L:billing', rule: 'Too thin', cites: ['d-1', 'd-2', 'd-9'] },
+        { module: 'L:other', rule: 'Not shown', cites: ['d-1', 'd-2', 'd-3'] },
+      ],
+    });
+    expect(readCuration(`Here:\n${reply}`, modules)).toEqual([{ module: 'L:billing', rule: 'Totals are rounded once, at the end.', cites: ['d-1', 'd-2', 'd-3'] }]);
+    expect(readCuration('nothing', modules)).toEqual([]);
   });
 
   it('ASKQ the nodes a question names, the records an answer rests on, and its cost', () => {

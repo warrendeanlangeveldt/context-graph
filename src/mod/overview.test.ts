@@ -65,14 +65,14 @@ describe('the Overview (MAP-4): what the graph knows, a row per module', () => {
 
   it('CARDW-8 opens on how much is explained and the one thing being done about it, with its button', () => {
     const pressed: string[] = [];
-    const explain = { explained: 38, total: 595, line: '550 files queued; the next batch starts when the lead finishes its turn.', tone: 'waiting', act: 'pause', skipped: 10 };
+    const explain = { explained: 38, total: 595, line: '550 files queued, written in the background one at a time.', tone: 'waiting', act: 'pause', skipped: 10 };
     const tab = overview(MAP, els, { explain }, { onPauseBackfill: () => pressed.push('pause'), onOfferAgain: () => pressed.push('again') });
     const shown = tab.flatMap(texts);
     expect(shown.slice(0, 4)).toEqual(['FILES EXPLAINED', '38 of 595', '█░░░░░░░░░ 6%', explain.line]);
-    expect(shown).toContain('Skipped 10 files the lead turned down this session.');
+    expect(shown).toContain("Skipped 10 files that aren't code this session.");
     expect(tab.flatMap(keys)).toEqual(expect.arrayContaining(['explain-pause', 'offer-again']));
     // Only one line says what the card writer is doing: no second, contradicting one.
-    expect(shown.filter((t: string) => /queued|Explaining|turned down .* won't ask/.test(t))).toEqual([explain.line]);
+    expect(shown.filter((t: string) => /queued|Explaining/.test(t))).toEqual([explain.line]);
   });
 
   it('MAP-4 with only the whole repository as a module, a line in words instead of a one-row table', () => {

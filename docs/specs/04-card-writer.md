@@ -1,15 +1,15 @@
 # 04. Card writer
 
 **Status:** draft
-**Outcome:** Owed cards get written in the background, from a full reading of each file, so the end-of-turn demand rarely has to interrupt the lead.
-**Actors:** the mod (starts it); the card writer agent; the lead (no longer interrupted for cards it owes)
+**Outcome:** Owed cards get written in the background, from a full reading of each file, without interrupting the lead or the person.
+**Actors:** the mod (writes the cards, with its own model requests); the lead (never asked for cards, nor to start anything)
 **Depends on:** 09-panes (its harness settings)
 
 ## In scope
 
-- A background agent, off until the project turns it on, that writes cards for files owed this session or changed on the branch without a current card.
-- It follows the cards skill: reads each file in full with what it imports, then writes the card.
-- It works only while the lead and lanes leave room: between turns, and never on a file an agent is editing.
+- The mod writes cards in the background, a file at a time, with its own model requests, for files owed this session or changed on the branch without a current card. It never prompts the lead or adds to the person's conversation: a mod can't start an agent in auto mode (Claude Code refuses a plugin's `$.agent.spawn` there, as the auto mode classifier has no request of the model's to judge it by), and asking the lead to start one put Context Graph's request in front of the person.
+- Each card is written from the file in full, with what it imports and what imports it.
+- It works whenever the plan leaves room, never on a file an agent is editing.
 - A backfill for a project that already has code (`[harness] backfill`: `active`, the modules changed in the last 90 days, or `all`): the existing files without a current card, leaves first, after the cards owed and changed; offered by init, paused from the band.
 
 ## Data
@@ -17,50 +17,51 @@
 | Entity   | Field  | Type   | Required | Rules                                   |
 | -------- | ------ | ------ | -------- | --------------------------------------- |
 | Card job | path   | string | yes      | One job per file at a time              |
-| Card job | reason | enum   | yes      | `owed`, `changed`, `asked`              |
+| Card job | reason | enum   | yes      | `asked`, `owed`, `changed`, `recent`, `backfill` |
 | Card job | state  | enum   | yes      | `waiting`, `writing`, `done`, `skipped` |
 
 ## Requirements
 
 ### CARDW-1 What it writes
 
-When on, the card writer takes the files owed a card this session and those changed on the branch without a current card, oldest first, and writes each one's card. Files an agent edited in the last 2 minutes wait.
+When on, the card writer takes the files owed a card this session and those changed on the branch without a current card, in order, and writes each one's card, one at a time, whether or not the lead is mid-turn. Files an agent edited in the last 2 minutes wait; a card it just wrote isn't written again until its file changes. The model is `card_writer_model`, Sonnet when empty.
 
 **Acceptance**
 
-- Given `src/a.ts` owed a card and nobody editing it, when the lead goes idle, then the card writer writes its card and the file stops being owed.
+- Given `src/a.ts` owed a card and nobody editing it, then within seconds the mod writes its card (`ctx card src/a.ts --text … --agent card-writer`), the file stops being owed, and the lead receives no prompt.
 
 ### CARDW-2 From a full reading
 
-It reads each file in full, with what it imports and, for changed exports, what imports it, before writing; a card from a partial read is never written.
+Its request carries the file in full (up to 60,000 characters), each import by its current card or its source, what imports it, and the file's last commits and diff; the model answers with the card, or `SKIP: <why>` for a file that isn't code.
 
 ### CARDW-3 Within the owed demand
 
-A card it writes satisfies the owed demand exactly as one the editing agent writes, so the lead's turn end no longer asks for it.
+A card it writes satisfies the owed demand exactly as one the editing agent writes.
 
 ### CARDW-4 Asked for
 
-Write card and Cards for this module in the pane queue jobs for the card writer when it's on, instead of prompting the lead.
+Write card and Cards for this module in the pane queue jobs for the card writer when it's on; with it off, the person's press asks the lead to run the cards skill.
 
 ### CARDW-5 Paused near the plan's limit
 
 It starts no new job while the plan's 5-hour use is past the harness's pause point (code-kit's, or Context Graph's own setting when code-kit isn't installed).
 
-### CARDW-6 Declined, and paused with the person
+### CARDW-6 What isn't code, failures, and pauses
 
-The lead may decline a batch: the turn the mod's prompt runs in ends with no card writer started. Only that turn counts; another prompt the lead takes first (code-kit's loop) isn't a decline. The prompt tells the lead to decline files that shouldn't be carded (they aren't code, or the person said not now). A declined batch's files are skipped for the session and the next batch is offered, so one batch of documents doesn't stop the rest. Two batches declined in a row mean stop: nothing more is offered this session until the person presses Ask again on the Overview, or asks for cards; Offer them again brings back the skipped files. And while the person has paused code-kit's lead loop (its band's Pause), the card writer and the curator start nothing; they carry on when it resumes.
+What isn't code never reaches a request: files matching `[cards] exclude` (by default documents, archives, media, images, fonts, 3D models, colour lookup tables, compiled output and data stores) and any file whose contents aren't text (a NUL in its first 8000 bytes, bytes that aren't UTF-8, or a Git LFS pointer) owe no card. A file the model answers `SKIP` for is skipped for the session, counted on the Overview with Offer them again. A failed request is said on the Overview, and the next is made a minute later. While the person has paused code-kit's lead loop (its band's Pause), the card writer and the curator start nothing; they carry on when it resumes.
 
 **Acceptance**
 
-- Given 25 files owed and the lead declining the first batch, then those ten are skipped and the next ten offered; declining that too, no further batch is offered until the person presses Ask again, which offers the first ten again.
-- Given code-kit's loop prompt running before the card writer's, and it starting no card writer, then that isn't a decline.
-- Given code-kit's loop paused, when the lead goes idle, then the card writer isn't started and the Overview reads "Card writer: paused with code-kit's loop".
+- Given encoded video takes (`.bin`, no NUL early on) and a `.cube` lookup table changed on the branch, then none is listed as missing a card, and none is sent to the model.
+- Given a file the model answers `SKIP: an encoded video take` for, then no card is written, the lead receives nothing, and the Overview reads "Skipped 1 file that isn't code this session." with Offer them again.
+- Given a request that fails, then the Overview says why and that it tries again in a minute, and a minute later it does.
+- Given code-kit's loop paused, then no card is written and the Overview reads "Paused while code-kit's loop is paused; it carries on when that resumes."
 
 ## Open questions
 
 | Question                         | Owner  | Blocks   |
 | -------------------------------- | ------ | -------- |
-| The card writer's default model. | Warren | 09-panes |
+| The card writer's default model: Sonnet. | Warren | settled |
 
 ### CARDW-7 Cards in the background, not the agents' work
 
@@ -74,12 +75,11 @@ With `[enforce] cards = "background"` (the default), an edit owes no card: the a
 
 ### CARDW-8 One status on the Overview
 
-The Overview opens on how much of the code is explained ("38 of 595", a bar and the share, counted from `ctx cards` like the header) and one line saying the one thing the card writer is doing about the rest, with its button: explaining files now (Pause, with the backfill on), queued for when the lead finishes its turn (Pause), paused by the person (Resume), paused with code-kit's loop or at the plan's pause point, stopped after two declines (Ask again), off (Settings), nothing queued with the backfill off or the rest outside its scope (Settings), or every file explained. Files the lead turned down are counted beneath, with Offer them again. No two lines contradict each other.
+The Overview opens on how much of the code is explained ("38 of 595", a bar and the share, counted from `ctx cards` like the header) and one line saying the one thing the card writer is doing about the rest, with its button: explaining a file now (Pause, with the backfill on), queued (Pause), paused by the person (Resume), paused with code-kit's loop or at the plan's pause point, waiting after a failed request, off (Settings), nothing queued with the backfill off or the rest outside its scope (Settings), or every file explained. Files it skipped as not code are counted beneath, with Offer them again. No two lines contradict each other.
 
 **Acceptance**
 
-- Given 38 of 595 files explained and 550 queued, then the Overview shows "38 of 595" and "550 files queued; the next batch starts when the lead finishes its turn.", and no other line about the card writer.
-- Given two batches declined in a row, then the one line reads "Stopped: …" with Ask again, and the skipped count isn't shown beside it.
+- Given 38 of 595 files explained and 550 queued, then the Overview shows "38 of 595" and "550 files queued, written in the background one at a time.", and no other line about the card writer.
 
 ### GATE-5 Shell edits are checked like the edit tools
 
