@@ -27,13 +27,25 @@ export interface CardState {
   hash?: string;
 }
 
+/** Characters a UTF-8 decode puts in place of bytes that aren't text. */
+const REPLACED = /\uFFFD/g;
+
 /**
- * A file's text as a card describes it; undefined when it doesn't exist or isn't text. A document, an
- * archive or an image (a NUL in its first 8000 bytes, as git decides) is never code, so it owes no card.
+ * Whether a file's contents are code a card can describe: not a document, an archive, an image or a video
+ * (a NUL in its first 8000 bytes, as git decides, or bytes that aren't UTF-8 text), and not a Git LFS
+ * pointer standing in for one.
  */
+export function isCardText(text: string): boolean {
+  const head = text.slice(0, 8000);
+  if (head.includes('\0')) return false;
+  if ((head.match(REPLACED)?.length ?? 0) > Math.max(8, head.length / 100)) return false;
+  return !head.startsWith('version https://git-lfs.github.com/spec/');
+}
+
+/** A file's text as a card describes it; undefined when it doesn't exist or isn't code (isCardText), so it owes no card. */
 function cardText(root: string, path: string): string | undefined {
   const text = readRepoText(root, path);
-  return text === undefined || text.slice(0, 8000).includes('\0') ? undefined : text;
+  return text === undefined || !isCardText(text) ? undefined : text;
 }
 
 export function cardState(graph: Graph, root: string, path: string): CardState {
@@ -58,7 +70,7 @@ export interface CardInput { path: string; text: string; who: string; date: stri
 export function writeCard(graph: Graph, root: string, input: CardInput): FRecord {
   const text = cardText(root, input.path);
   if (text === undefined)
-    throw new Error(readRepoText(root, input.path) === undefined ? `${input.path} does not exist; a card describes a file as it is` : `${input.path} isn't text (a document, an archive or an image); cards are for code`);
+    throw new Error(readRepoText(root, input.path) === undefined ? `${input.path} does not exist; a card describes a file as it is` : `${input.path} isn't code (a document, an archive, media or a binary); cards are for code`);
   const body = input.text.replace(/\s+/g, ' ').trim();
   if (!body) throw new Error('card text is required: what the file is for, what it relies on, who relies on it, what it must keep true');
   const card: FRecord = { kind: 'F', path: input.path, hash: contentHash(text), date: input.date, who: input.who, text: body, line: 0 };

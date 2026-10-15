@@ -123,6 +123,9 @@ export function defaultConfig(): Config {
       '**/*.{jsonl,ndjson,csv,tsv}', '**/*.config.{js,cjs,mjs,ts,cts,mts}',
       // Documents, archives and media: a person's files, never code (and often personal data).
       '**/*.{doc,docx,xls,xlsx,ppt,pptx,odt,ods,odp,rtf,pages,numbers,key,eml,msg}', '**/*.{zip,gz,tgz,tar,7z,rar,bz2,xz}', '**/*.{mp3,mp4,mov,wav,m4a,webm,avi}',
+      // More media, images and fonts, 3D models, colour lookup tables, compiled output and data stores: assets, never code.
+      '**/*.{mkv,m4v,mpg,mpeg,flac,ogg,aac,aiff,avif,bmp,tif,tiff,heic,psd,ai,eps,otf,eot}', '**/*.{glb,gltf,fbx,obj,stl,3mf,usdz,blend,ply}',
+      '**/*.{cube,3dl,lut,icc}', '**/*.{bin,dat,wasm,exe,dll,so,dylib,o,a,class,jar,pyc}', '**/*.{sqlite,sqlite3,db,parquet,npy,npz,pkl,h5,onnx,safetensors}',
     ],
   };
 }
