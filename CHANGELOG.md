@@ -2,6 +2,16 @@
 
 What changed in each release of Context Graph, newest first. Versions follow the plugin manifests and the npm package `@warren-dean/context-graph`. Each release is also on [GitHub Releases](https://github.com/warrendeanlangeveldt/context-graph/releases).
 
+## 0.9.0 (2026-10-16)
+
+Context Graph no longer asks your session to start the card writer or the curator, and it doesn't try to card files that aren't code.
+
+- The card writer now runs inside the mod. It writes one card at a time with its own model request, built from the file in full, what it imports, what imports it, and the file's recent commits and diff, and saves it with `ctx card`. Before, it asked the lead to start a background agent, and that request showed up in your conversation as a prompt from the plugin. In auto mode Claude Code won't let a plugin start an agent itself, so the request had to go through the lead.
+- The curator works the same way. After every 10 new decisions, or when you press Curate now, it reads each module's decisions in one request and adds the conventions that three or more of them show as guidance, citing them. It no longer proposes modules; Add them as modules on the Overview does that.
+- Both default to Sonnet when `card_writer_model` or `curator_model` is empty. Before, empty meant the session's model, which a plugin's own request can't use.
+- Files that aren't code don't reach the card writer. On top of the NUL check, a file whose bytes aren't UTF-8 text, or that is a Git LFS pointer, owes no card, and the default exclusions now cover more media, images and fonts, 3D models, colour lookup tables (`.cube`), compiled output, `.bin` and `.dat` files, and data stores. A file the model still finds isn't code is skipped for the session and counted on the Overview, with Offer them again.
+- The Overview says which file is being explained, how many are queued, and when a request failed (it tries again a minute later). Turned-down batches and Ask again are gone, since the lead isn't asked any more.
+
 ## 0.8.0 (2026-10-13)
 
 A clearer Overview, and cards are never offered for documents.

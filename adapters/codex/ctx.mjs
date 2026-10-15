@@ -28942,7 +28942,7 @@ var init_propose = __esm({
 import { readFileSync as readFileSync16 } from "node:fs";
 import { join as join18 } from "node:path";
 function ctxVersion2() {
-  if (true) return "0.8.0";
+  if (true) return "0.9.0";
   try {
     return JSON.parse(readFileSync16(join18(packageRoot(), "package.json"), "utf8")).version ?? "unknown";
   } catch {
