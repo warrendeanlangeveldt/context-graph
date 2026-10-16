@@ -2,6 +2,12 @@
 
 What changed in each release of Context Graph, newest first. Versions follow the plugin manifests and the npm package `@warren-dean/context-graph`. Each release is also on [GitHub Releases](https://github.com/warrendeanlangeveldt/context-graph/releases).
 
+## 0.9.1 (2026-10-17)
+
+Context Graph tells a session each thing once, even when several of its hooks run at the same time.
+
+- A session's hooks often run at once: a call's completion hook beside the next call's, and the lead's beside its lane agents'. Each hook loaded the session's state and wrote all of it back, so one hook's write undid another's, and a hook that read the file mid-write fell back to the defaults. Whatever the session had already been told was forgotten. In one lead session, "Context Graph became active during this session" was added to the context 118 times, and file and module context was repeated in the same way. A hook now writes back only what it changed, onto the state as it is at that moment, and replaces the file in one step.
+
 ## 0.9.0 (2026-10-16)
 
 Context Graph no longer asks your session to start the card writer or the curator, and it doesn't try to card files that aren't code.
