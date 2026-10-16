@@ -2,6 +2,13 @@
 
 What changed in each release of Context Graph, newest first. Versions follow the plugin manifests and the npm package `@warren-dean/context-graph`. Each release is also on [GitHub Releases](https://github.com/warrendeanlangeveldt/context-graph/releases).
 
+## 0.9.2 (2026-10-17)
+
+An agent is given a file's context once while it stays the same.
+
+- Before each edit, Context Graph injects the file's card and slice. An agent editing the same file several times got the same text each time: in one lane, one file's context arrived 6 times and another's 4. Each agent now keeps a record of what it was given for each file, and the same text isn't injected again. After the context is compacted, each file's context arrives again at its next edit.
+- A shell command naming a path from a folder above the shell's current one, for a file that doesn't exist yet, was recorded with the folder doubled (`apps/web/src/components/blocks/apps/web/src/components/blocks/ItemSet.tsx`). It's now resolved from the folder the path was written from.
+
 ## 0.9.1 (2026-10-17)
 
 Context Graph tells a session each thing once, even when several of its hooks run at the same time.
