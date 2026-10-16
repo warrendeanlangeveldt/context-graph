@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ctxHome, repoHash } from '../util/paths.js';
 import type { Envelope } from './event.js';
@@ -97,6 +97,8 @@ export interface SessionStateData {
 export class SessionState {
   readonly file: string;
   data: SessionStateData;
+  /** The state as this hook loaded it, so a save writes back only what this hook changed. */
+  private loaded: Record<string, unknown>;
 
   constructor(readonly root: string, readonly session: string, readonly agent?: string) {
     const dir = join(ctxHome(), 'state', repoHash(root));
@@ -112,12 +114,57 @@ export class SessionState {
       const main = load(join(dir, `${sanitize(session)}.json`));
       if (main?.armSet) { this.data.arm = main.arm ?? 'on'; this.data.armSet = true; }
     }
+    this.loaded = JSON.parse(JSON.stringify(this.data)) as Record<string, unknown>;
   }
 
+  /**
+   * Writes back what this hook changed since it loaded, onto the state as it is now. A session's hooks run
+   * at once (an asynchronous completion hook beside the next call's, the lead's beside its lanes'), so a
+   * whole-file write would undo another hook's change: a flag saying the graph was announced, or a file
+   * whose history was shown, and the session would be told again. The file is replaced in one rename, so
+   * no hook ever reads half of it.
+   */
   save(): void {
     mkdirSync(join(this.file, '..'), { recursive: true });
-    writeFileSync(this.file, JSON.stringify(this.data, null, 2), 'utf8');
+    let now: Record<string, unknown> = {};
+    try { now = JSON.parse(readFileSync(this.file, 'utf8')) as Record<string, unknown>; } catch { now = {}; }
+    // A key the file doesn't have yet (a new file, a default) stands as this hook loaded it.
+    const merged = mergeState(this.loaded, this.data as unknown as Record<string, unknown>, { ...this.loaded, ...now });
+    const tmp = `${this.file}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
+    writeFileSync(tmp, JSON.stringify(merged, null, 2), 'utf8');
+    renameSync(tmp, this.file);
+    this.data = merged as unknown as SessionStateData;
+    this.loaded = JSON.parse(JSON.stringify(merged)) as Record<string, unknown>;
   }
+}
+
+const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/**
+ * A three-way merge of session state: `base` as this hook loaded it, `mine` as it leaves it, `theirs` as it
+ * is on disk now. What this hook left unchanged keeps the disk's value. A list takes the disk's, less what
+ * this hook removed, plus what it added; a map does the same key by key; anything else takes this hook's.
+ */
+export function mergeState(base: Record<string, unknown>, mine: Record<string, unknown>, theirs: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...theirs };
+  for (const key of new Set([...Object.keys(base), ...Object.keys(mine)])) {
+    const b = base[key];
+    const m = mine[key];
+    if (same(b, m)) continue;
+    const t = theirs[key];
+    if (Array.isArray(m) && (Array.isArray(t) || t === undefined)) {
+      const before = Array.isArray(b) ? b : [];
+      const removed = before.filter((x) => !m.some((y) => same(x, y)));
+      const added = m.filter((x) => !before.some((y) => same(x, y)));
+      const kept = (Array.isArray(t) ? t : []).filter((x) => !removed.some((y) => same(x, y)));
+      out[key] = [...kept, ...added.filter((x) => !kept.some((y) => same(x, y)))];
+    } else if (isRecord(m) && (isRecord(t) || t === undefined)) {
+      out[key] = mergeState(isRecord(b) ? b : {}, m, isRecord(t) ? t : {});
+    } else if (m === undefined) delete out[key];
+    else out[key] = m;
+  }
+  return out;
 }
 
 function sanitize(s: string): string {

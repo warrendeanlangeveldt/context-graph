@@ -4109,12 +4109,32 @@ var init_session = __esm({
 });
 
 // src/observe/store.ts
-import { appendFileSync as appendFileSync2, existsSync as existsSync8, mkdirSync as mkdirSync2, readdirSync as readdirSync3, readFileSync as readFileSync7, statSync as statSync4, writeFileSync as writeFileSync2 } from "node:fs";
+import { appendFileSync as appendFileSync2, existsSync as existsSync8, mkdirSync as mkdirSync2, readdirSync as readdirSync3, readFileSync as readFileSync7, renameSync, statSync as statSync4, writeFileSync as writeFileSync2 } from "node:fs";
 import { join as join6 } from "node:path";
+function mergeState(base, mine, theirs) {
+  const out = { ...theirs };
+  for (const key of /* @__PURE__ */ new Set([...Object.keys(base), ...Object.keys(mine)])) {
+    const b = base[key];
+    const m = mine[key];
+    if (same(b, m)) continue;
+    const t = theirs[key];
+    if (Array.isArray(m) && (Array.isArray(t) || t === void 0)) {
+      const before = Array.isArray(b) ? b : [];
+      const removed = before.filter((x) => !m.some((y) => same(x, y)));
+      const added2 = m.filter((x) => !before.some((y) => same(x, y)));
+      const kept = (Array.isArray(t) ? t : []).filter((x) => !removed.some((y) => same(x, y)));
+      out[key] = [...kept, ...added2.filter((x) => !kept.some((y) => same(x, y)))];
+    } else if (isRecord(m) && (isRecord(t) || t === void 0)) {
+      out[key] = mergeState(isRecord(b) ? b : {}, m, isRecord(t) ? t : {});
+    } else if (m === void 0) delete out[key];
+    else out[key] = m;
+  }
+  return out;
+}
 function sanitize(s) {
   return s.replace(/[^A-Za-z0-9_.-]/g, "_");
 }
-var ObservationStore, SessionState;
+var ObservationStore, SessionState, same, isRecord;
 var init_store = __esm({
   "src/observe/store.ts"() {
     "use strict";
@@ -4178,14 +4198,37 @@ var init_store = __esm({
             this.data.armSet = true;
           }
         }
+        this.loaded = JSON.parse(JSON.stringify(this.data));
       }
       file;
       data;
+      /** The state as this hook loaded it, so a save writes back only what this hook changed. */
+      loaded;
+      /**
+       * Writes back what this hook changed since it loaded, onto the state as it is now. A session's hooks run
+       * at once (an asynchronous completion hook beside the next call's, the lead's beside its lanes'), so a
+       * whole-file write would undo another hook's change: a flag saying the graph was announced, or a file
+       * whose history was shown, and the session would be told again. The file is replaced in one rename, so
+       * no hook ever reads half of it.
+       */
       save() {
         mkdirSync2(join6(this.file, ".."), { recursive: true });
-        writeFileSync2(this.file, JSON.stringify(this.data, null, 2), "utf8");
+        let now = {};
+        try {
+          now = JSON.parse(readFileSync7(this.file, "utf8"));
+        } catch {
+          now = {};
+        }
+        const merged = mergeState(this.loaded, this.data, { ...this.loaded, ...now });
+        const tmp = `${this.file}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
+        writeFileSync2(tmp, JSON.stringify(merged, null, 2), "utf8");
+        renameSync(tmp, this.file);
+        this.data = merged;
+        this.loaded = JSON.parse(JSON.stringify(merged));
       }
     };
+    same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+    isRecord = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
   }
 });
 
@@ -28914,8 +28957,8 @@ function propose(ctx, p, today3 = (/* @__PURE__ */ new Date()).toISOString().sli
     module = w.chain[0];
   } else if (!g.logicals.has(module)) return { error: `${module} isn't a module in the graph.` };
   if (p.test && /\s/.test(p.test)) return { error: "--test takes the path of the test that checks the rule, with no spaces." };
-  const same = [...g.constraints.values()].find((k) => k.attachedTo === module && k.text === text && !g.isRetired(k.id));
-  if (same) return { error: `${module} already has this rule${same.mode === "G?" ? " proposed" : ""}, as ${same.id}.` };
+  const same2 = [...g.constraints.values()].find((k) => k.attachedTo === module && k.text === text && !g.isRetired(k.id));
+  if (same2) return { error: `${module} already has this rule${same2.mode === "G?" ? " proposed" : ""}, as ${same2.id}.` };
   if (p.id && !ID.test(p.id)) return { error: `${p.id} isn't a usable id: letters, digits, dots, dashes and underscores.` };
   if (p.id && g.constraints.has(p.id)) return { error: `${p.id} is already a rule's id; pick another, or leave --id out.` };
   const id = p.id ?? proposalId(module, text, (x) => g.constraints.has(x));
@@ -28942,7 +28985,7 @@ var init_propose = __esm({
 import { readFileSync as readFileSync16 } from "node:fs";
 import { join as join18 } from "node:path";
 function ctxVersion2() {
-  if (true) return "0.9.0";
+  if (true) return "0.9.1";
   try {
     return JSON.parse(readFileSync16(join18(packageRoot(), "package.json"), "utf8")).version ?? "unknown";
   } catch {
