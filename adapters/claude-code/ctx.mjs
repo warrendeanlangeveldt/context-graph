@@ -183,6 +183,10 @@ function parseShell(command, cwd, altCwd) {
         const alt = resolve(altCwd, p);
         if (existsSync(alt)) return alt;
       }
+      if (!existsSync(first)) {
+        const from = ancestorFor(dir, p);
+        if (from) return resolve(from, p);
+      }
       return first;
     };
     const markIdx = words.findIndex((w) => w.startsWith(HEREDOC_MARK));
@@ -687,6 +691,14 @@ function extractHeredocs(command) {
     bodies.push(body.join("\n"));
   }
   return { stripped: out.join("\n"), bodies };
+}
+function ancestorFor(dir, path) {
+  const folders = path.split("/").slice(0, -1).filter((s) => s && s !== ".");
+  const parts = dir.split("/");
+  for (let k = Math.min(folders.length, parts.length - 1); k > 0; k--) {
+    if (parts.slice(parts.length - k).join("/") === folders.slice(0, k).join("/")) return parts.slice(0, parts.length - k).join("/") || "/";
+  }
+  return void 0;
 }
 var READ_FULL, LISTERS, GREPPERS, RUNNERS, NOOPS, WRAPPERS, GREP_VALUE_FLAGS, REF_VALUE_FLAGS, HEREDOC_MARK;
 var init_shell = __esm({
@@ -5859,6 +5871,7 @@ var init_cli = __esm({
 });
 
 // src/adapters/core.ts
+import { createHash as createHash4 } from "node:crypto";
 import { existsSync as existsSync14, readFileSync as readFileSync13, statSync as statSync5 } from "node:fs";
 import { join as join14, resolve as resolve8 } from "node:path";
 async function runHook(input, profile) {
@@ -5961,10 +5974,9 @@ async function handleHook(input, profile) {
       store.append(env);
       notifyOverlay(ctx, env);
     }
-    if (ctx.graph) {
-      state.data.graphAnnounced = true;
-      state.save();
-    }
+    if (ctx.graph) state.data.graphAnnounced = true;
+    if (reason === "compact") state.data.slicesShown = {};
+    state.save();
     return { stdout: profile.formatSessionStart(sessionContext(ctx, injecting, reason === "compact")), exitCode: 0 };
   }
   if (profile.preCompactEvent && event === profile.preCompactEvent) {
@@ -6056,17 +6068,28 @@ ${sessionContext(ctx, injecting, false)}` : void 0;
     }
     const codeTargets = targets.filter((t) => /\.(ts|tsx|js|jsx|mts|cts|mjs|cjs)$/.test(t.path));
     const depIndex = codeTargets.length ? loadOrBuildImportIndex(root) : void 0;
+    const shown = { ...state.data.slicesShown ?? {} };
     for (const t of targets) {
       const s = await sliceFor(t.path, t.range, intent);
       const card = renderFileCard(t.path, cardState(g, root, t.path), factsFor(root, t.path).lines);
-      if (card) slices.push(card.text);
       const deps = depIndex ? renderDependencyContext(g, dependencyContext(g, t.path, depIndex.imports[t.path] ?? [])) : void 0;
-      if (s) {
-        slices.push(deps ? `${s.text}
+      const text = [card?.text, s ? deps ? `${s.text}
+${deps}` : s.text : void 0].filter(Boolean).join("\n");
+      const hash = createHash4("sha1").update(text).digest("hex").slice(0, 16);
+      if (text && shown[t.path] !== hash) {
+        if (card) slices.push(card.text);
+        if (s) slices.push(deps ? `${s.text}
 ${deps}` : s.text);
+        shown[t.path] = hash;
+      }
+      if (s) {
         recorder.notePending(s.walk, input.tool_use_id, { provisional: true });
         if (s.walk.chain[0]) announced.add(s.walk.chain[0]);
       }
+    }
+    if (JSON.stringify(shown) !== JSON.stringify(state.data.slicesShown ?? {})) {
+      state.data.slicesShown = shown;
+      state.save();
     }
     const answered = new Set(state.data.filesAnnounced ?? []);
     let histories = 0;
@@ -28985,7 +29008,7 @@ var init_propose = __esm({
 import { readFileSync as readFileSync16 } from "node:fs";
 import { join as join18 } from "node:path";
 function ctxVersion2() {
-  if (true) return "0.9.1";
+  if (true) return "0.9.2";
   try {
     return JSON.parse(readFileSync16(join18(packageRoot(), "package.json"), "utf8")).version ?? "unknown";
   } catch {
@@ -33577,7 +33600,7 @@ var require_websocket = __commonJS({
     var http = __require("http");
     var net = __require("net");
     var tls = __require("tls");
-    var { randomBytes: randomBytes2, createHash: createHash4 } = __require("crypto");
+    var { randomBytes: randomBytes2, createHash: createHash5 } = __require("crypto");
     var { Duplex, Readable } = __require("stream");
     var { URL: URL2 } = __require("url");
     var PerMessageDeflate2 = require_permessage_deflate();
@@ -34245,7 +34268,7 @@ var require_websocket = __commonJS({
           abortHandshake(websocket, socket, "Invalid Upgrade header");
           return;
         }
-        const digest = createHash4("sha1").update(key + GUID).digest("base64");
+        const digest = createHash5("sha1").update(key + GUID).digest("base64");
         if (res.headers["sec-websocket-accept"] !== digest) {
           abortHandshake(websocket, socket, "Invalid Sec-WebSocket-Accept header");
           return;
@@ -34614,7 +34637,7 @@ var require_websocket_server = __commonJS({
     var EventEmitter = __require("events");
     var http = __require("http");
     var { Duplex } = __require("stream");
-    var { createHash: createHash4 } = __require("crypto");
+    var { createHash: createHash5 } = __require("crypto");
     var extension2 = require_extension();
     var PerMessageDeflate2 = require_permessage_deflate();
     var subprotocol2 = require_subprotocol();
@@ -34921,7 +34944,7 @@ var require_websocket_server = __commonJS({
           );
         }
         if (this._state > RUNNING) return abortHandshake(socket, 503);
-        const digest = createHash4("sha1").update(key + GUID).digest("base64");
+        const digest = createHash5("sha1").update(key + GUID).digest("base64");
         const headers = [
           "HTTP/1.1 101 Switching Protocols",
           "Upgrade: websocket",

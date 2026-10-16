@@ -201,6 +201,17 @@ describe('Claude Code hook adapter, end to end on a temporary repository', () =>
     expect(second.stdout).toBeUndefined();
   });
 
+  it('gives an agent a file\'s context once while it is the same, and again after compaction', async () => {
+    await runClaudeHook({ ...base(), hook_event_name: 'SessionStart', start_reason: 'startup' });
+    await runClaudeHook({ ...base(), hook_event_name: 'PostToolUse', tool_name: 'Read', tool_input: { file_path: join(repo, 'api/src/core/orch/bb.ts') } });
+    const edit = () => runClaudeHook({ ...base(), hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: join(repo, 'api/src/core/orch/bb.ts'), old_string: 'helper(e);', new_string: 'helper(e); this.count++;' } });
+    const context = (r: { stdout?: string }) => (r.stdout ? (JSON.parse(r.stdout) as { hookSpecificOutput: { additionalContext?: string } }).hookSpecificOutput.additionalContext ?? '' : '');
+    expect(context(await edit())).toContain('[G orch.events]');
+    expect(context(await edit())).not.toContain('[G orch.events]');
+    await runClaudeHook({ ...base(), hook_event_name: 'SessionStart', start_reason: 'compact', source: 'compact' });
+    expect(context(await edit())).toContain('[G orch.events]');
+  });
+
   it('injects a slice before an edit, observes the edit with coverage, then demands a decision at Stop', async () => {
     const start = await runClaudeHook({ ...base(), hook_event_name: 'SessionStart', start_reason: 'startup' });
     expect(start.stdout).toMatch(/Context Graph \S+ is active/);

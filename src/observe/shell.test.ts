@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseShell, parseShellCommand } from './shell.js';
+import { ancestorFor, parseShell, parseShellCommand } from './shell.js';
 
 const modes = (cmd: string): string[] => parseShellCommand(cmd).map((t) => `${t.mode} ${t.path}${t.range ? ` ${t.range.join(':')}` : ''}${t.unparsed ? ' ?' : ''}`);
 
@@ -125,5 +125,14 @@ describe('parseShellCommand', () => {
   it('ignores /dev/null and noops', () => {
     expect(modes('cmd > /dev/null 2>&1')).toEqual([]);
     expect(modes('export X=1; pwd; echo done')).toEqual([]);
+  });
+});
+
+describe('a path written from an ancestor of the shell\'s folder', () => {
+  it('is resolved from that ancestor, not doubled', () => {
+    expect(ancestorFor('/repo/apps/web/src/components/blocks', 'apps/web/src/components/blocks/ItemSet.tsx')).toBe('/repo');
+    expect(ancestorFor('/repo/apps/web', 'web/src/a.ts')).toBe('/repo/apps');
+    expect(ancestorFor('/repo/apps/web', 'src/a.ts')).toBeUndefined();
+    expect(ancestorFor('/repo', 'a.ts')).toBeUndefined();
   });
 });

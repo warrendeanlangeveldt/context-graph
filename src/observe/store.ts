@@ -75,6 +75,8 @@ export interface SessionStateData {
   modulesAnnounced?: string[];
   /** Files whose decision history this session has been shown, by path. */
   filesAnnounced?: string[];
+  /** The context last injected before an edit of each file, by path, as a hash: the same again isn't. */
+  slicesShown?: Record<string, string>;
   /** The pending set this session has already been nudged about, so the ask is not repeated on every tool call. */
   nudgedKey?: string;
   /** Ancestor pids of the hook process, so the MCP server and shell commands under the same harness can find this session. */
