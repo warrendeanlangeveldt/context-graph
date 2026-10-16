@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { isPersonsGraphAct } from '../cli/person-acts.js';
 import { join, resolve } from 'node:path';
@@ -206,7 +207,10 @@ async function handleHook(input: HookInput, profile: HarnessProfile): Promise<Ho
       store.append(env);
       notifyOverlay(ctx, env);
     }
-    if (ctx.graph) { state.data.graphAnnounced = true; state.save(); }
+    if (ctx.graph) state.data.graphAnnounced = true;
+    // Compaction drops what was injected: each file's context arrives again at its next edit.
+    if (reason === 'compact') state.data.slicesShown = {};
+    state.save();
     return { stdout: profile.formatSessionStart(sessionContext(ctx, injecting, reason === 'compact')), exitCode: 0 };
   }
 
@@ -313,15 +317,25 @@ async function handleHook(input: HookInput, profile: HarnessProfile): Promise<Ho
 
     const codeTargets = targets.filter((t) => /\.(ts|tsx|js|jsx|mts|cts|mjs|cjs)$/.test(t.path));
     const depIndex = codeTargets.length ? loadOrBuildImportIndex(root) : undefined;
+    // What this agent was already given for a file, it isn't given again while it's the same: an agent
+    // editing one file ten times would otherwise hold its card and slice ten times. Compaction forgets it.
+    const shown = { ...(state.data.slicesShown ?? {}) };
     for (const t of targets) {
       const s = await sliceFor(t.path, t.range, intent);
       const card = renderFileCard(t.path, cardState(g, root, t.path), factsFor(root, t.path).lines);
-      if (card) slices.push(card.text);
       // What reaches this file through its imports: the rules and decisions it has to keep but cannot see
       // from its own module.
       const deps = depIndex ? renderDependencyContext(g, dependencyContext(g, t.path, depIndex.imports[t.path] ?? [])) : undefined;
-      if (s) { slices.push(deps ? `${s.text}\n${deps}` : s.text); recorder.notePending(s.walk, input.tool_use_id, { provisional: true }); if (s.walk.chain[0]) announced.add(s.walk.chain[0]); }
+      const text = [card?.text, s ? (deps ? `${s.text}\n${deps}` : s.text) : undefined].filter(Boolean).join('\n');
+      const hash = createHash('sha1').update(text).digest('hex').slice(0, 16);
+      if (text && shown[t.path] !== hash) {
+        if (card) slices.push(card.text);
+        if (s) slices.push(deps ? `${s.text}\n${deps}` : s.text);
+        shown[t.path] = hash;
+      }
+      if (s) { recorder.notePending(s.walk, input.tool_use_id, { provisional: true }); if (s.walk.chain[0]) announced.add(s.walk.chain[0]); }
     }
+    if (JSON.stringify(shown) !== JSON.stringify(state.data.slicesShown ?? {})) { state.data.slicesShown = shown; state.save(); }
     // The decision history: the first time this session reads a file that carries decisions, say what was
     // decided there and why, before its text is in context. A wrong model is built by reading, not writing,
     // so this is the read-time half of the pair. Silent for a file with no decisions, once per file.
