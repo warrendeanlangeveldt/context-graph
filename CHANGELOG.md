@@ -2,6 +2,12 @@
 
 What changed in each release of Context Graph, newest first. Versions follow the plugin manifests and the npm package `@warren-dean/context-graph`. Each release is also on [GitHub Releases](https://github.com/warrendeanlangeveldt/context-graph/releases).
 
+## 0.9.3 (2026-10-19)
+
+Context Graph notices when a plugin compacts the conversation.
+
+- code-kit 0.19 compacts the lead's context between turns once it passes a threshold, through Claude Code's plugin API. Claude Code's classic compaction hooks only cover `/compact` and its own automatic compaction, so Context Graph might not hear of this one. It would then go on as if the lead still held files it no longer had: skipping their context before an edit, and letting it edit them without reading them again. When a plugin's compaction stands in the main session, Context Graph's mod now sends its hook the same notice a classic compaction does.
+
 ## 0.9.2 (2026-10-17)
 
 An agent is given a file's context once while it stays the same.
