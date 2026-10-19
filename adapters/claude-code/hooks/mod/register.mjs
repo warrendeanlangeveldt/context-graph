@@ -612,6 +612,26 @@ export function register(on) {
     return res;
   }).catch(($, e, next) => next(e)); // whatever fails here, the call goes on as it would
 
+  // A compaction a plugin starts (code-kit compacts the lead at a threshold) may not run the classic
+  // hooks that tell Context Graph the conversation was compacted. Once one stands in the main session, the
+  // same SessionStart(compact) goes to Context Graph's hook, so what was injected and read before it is
+  // given again and read again. Claude Code's own compactions (/compact, its threshold) run those hooks.
+  on('session.compact', async ($, e, next) => {
+    const res = await next(e);
+    if (res?.skip || e.trigger !== 'plugin' || e.agentId) return res;
+    const cwd = await $.session.cwd().catch(() => null);
+    const session = await $.session.id().catch(() => null);
+    if (!cwd || !session) return res;
+    await $.process
+      .run(['node', `${$.plugin.root}/ctx.mjs`, 'hook', '--harness', 'claude-code', '--agent', 'claude'], {
+        cwd,
+        stdin: JSON.stringify({ hook_event_name: 'SessionStart', source: 'compact', session_id: session, cwd }),
+        timeoutMs: 10000,
+      })
+      .catch(() => null);
+    return res;
+  }).catch(($, e, next) => next(e));
+
   // CARDW-5: the plan's 5-hour use, as Claude Code measures it.
   on('session.measure', async ($, e, next) => {
     if (e.changed.includes('rateLimits')) {
