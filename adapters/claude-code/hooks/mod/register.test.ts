@@ -42,6 +42,7 @@ function project() {
     dropExit: 0,
     answer: 'Accept',
     acts: [] as string[][],
+    hooked: [] as any[], // what the mod sent Context Graph's hook on stdin
     fileAsks: [] as string[][],
     open: new Set<string>(),
     opened: [] as string[],
@@ -111,6 +112,10 @@ function stub(on: any, w: World) {
     const argv: readonly string[] = e.argv;
     const ran = (exitCode: number, stdout: string, stderr = '') => ({ value: { exitCode, stdout, stderr } });
     const sub = argv[2];
+    if (sub === 'hook') {
+      w.hooked.push(JSON.parse(e.init?.stdin ?? 'null'));
+      return ran(0, '');
+    }
     if (argv[0] === 'git' && argv[1] === 'log' && argv.includes('-3')) return ran(0, `ST-4 ${argv.at(-1)} for the booking form\n`);
     if (argv[0] === 'git') return ran(0, '');
     if (sub === 'info') return ran(0, JSON.stringify(w.info));
@@ -252,6 +257,17 @@ const press = ($: any, key: string, requestId?: string) =>
 const shownIn = (node: any): string[] =>
   !node ? [] : typeof node === 'string' ? [node] : (node.children ?? []).flatMap((c: any) => shownIn(c));
 const ctx = ($: any) => $.command.run({ command: 'graph', args: '' });
+
+test("a compaction a plugin starts reaches Context Graph's hook as SessionStart(compact); the session's own don't go this way", async ($, on) => {
+  const w = project();
+  on('session.compact', () => ({ messages: [{ role: 'user', text: 'Summary.', toolUses: [] }] }));
+  const said = [{ role: 'user', text: 'Build ST-4.', toolUses: [] }];
+  await start($, on, w);
+  await $.session.compact({ trigger: 'plugin', instructions: 'keep what is in flight', messages: said } as any);
+  expect(w.hooked).toEqual([{ hook_event_name: 'SessionStart', source: 'compact', session_id: 's1', cwd: '/work' }]);
+  await $.session.compact({ trigger: 'manual', messages: said } as any);
+  expect(w.hooked).toHaveLength(1);
+});
 
 test('FILE-1 /graph opens the pane on the file an agent read, naming the agent', async ($, on) => {
   const w = project();
