@@ -22,14 +22,16 @@ export interface HygieneFinding {
   level: 'propose' | 'info';
 }
 
-export function hygieneReport(ctx: RepoContext): HygieneFinding[] {
+/**
+ * The rules agents keep overriding: overridden in practice (the last overrideStreak decisions on a rule all
+ * override it) and overridden since ratified (CUR-2). From the graph alone, with no git, so the Context
+ * pane's snapshot carries them on every refresh (COST-2).
+ */
+export function overrideFindings(ctx: RepoContext): HygieneFinding[] {
   const g = ctx.graph;
   if (!g || !ctx.graphDir) throw new Error('no graph');
   const cfg = ctx.config.hygiene;
   const out: HygieneFinding[] = [];
-  const today = Date.now();
-  const ageDays = (date: string): number => Math.floor((today - new Date(date).getTime()) / 86_400_000);
-
   // Overridden in practice.
   for (const k of g.constraints.values()) {
     if (k.mode !== 'G' || g.isRetired(k.id)) continue;
@@ -53,6 +55,17 @@ export function hygieneReport(ctx: RepoContext): HygieneFinding[] {
       out.push({ signal: 'overridden-since-ratified', target: k.id, evidence: overriding.map((d) => `${d.id} ${d.date} ${d.who}: ${d.text}`), proposal: `reword ${k.id} to match how the team works, or retire it (ctx retire ${k.id} --reason ...)`, level: 'propose' });
     }
   }
+
+  return out;
+}
+
+export function hygieneReport(ctx: RepoContext): HygieneFinding[] {
+  const g = ctx.graph;
+  if (!g || !ctx.graphDir) throw new Error('no graph');
+  const cfg = ctx.config.hygiene;
+  const out: HygieneFinding[] = overrideFindings(ctx);
+  const today = Date.now();
+  const ageDays = (date: string): number => Math.floor((today - new Date(date).getTime()) / 86_400_000);
 
   // Unreachable attachments.
   for (const k of g.constraints.values()) {

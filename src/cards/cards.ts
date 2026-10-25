@@ -4,6 +4,7 @@ import type { Graph } from '../graph/graph.js';
 import type { FRecord } from '../graph/records.js';
 import { appendRecord } from '../graph/write.js';
 import { readRepoText } from '../util/paths.js';
+import { cachedHash } from './hashcache.js';
 import { estimateTokens } from '../util/tokens.js';
 
 /**
@@ -50,8 +51,11 @@ function cardText(root: string, path: string): string | undefined {
 
 export function cardState(graph: Graph, root: string, path: string): CardState {
   const card = graph.cards.get(path);
-  const text = cardText(root, path);
-  const hash = text === undefined ? undefined : contentHash(text);
+  // COST-3: read only a file whose size or modification time changed since it was last hashed.
+  const hash = cachedHash(root, path, () => {
+    const text = cardText(root, path);
+    return text === undefined ? undefined : contentHash(text);
+  });
   const out: CardState = { fresh: Boolean(card && hash && card.hash === hash) };
   if (card) out.card = card;
   if (hash) out.hash = hash;

@@ -1115,8 +1115,8 @@ exclude = [".ctx/**", ".claude/**", "**/*.md", "**/*.lock", "**/generated/**"]
 
 [harness]                       # the mod's background agents and side questions (specs 04-09); repository config only
 agent_guidance = true           # a rule an agent proposes applies at once as guidance; false: it waits for a person
-card_writer = true              # writes the cards owed, from full reads
-backfill = "active"             # also cards the existing code, leaves first: off | active (changed in 90 days) | all
+card_writer = false             # writes the cards owed, from full reads (model requests; one session per checkout)
+backfill = "off"                # also cards the existing code, leaves first: off | active (changed in 90 days) | all
 card_writer_model = ""          # "" is Sonnet
 curator = false                 # adds guidance from decisions, flags overridden ones
 curator_model = ""              # "" is Sonnet

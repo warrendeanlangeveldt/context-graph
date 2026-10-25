@@ -1,6 +1,9 @@
 import type { RepoContext } from '../core/context.js';
 import { loadOrBuildImportIndex } from '../index/imports.js';
-import { git } from '../util/git.js';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { git, headSha } from '../util/git.js';
+import { checkoutHash, ctxHome } from '../util/paths.js';
 import { cardState, exemptFromCards } from './cards.js';
 
 /** Which files a backfill cards: the modules changed lately, or every module. */
@@ -32,8 +35,7 @@ export function backfillOrder(ctx: RepoContext, scope: BackfillScope = 'active')
   const moduleOf = (f: string): string | undefined => g.mapPath(f)?.logical;
   let inScope = files;
   if (scope === 'active') {
-    const recent = (git(ctx.root, ['log', `--since=${ACTIVE_DAYS}.days`, '--name-only', '--format=']) ?? '').split('\n').filter(Boolean);
-    const active = new Set(recent.map(moduleOf).filter((m): m is string => Boolean(m)));
+    const active = activeModules(ctx.root, moduleOf);
     inScope = files.filter((f) => active.has(moduleOf(f)!));
   }
   const todo = new Set(inScope.filter((f) => {
@@ -41,19 +43,73 @@ export function backfillOrder(ctx: RepoContext, scope: BackfillScope = 'active')
     return s.hash !== undefined && !s.fresh;
   }));
   const index = loadOrBuildImportIndex(ctx.root);
-  const order: string[] = [];
-  const placed = new Set<string>();
-  const waitingOn = (f: string): string[] => (index.imports[f] ?? []).filter((i) => todo.has(i) && !placed.has(i) && i !== f);
-  // Leaves first, a layer at a time; ties in path order so the order is the same on every run.
-  let left = [...todo].sort();
-  while (left.length) {
-    const ready = left.filter((f) => waitingOn(f).length === 0);
-    const next = ready.length ? ready : [left.slice().sort((a, b) => waitingOn(a).length - waitingOn(b).length || a.localeCompare(b))[0]!];
-    for (const f of next) {
-      order.push(f);
-      placed.add(f);
-    }
-    left = left.filter((f) => !placed.has(f));
+  return { scope, files: leavesFirst([...todo], (f) => index.imports[f] ?? []), inScope: inScope.length };
+}
+
+/**
+ * The files in the order to card them: a layer at a time, each file after the files it imports, ties in
+ * path order so the order is the same on every run. Where only an import cycle is left, the file with
+ * the fewest imports still waiting goes next on its own. One pass over the import graph (COST-3).
+ */
+export function leavesFirst(files: string[], importsOf: (f: string) => string[]): string[] {
+  const todo = new Set(files);
+  const waiting = new Map<string, number>();
+  const dependents = new Map<string, string[]>();
+  for (const f of todo) {
+    const deps = [...new Set(importsOf(f))].filter((i) => todo.has(i) && i !== f);
+    waiting.set(f, deps.length);
+    for (const d of deps) dependents.set(d, [...(dependents.get(d) ?? []), f]);
   }
-  return { scope, files: order, inScope: inScope.length };
+  const order: string[] = [];
+  const left = new Set([...todo].sort());
+  const place = (f: string, freed: string[]): void => {
+    order.push(f);
+    left.delete(f);
+    for (const d of dependents.get(f) ?? []) {
+      const n = waiting.get(d)! - 1;
+      waiting.set(d, n);
+      if (n === 0 && left.has(d)) freed.push(d);
+    }
+  };
+  let layer = [...left].filter((f) => waiting.get(f) === 0);
+  while (left.size) {
+    if (!layer.length) {
+      // An import cycle: the file with the fewest imports still waiting, then by path.
+      let pick: string | undefined;
+      for (const f of left) if (pick === undefined || waiting.get(f)! < waiting.get(pick)!) pick = f;
+      layer = [pick!];
+    }
+    const freed: string[] = [];
+    for (const f of layer) place(f, freed);
+    // A file waits on nothing once its last import is placed: it's in the next layer.
+    layer = freed.filter((f) => left.has(f)).sort();
+  }
+  return order;
+}
+
+/**
+ * The modules any file changed in within the last 90 days, cached for the commit HEAD is on (COST-3):
+ * the history doesn't change until HEAD moves.
+ */
+function activeModules(root: string, moduleOf: (f: string) => string | undefined): Set<string> {
+  const head = headSha(root);
+  const file = join(ctxHome(), 'index', `${checkoutHash(root)}.active.json`);
+  if (head) {
+    try {
+      const cached = JSON.parse(readFileSync(file, 'utf8')) as { head: string; days: number; files: string[] };
+      if (cached.head === head && cached.days === ACTIVE_DAYS) return new Set(cached.files.map(moduleOf).filter((m): m is string => Boolean(m)));
+    } catch {
+      /* none yet: read the history */
+    }
+  }
+  const recent = [...new Set((git(root, ['log', `--since=${ACTIVE_DAYS}.days`, '--name-only', '--format=']) ?? '').split('\n').filter(Boolean))];
+  if (head) {
+    try {
+      mkdirSync(join(ctxHome(), 'index'), { recursive: true });
+      writeFileSync(file, JSON.stringify({ head, days: ACTIVE_DAYS, files: recent }), 'utf8');
+    } catch {
+      /* a read-only home: read the history again next time */
+    }
+  }
+  return new Set(recent.map(moduleOf).filter((m): m is string => Boolean(m)));
 }

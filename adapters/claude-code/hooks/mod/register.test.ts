@@ -60,6 +60,10 @@ function project() {
     recent: { fresh: [], stale: [], missing: [] } as any, // `ctx cards --recent`
     moduleCards: { fresh: [], stale: [], missing: [] } as any,
     registered: [] as any[],
+    stamps: {} as Record<string, number>, // a file's mtime, where a test changes it (the graph's files)
+    calls: [] as string[], // every ctx command the mod ran, by name
+    snapshots: [] as string[][], // `ctx snapshot` calls, by their arguments (COST-2)
+    writer: null as any, // the checkout's writer as the snapshot reports it (COST-4)
     limits: [] as any[],
     hygiene: [] as any[],
     agentsThrow: false,
@@ -112,6 +116,7 @@ function stub(on: any, w: World) {
     const argv: readonly string[] = e.argv;
     const ran = (exitCode: number, stdout: string, stderr = '') => ({ value: { exitCode, stdout, stderr } });
     const sub = argv[2];
+    if (argv[0] === 'node') w.calls.push(sub);
     if (sub === 'hook') {
       w.hooked.push(JSON.parse(e.init?.stdin ?? 'null'));
       return ran(0, '');
@@ -119,6 +124,35 @@ function stub(on: any, w: World) {
     if (argv[0] === 'git' && argv[1] === 'log' && argv.includes('-3')) return ran(0, `ST-4 ${argv.at(-1)} for the booking form\n`);
     if (argv[0] === 'git') return ran(0, '');
     if (sub === 'info') return ran(0, JSON.stringify(w.info));
+    // COST-2: what a refresh reads, in one process, built from the same world as the separate commands.
+    if (sub === 'snapshot') {
+      w.snapshots.push([...argv.slice(3)]);
+      const flag = (name: string) => (argv.includes(name) ? argv[argv.indexOf(name) + 1] : undefined);
+      if (!w.info?.graphDir) return ran(0, JSON.stringify({ info: w.info }));
+      const on = (key: string, fallback: any) => {
+        const row = w.settings.find((r: any) => r.key === key);
+        return row ? row.value : fallback;
+      };
+      const writer = w.writer ?? null;
+      const working = !writer || writer.mine;
+      const file = flag('--file');
+      if (file) w.fileAsks.push([file, '--session', flag('--session'), ...(flag('--agent') ? ['--agent', flag('--agent')] : []), '--json']);
+      return ran(
+        0,
+        JSON.stringify({
+          info: w.info,
+          proposals: w.proposals,
+          cards: w.cards,
+          hygiene: w.hygiene,
+          settings: w.settings,
+          agents: w.agents,
+          writer,
+          ...(working && on('card_writer', false) ? { changed: w.changed, recent: w.recent } : {}),
+          ...(working && on('backfill', 'off') !== 'off' ? { backfill: w.backfill } : {}),
+          ...(file ? { file: w.files[file] ?? null, neighbours: w.neighbours[file] ?? null } : {}),
+        }),
+      );
+    }
     if (sub === 'card' || sub === 'propose') {
       w.acts.push([...argv.slice(2)]);
       return sub === 'card' && w.cardExit ? ran(1, '', `${argv[3]} isn't code`) : ran(0, '');
@@ -209,7 +243,7 @@ function stub(on: any, w: World) {
     if (w.agentsThrow) throw new Error('no session is bound in this process');
     return { value: w.running };
   });
-  on('fs.stat', () => ({ value: { kind: 'file', size: 1, mtimeMs: 1, isLink: false } }));
+  on('fs.stat', ($: any, e: any) => ({ value: { kind: 'file', size: 1, mtimeMs: w.stamps[e.path] ?? 1, isLink: false } }));
   on('session.cwd', () => ({ value: '/work' }));
   on('session.id', () => ({ value: 's1' }));
   on('command.register', () => ({ value: undefined }));
@@ -866,6 +900,8 @@ function curating(decisions = 5) {
 }
 const moreDecisions = async ($: any, w: any, clock: any, n: number) => {
   w.info = { ...w.info, counts: { ...w.info.counts, decisions: n } };
+  // A decision recorded is a change to the graph's decisions file, which the mod refreshes on (COST-1).
+  w.stamps['/work/.ctx/decisions.ctx'] = n;
   await $.tool.call({ tool: 'Read', tool_use_id: `r${n}`, file_path: '/work/src/a.ts' } as any);
   await clock.advance(2000);
 };
@@ -1229,3 +1265,64 @@ test("the lead's turns don't hold the card writer up, and nothing it does reache
   await $.turn.complete({ turnId: 't-1', answer: '', durationMs: 1, isAborted: false } as any);
   expect(w.prompts).toEqual([]);
 });
+
+// --- what it costs to run (spec 10) ---------------------------------------------------------------
+
+test('COST-1 and COST-2 with the pane closed, reads start no refresh and an edit does; each refresh is one snapshot', async ($, on) => {
+  const w = project();
+  const clock = await start($, on, w);
+  // The first read sets the file the pane follows, which is itself a change.
+  await $.tool.call({ tool: 'Read', tool_use_id: 'r1', file_path: '/work/src/a.ts' } as any);
+  await clock.advance(2000);
+  const followed = w.snapshots.length;
+  for (let i = 2; i < 8; i++) {
+    await $.tool.call({ tool: 'Read', tool_use_id: `r${i}`, file_path: '/work/src/a.ts' } as any);
+    await clock.advance(2000);
+  }
+  expect(w.snapshots.length).toBe(followed);
+  await $.tool.call({ tool: 'Edit', tool_use_id: 'e1', file_path: '/work/src/a.ts' } as any);
+  await clock.advance(2000);
+  expect(w.snapshots.length).toBe(followed + 1);
+  // A refresh is the snapshot alone: none of the commands it replaces.
+  expect(w.calls.filter((c) => ['info', 'proposals', 'cards', 'hygiene', 'settings', 'agents', 'file', 'neighbours'].includes(c))).toEqual([]);
+  expect(w.snapshots.at(-1)).toEqual(['--session', 's1', '--file', 'src/a.ts', '--json']);
+  // With nothing changed, the next refresh is five minutes on.
+  const quiet = w.snapshots.length;
+  await clock.advance(4 * 60000);
+  expect(w.snapshots.length).toBe(quiet);
+  await clock.advance(70000);
+  expect(w.snapshots.length).toBe(quiet + 1);
+});
+
+test('COST-1 with the pane open, each read refreshes the coverage within 2 seconds', async ($, on) => {
+  const w = project();
+  const clock = await start($, on, w);
+  await ctx($);
+  await $.tool.call({ tool: 'Read', tool_use_id: 'r1', file_path: '/work/src/a.ts' } as any);
+  await clock.advance(2000);
+  const before = w.snapshots.length;
+  await $.tool.call({ tool: 'Read', tool_use_id: 'r2', file_path: '/work/src/a.ts' } as any);
+  await clock.advance(2000);
+  await $.tool.call({ tool: 'Read', tool_use_id: 'r3', file_path: '/work/src/a.ts' } as any);
+  await clock.advance(2000);
+  expect(w.snapshots.length).toBe(before + 2);
+});
+
+test('COST-4 with another session running the card writer for this checkout, this one sends no card requests and says who does', async ($, on) => {
+  const w = writing();
+  w.writer = { mine: false, session: 's2', since: '2026-10-25T08:00:00Z' };
+  const clock = await start($, on, w);
+  await clock.advance(6000);
+  expect(cardAsks(w)).toEqual([]);
+  expect(cardsWritten(w)).toEqual([]);
+  await ctx($);
+  const ui = await mountPane($, PANE);
+  expect(await ui.find({ type: 'Text', text: /Another session is explaining the files for this checkout/ })).toBeDefined();
+  await ui.unmount();
+  // It ends: this session's snapshot claims the writer, and the cards are written here.
+  w.writer = { mine: true, session: 's1', since: '2026-10-25T08:10:00Z' };
+  w.stamps['/work/.ctx/cards.ctx'] = 2;
+  await clock.advance(8000);
+  expect(cardsWritten(w)).toEqual(['src/a.ts', 'src/b.ts']);
+});
+

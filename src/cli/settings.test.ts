@@ -42,8 +42,9 @@ describe('ctx settings: the harness settings, changed as the person', () => {
     expect(rows.map((r) => r.key)).toEqual(['agent_guidance', 'card_writer', 'card_writer_model', 'backfill', 'curator', 'curator_model', 'side_questions', 'side_questions_model', 'pause_at_percent']);
     // In the background by default: agents' guidance applies, and the card writer cards the active code.
     expect(rows.find((r) => r.key === 'agent_guidance')).toMatchObject({ value: true, default: true });
-    expect(rows.find((r) => r.key === 'card_writer')).toMatchObject({ value: true, default: true });
-    expect(rows.find((r) => r.key === 'backfill')).toMatchObject({ value: 'active', default: 'active' });
+    // COST-4: the background work spends tokens, so it's off until the person switches it on.
+    expect(rows.find((r) => r.key === 'card_writer')).toMatchObject({ value: false, default: false });
+    expect(rows.find((r) => r.key === 'backfill')).toMatchObject({ value: 'off', default: 'off' });
     expect(rows.find((r) => r.key === 'pause_at_percent')).toMatchObject({ value: 80 });
   });
 
