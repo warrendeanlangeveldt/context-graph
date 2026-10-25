@@ -1,3 +1,4 @@
+import { releaseWriter } from '../cards/writer.js';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { isPersonsGraphAct } from '../cli/person-acts.js';
@@ -225,6 +226,8 @@ async function handleHook(input: HookInput, profile: HarnessProfile): Promise<Ho
     const env = envelope('session', meta, payload);
     store.append(env);
     notifyOverlay(ctx, env);
+    // COST-4: a session that ran the checkout's card writer hands it on as it ends.
+    if (!agent) releaseWriter(root, session);
     return { exitCode: 0 };
   }
 

@@ -101,12 +101,14 @@ const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
  * act is the button beside the line: 'pause', 'resume', 'settings' or null. `skipped`: files it found
  * aren't code this session; `error`: why the last request failed, while it waits to try again.
  */
-export function explainStatus({ cards, on, backfill = false, paused = false, percent = null, heldBy = null, backfillPaused = false, writing = [], waiting = [], skipped = 0, error = null }) {
+export function explainStatus({ cards, on, backfill = false, paused = false, percent = null, heldBy = null, backfillPaused = false, writing = [], waiting = [], skipped = 0, error = null, elsewhere = false }) {
   const explained = cards?.fresh.length ?? 0;
   const total = cards ? cards.fresh.length + cards.stale.length + cards.missing.length : 0;
   const files = (list) => `${list.slice(0, 3).join(', ')}${list.length > 3 ? ', …' : ''}`;
   const out = (line, tone, act = null) => ({ explained, total, line, tone, act, skipped });
   if (!on) return out('The card writer is off: a file is explained only when an agent writes its card.', 'quiet', 'settings');
+  // COST-4: one session per checkout runs the card writer; the others show its progress.
+  if (elsewhere) return out('Another session is explaining the files for this checkout; it carries on here if that one ends.', 'quiet');
   if (writing.length) return out(`Explaining ${files(writing)} now${waiting.length ? `; ${waiting.length} more queued` : ''}`, 'busy', backfill ? 'pause' : null);
   if (heldBy) return out(`Paused while ${heldBy}'s loop is paused; it carries on when that resumes.`, 'held');
   if (paused) return out(`Paused: the plan's 5-hour use is at ${percent}%; it carries on below the pause point.`, 'held');

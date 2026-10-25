@@ -2,6 +2,17 @@
 
 What changed in each release of Context Graph, newest first. Versions follow the plugin manifests and the npm package `@warren-dean/context-graph`. Each release is also on [GitHub Releases](https://github.com/warrendeanlangeveldt/context-graph/releases).
 
+## 0.10.0 (2026-10-25)
+
+Context Graph costs far less to run: it refreshes when something changes, does background work once per checkout, and spends no model tokens unless you switch that on.
+
+- The card writer and the backfill are now off by default, because each card they write is a model request on your plan. `/graph-settings` turns them on, and init asks. A project that set them in `.ctx/config.toml` keeps what it set.
+- With them on, one session per checkout runs them. Before, every session open on the same checkout scanned it and sent requests for the same files. The other sessions say another one is explaining the files, and take over if it ends or stops for two minutes.
+- The Context pane and band refresh when the graph's files change, when an agent edits a file, or when the followed file changes. An agent's reads count only while the pane is open, where the coverage they change is shown. With nothing changed, the mod refreshes every minute with the pane open and every five minutes with it closed. Before, it refreshed every 2 seconds whenever an agent was working.
+- A refresh is one process, `ctx snapshot --json`, with the graph loaded once. Before, each refresh ran eleven commands one after another.
+- A file's hash is kept by its size and modification time, so `ctx cards`, the backfill and the snapshot read only the files that changed. The backfill reads the 90-day history once for each commit, and orders its files in one pass.
+- The completion hooks run only for the tools that touch files (Read, Grep, Glob, Edit, Write, MultiEdit, NotebookEdit and Bash), as the hook before a call already did. Agent, task and MCP tool calls no longer start a process.
+
 ## 0.9.3 (2026-10-19)
 
 Context Graph notices when a plugin compacts the conversation.

@@ -2,7 +2,7 @@
 // enforces: the settings hooks beside it do that, in every session and harness. Claude Code before
 // 2.1.287 doesn't load this module and runs those hooks as before.
 //
-// Everything it shows comes from the ctx CLI's JSON (`info`, `file`, `proposals`, `agents`), run in the
+// Everything it shows comes from the ctx CLI's JSON (`snapshot`, with `map` and `file` for what the pane opens), run in the
 // session's folder; what it draws is built by the pure functions in view.mjs. It acts only on the
 // person's presses: ratifying with a commit, and dropping a proposal. The hooks refuse both commands
 // from every agent, so no agent reaches them.
@@ -57,6 +57,10 @@ const setting = (key, fallback) => {
 /** The tool whose paused loop holds the background agents (code-kit's band's Pause), or null. */
 const heldBy = () => settingRowsNow.find((x) => x.pausedBy)?.pausedBy ?? null;
 let activity = 0; // tool calls seen: coverage changes with them
+let editCount = 0; // edits agents made: what's owed a card changes with them (COST-1)
+/** COST-1: with nothing changed, the 2-second ticks between refreshes, with the pane open and closed. */
+const IDLE_OPEN_TICKS = 30;
+const IDLE_CLOSED_TICKS = 150;
 let dropping = null; // the open Drop confirmation: { proposal, reason, error }
 let act = null; // the session's actions, made at session start
 let settingRows = []; // the harness settings, from `ctx settings --json`
@@ -104,7 +108,13 @@ export function register(on) {
       reload: async () => {
         // The session's id now: a resumed or cleared session has a new one, and its coverage is recorded under it.
         session = (await $.session.id().catch(() => null)) ?? session;
-        const info = await json('info');
+        // COST-2: everything a refresh shows, from one process with the graph loaded once.
+        const snap = await json(
+          'snapshot',
+          ...(session ? ['--session', session] : []),
+          ...(followed ? ['--file', followed.path, ...(followed.agentId ? ['--agent', followed.agentId] : [])] : []),
+        );
+        const info = snap?.info;
         if (!info?.graphDir) {
           model = {
             ...model,
@@ -119,23 +129,20 @@ export function register(on) {
         }
         const types = {};
         for (const a of await $.agent.list().catch(() => [])) types[a.id] = a.type;
-        const proposals = (await json('proposals')) ?? [];
+        const proposals = snap.proposals ?? [];
         // VIEW-1: the share of files with a current card.
-        const cards = await json('cards');
+        const cards = snap.cards ?? null;
         // CUR-2: the rules hygiene flags as overridden.
-        const flagged = flaggedRules(await json('hygiene'));
-        // Spec 04: the harness settings, and the branch's changed files without a current card.
-        settingRowsNow = (await json('settings')) ?? settingRowsNow;
-        const changed = setting('card_writer', false) ? await json('cards', '--changed') : null;
-        // CARDW-7: what merged in from the lanes' worktrees lately, which this checkout never saw edited.
-        const recent = setting('card_writer', false) ? await json('cards', '--recent') : null;
-        // The backfill: the existing code's files without a current card, leaves first.
-        const backfillScope = setting('backfill', 'off');
-        const backfill = backfillScope !== 'off' ? await json('cards', '--backfill', '--scope', backfillScope) : null;
-        const agents = (await json('agents', '--session', session)) ?? [];
-        const file = followed
-          ? await json('file', followed.path, '--session', session, ...(followed.agentId ? ['--agent', followed.agentId] : []))
-          : null;
+        const flagged = flaggedRules(snap.hygiene ?? null);
+        // Spec 04: the harness settings. With the card writer on in the session that runs it for this
+        // checkout (COST-4): the branch's changed files without a current card, what merged in from the
+        // lanes' worktrees lately (CARDW-7), and the backfill's files, leaves first.
+        settingRowsNow = snap.settings ?? settingRowsNow;
+        const changed = snap.changed ?? null;
+        const recent = snap.recent ?? null;
+        const backfill = snap.backfill ?? null;
+        const agents = snap.agents ?? [];
+        const file = snap.file ?? null;
         // MAP-1: the modules, read while the Map tab shows them.
         const map = paneUi.tab === 'map' ? await json('map') : (model.map ?? null);
         // MAP-4: a module whose decisions grew since the last read pulses for a few seconds.
@@ -144,7 +151,7 @@ export function register(on) {
           for (const id of grewDecisions(model.map, map)) pulseUntil.set(id, at + PULSE_MS);
         }
         // VIEW-2: what the followed file imports and what imports it.
-        const neighbours = followed ? await json('neighbours', followed.path) : null;
+        const neighbours = snap.neighbours ?? null;
         // ASSIST-2: each open reading list's progress, from the agent's own reads as ctx judges them.
         for (const a of [...assists.values()].slice(-20)) {
           if (a.missing && !a.files.some((f) => a.missing.includes(f))) continue;
@@ -165,6 +172,7 @@ export function register(on) {
           changed,
           recent,
           backfill,
+          writer: snap.writer ?? null,
           flagged,
           decisions: info.counts?.decisions ?? 0,
           map,
@@ -175,13 +183,14 @@ export function register(on) {
         // The batch the card writer took is done with a file once its card is current.
         $.ui.invalidate('ui.render');
       },
-      // What a refresh waits on: the graph's files, the followed file, and the session's tool calls.
-      fingerprint: async () => {
+      // COST-1: what a refresh waits on: the graph's files, the followed file and the edits agents make,
+      // and, only while the pane shows the coverage they change, every other tool call.
+      fingerprint: async (paneOpen = false) => {
         const dir = model.graphDir ?? `${cwd}/.ctx`;
         const files = ['graph.ctx', 'proposals.ctx', 'decisions.ctx', 'cards.ctx', 'config.toml'];
         const stamps = [];
         for (const f of files) stamps.push(await stamp(`${dir}/${f}`));
-        return [...stamps, followed?.path ?? '', followed?.agentId ?? '', activity].join('\n');
+        return [...stamps, followed?.path ?? '', followed?.agentId ?? '', editCount, paneOpen ? activity : ''].join('\n');
       },
       // FILE-1: /graph opens the pane, or close it when it's open. /graph <path> opens it on that file
       // (code-kit's combined view asks for this), kept there until the person follows the agents again.
@@ -301,6 +310,8 @@ export function register(on) {
       // of a failed request. Nothing it does reaches the lead.
       writeNext: async () => {
         if (cardWriter.running || model.kind !== 'graph') return false;
+        // COST-4: another session runs the card writer for this checkout.
+        if (model.writer && !model.writer.mine) return false;
         const backfilling = setting('backfill', 'off') !== 'off' && !backfillPaused;
         if (!(setting('card_writer', false) || backfilling)) return false;
         if (heldBy() || pausedAt(rateLimits, setting('pause_at_percent', 80)).paused) return false;
@@ -539,7 +550,8 @@ export function register(on) {
       },
     };
 
-    // FILE-1 and COV-2: within 2 seconds of a change; with none, read again every minute.
+    // FILE-1 and COV-2: within 2 seconds of a change; with none, read again every minute while the pane
+    // is open and every five minutes otherwise (COST-1).
     let seen = null;
     let quiet = 0;
     let busy = false;
@@ -561,12 +573,13 @@ export function register(on) {
         // Spec 04 and 05: the card writer and the curator, in the background; each runs one at a time.
         act.writeNext().catch(() => {});
         act.curate().catch(() => {});
-        const now = await act.fingerprint();
+        const paneOpen = (await $.ui.panes().catch(() => [])).some((p) => p.id === PANE_ID);
+        const now = await act.fingerprint(paneOpen);
         quiet += 1;
-        if (now === seen && quiet < 30) return;
+        if (now === seen && quiet < (paneOpen ? IDLE_OPEN_TICKS : IDLE_CLOSED_TICKS)) return;
         quiet = 0;
         await act.reload();
-        seen = await act.fingerprint();
+        seen = await act.fingerprint(paneOpen);
       } finally {
         busy = false;
       }
@@ -607,6 +620,7 @@ export function register(on) {
     } else if (!refused && EDIT_TOOLS.has(e.tool) && path) {
       edits.set(e.tool_use_id, { path, agentId: e.agentId ?? null });
       editedAt[path] = await $.clock.now();
+      editCount += 1;
       if (edits.size > KEPT) edits.delete(edits.keys().next().value);
     }
     return res;
@@ -702,6 +716,7 @@ export function register(on) {
         backfillPaused,
         writing: cardWriter.writing,
         error: cardWriter.error,
+        elsewhere: Boolean(model.writer && !model.writer.mine),
         waiting: act ? act.cardJobsNow(now).filter((j) => !cardWriter.writing.includes(j.path)).map((j) => j.path) : [],
         skipped: declined.size,
       }),

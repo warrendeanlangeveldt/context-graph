@@ -37,6 +37,7 @@ Start here
   ctx next [--json]                                the one thing to do now, and the skill that does it
   ctx cards [--changed|--recent] [--module <L:id>] [--missing|--stale]  which files have a card matching them
   ctx cards --backfill [--scope active|all]        the files to card in a brownfield backfill, leaves first
+  ctx snapshot [--session id] [--file path] [--agent id] [--json]  what the Context pane shows, from one process
 
 Graph
   ctx slice <path> [--symbol name]                 slice injected before an edit
@@ -150,11 +151,7 @@ async function main(): Promise<number> {
 
     case 'info': {
       const ctx = openFromArgs(args);
-      // counts: the graph's size, for the mod (the curator runs after every 10 new decisions, CUR-1).
-      const counts = ctx.graph ? { decisions: ctx.graph.decisions.size, rules: ctx.graph.constraints.size } : null;
-      // unmapped: folders with code the graph maps only to the whole repository (the Map offers to add them).
-      const { unmappedFolders } = await import('../init/bootstrap.js');
-      const info = { root: ctx.root, repoHash: repoHash(ctx.root), graphDir: ctx.graphDir ?? null, config: ctx.config, ctxHome: ctxHome(), branch: currentBranch(ctx.root), person: gitPerson(ctx.root), counts, unmapped: unmappedFolders(ctx) };
+      const info = (await import('./snapshot.js')).infoOf(ctx);
       console.log(json ? JSON.stringify(info, null, 2) : Object.entries(info).map(([k, v]) => `${k.padEnd(10)} ${typeof v === 'object' && v !== null ? JSON.stringify(v) : String(v)}`).join('\n'));
       return 0;
     }
